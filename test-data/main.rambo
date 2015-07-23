@@ -1,0 +1,9 @@
+﻿let f = ~ a b -> a + b
+let a = 1
+let b = 2
+let c = a + b
+let d = c - 1
+let s = "hello"
+a = b
+f = ~ a b -> f a b
+f 1 2
