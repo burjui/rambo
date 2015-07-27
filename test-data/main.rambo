@@ -3,7 +3,7 @@ let a = 1
 let b = 2
 let c = a >= b
 let d = c - 1
-let s = "hello"
+let s = "тест юникода"
 a = b
 f = ~ a b -> f a b
 f 1 2

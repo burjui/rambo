@@ -2,7 +2,7 @@ use source::Location;
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::fmt::Result as FmtResult;
-use std::str::Chars;
+use std::str::CharIndices;
 
 #[derive(Debug, PartialEq)]
 pub enum Kind {
@@ -30,9 +30,9 @@ impl<'a> Display for Token<'a> {
 pub struct Lexer<'a> {
     source: &'a str,
     source_lines: Vec<&'a str>,
-    source_iterator: Chars<'a>,
+    source_iterator: CharIndices<'a>,
     location: Location<'a>,
-    last_char: Option<char>,
+    last_char: Option<(usize, char)>,
     is_first_char: bool,
     next_line_to_print: usize
 }
@@ -73,7 +73,7 @@ impl<'a> Lexer<'a> {
         let mut lexer = Lexer {
             source: source,
             source_lines: source.lines().collect(),
-            source_iterator: source.chars(),
+            source_iterator: source.char_indices(),
             location: Location::new(source_name),
             last_char: None,
             is_first_char: true,
@@ -95,7 +95,7 @@ impl<'a> Lexer<'a> {
         let start = self.location;
         
         match self.last_char {
-            Some(c) => {
+            Some((_, c)) => {
                 None
                 .or(self.read_id(&start, c))
                 .or(self.read_number(&start, c))
@@ -109,7 +109,7 @@ impl<'a> Lexer<'a> {
     fn read_id(&mut self, start: &Location<'a>, first_char: char) -> Option<Token<'a>> {
         if first_char.is_alphabetic() {
             self.next();
-            while let Some(c) = self.last_char {
+            while let Some((_, c)) = self.last_char {
                 if c.is_alphanumeric() || c == '_' {
                     self.next()
                 } else {
@@ -125,7 +125,7 @@ impl<'a> Lexer<'a> {
     fn read_number(&mut self, start: &Location<'a>, first_char: char) -> Option<Token<'a>> {
         if first_char.is_numeric() {
             loop { match self.last_char {
-                Some(c) if c.is_numeric() => self.next(),
+                Some((_, c)) if c.is_numeric() => self.next(),
                 _ => break
             }}
             Some(self.new_token(Kind::Number, start))
@@ -139,13 +139,13 @@ impl<'a> Lexer<'a> {
         	self.next();
         	
             loop { match self.last_char {
-                Some('"') => break,
+                Some((_, '"')) => break,
                 Some(_) => self.next(),
                 None => break
             }}
             
             match self.last_char {
-                Some('"') => {
+                Some((_, '"')) => {
                     self.next();
                     Some(self.new_token(Kind::String, start))
                 },
@@ -166,7 +166,7 @@ impl<'a> Lexer<'a> {
                 
                 let kind = match first_char {
                     '=' => match self.last_char {
-                        Some('=') => {
+                        Some((_, '=')) => {
                             self.next();
                             Kind::EqEq
                         },
@@ -179,7 +179,7 @@ impl<'a> Lexer<'a> {
                     '<' | '>' => {
                         let one_char_kind = if first_char == '<' { Kind::Lt } else { Kind::Gt };
                         match self.last_char {
-                            Some('=') => {
+                            Some((_, '=')) => {
                                 self.next();
                                 if one_char_kind == Kind::Lt { Kind::LtEq } else { Kind::GtEq }
                             },
@@ -189,7 +189,7 @@ impl<'a> Lexer<'a> {
                     },
                     
                     '-' => match self.last_char {
-                        Some('>') => {
+                        Some((_, '>')) => {
                             self.next();
                             Kind::MinusGt
                         },
@@ -218,7 +218,7 @@ impl<'a> Lexer<'a> {
     }
     
     fn skip_whitepace(&mut self) {
-        while let Some(c) = self.last_char {
+        while let Some((_, c)) = self.last_char {
             if c.is_whitespace() {
                 self.next()
             } else {
@@ -229,10 +229,8 @@ impl<'a> Lexer<'a> {
     
     fn next(&mut self) {
         self.last_char = self.source_iterator.next();
-        if let Some(c) = self.last_char {
-            if !self.is_first_char {
-                self.location.offset += 1
-            }
+        if let Some((index, c)) = self.last_char {
+            self.location.offset = index;
             self.is_first_char = false;            
 
             if c == '\n' {
