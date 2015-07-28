@@ -4,9 +4,9 @@ use std::fmt::Formatter;
 use std::fmt::Result as FmtResult;
 use std::str::CharIndices;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Copy, Clone)]
 pub enum Kind {
-    Id, Number, String, Eq, EqEq, Lt, LtEq, Gt, GtEq, Tilde, Minus, Plus, MinusGt, Star, Slash
+    Id, Number, String, Eq, EqEq, Lt, LtEq, Gt, GtEq, Tilde, Minus, MinusGt, Plus, Star, Slash
 }
 
 pub struct Token<'a> {
@@ -32,7 +32,8 @@ pub struct Lexer<'a> {
     source_lines: Vec<&'a str>,
     source_iterator: CharIndices<'a>,
     location: Location<'a>,
-    last_char: Option<(usize, char)>,
+    last_char: Option<char>,
+    last_char_index: usize,
     is_first_char: bool,
     next_line_to_print: usize
 }
@@ -76,6 +77,7 @@ impl<'a> Lexer<'a> {
             source_iterator: source.char_indices(),
             location: Location::new(source_name),
             last_char: None,
+            last_char_index: 0,
             is_first_char: true,
             next_line_to_print: 0
         };
@@ -95,116 +97,103 @@ impl<'a> Lexer<'a> {
         let start = self.location;
         
         match self.last_char {
-            Some((_, c)) => {
+            Some(_) => {
                 None
-                .or(self.read_id(&start, c))
-                .or(self.read_number(&start, c))
-                .or(self.read_operator(&start, c))
-                .or(self.read_string(&start, c))
+                .or(self.read_id(&start))
+                .or(self.read_number(&start))
+                .or(self.read_operator(&start))
+                .or(self.read_string(&start))
             },
             None => None
         }
     }
     
-    fn read_id(&mut self, start: &Location<'a>, first_char: char) -> Option<Token<'a>> {
-        if first_char.is_alphabetic() {
-            self.next();
-            while let Some((_, c)) = self.last_char {
-                if c.is_alphanumeric() || c == '_' {
-                    self.next()
-                } else {
-                    break
-                }
-            }
-            Some(self.new_token(Kind::Id, start))
-        } else {
-            None
-        }
-    }
-    
-    fn read_number(&mut self, start: &Location<'a>, first_char: char) -> Option<Token<'a>> {
-        if first_char.is_numeric() {
-            loop { match self.last_char {
-                Some((_, c)) if c.is_numeric() => self.next(),
-                _ => break
-            }}
-            Some(self.new_token(Kind::Number, start))
-        } else {
-            None
-        }
-    }
-    
-    fn read_string(&mut self, start: &Location<'a>, first_char: char) -> Option<Token<'a>> {
-        if first_char == '"' {
-        	self.next();
-        	
-            loop { match self.last_char {
-                Some((_, '"')) => break,
-                Some(_) => self.next(),
-                None => break
-            }}
-            
-            match self.last_char {
-                Some((_, '"')) => {
-                    self.next();
-                    Some(self.new_token(Kind::String, start))
-                },
-                _ => {
-                    println!("error: {}: unclosed string starting at {}", self.location, start);
-                    None
-                }
-            }
-        } else {
-            None
-        }
-    }
-    
-    fn read_operator(&mut self, start: &Location<'a>, first_char: char) -> Option<Token<'a>> {
-        match first_char {
-            '=' | '~' | '<' | '>' | '-' | '+' | '*' | '/' => {
+    fn read_id(&mut self, start: &Location<'a>) -> Option<Token<'a>> {
+        match self.last_char {
+            Some(c) if c.is_alphabetic() => {
                 self.next();
-                
-                let kind = match first_char {
-                    '=' => match self.last_char {
-                        Some((_, '=')) => {
-                            self.next();
-                            Kind::EqEq
-                        },
-                        
-                        _ => Kind::Eq
-                    },
-                    
-                    '~' => Kind::Tilde,
-                    
-                    '<' | '>' => {
-                        let one_char_kind = if first_char == '<' { Kind::Lt } else { Kind::Gt };
-                        match self.last_char {
-                            Some((_, '=')) => {
-                                self.next();
-                                if one_char_kind == Kind::Lt { Kind::LtEq } else { Kind::GtEq }
-                            },
-                            
-                            _ => one_char_kind
-                        }
-                    },
-                    
-                    '-' => match self.last_char {
-                        Some((_, '>')) => {
-                            self.next();
-                            Kind::MinusGt
-                        },
-                        
-                        _ => Kind::Minus
-                    },
-                    
-                    '+' => Kind::Plus,
-                    '*' => Kind::Star,
-                    '/' => Kind::Slash,
-                    _ => return None
-                };
-                
-                Some(self.new_token(kind, start))
+                while let Some(c) = self.last_char {
+                    if c.is_alphanumeric() || c == '_' {
+                        self.next()
+                    } else {
+                        break
+                    }
+                }
+                Some(self.new_token(Kind::Id, start))
             },
+            _ => None
+        }
+    }
+    
+    fn read_number(&mut self, start: &Location<'a>) -> Option<Token<'a>> {
+        match self.last_char {
+            Some(c) if c.is_numeric() => {
+                loop {
+                    match self.last_char {
+                        Some(c) if c.is_numeric() => self.next(),
+                        _ => break
+                    }
+                }
+                Some(self.new_token(Kind::Number, start))
+            },
+            _ => None
+        }
+    }
+    
+    fn read_string(&mut self, start: &Location<'a>) -> Option<Token<'a>> {
+        match self.last_char {
+            Some('"') => {
+            	self.next();
+            	
+                loop {
+                    match self.last_char {
+                        Some('"') => break,
+                        Some(_) => self.next(),
+                        None => break
+                    }
+                }
+                
+                match self.last_char {
+                    Some('"') => {
+                        self.next();
+                        Some(self.new_token(Kind::String, start))
+                    },
+                    _ => {
+                        println!("error: {}: unclosed string starting at {}", self.location, start);
+                        None
+                    }
+                }
+            },
+            _ => None
+        }
+    }
+    
+    fn read_operator(&mut self, start: &Location<'a>) -> Option<Token<'a>> {
+        macro_rules! on {
+            ($char: expr, $kind: expr, $handler: expr) => {
+                match self.last_char {
+                    Some($char) => {
+                        self.next();
+                        ($handler).or(Some($kind))
+                    },
+                    _ => None
+                }
+            };
+            
+            ($char: expr, $kind: expr) => { on!($char, $kind, None) };
+        }
+        
+        match None
+            .or(on!('~', Kind::Tilde))
+            .or(on!('+', Kind::Plus))
+            .or(on!('*', Kind::Star))
+            .or(on!('/', Kind::Slash))
+            .or(on!('=', Kind::Eq, on!('=', Kind::EqEq)))
+            .or(on!('<', Kind::Lt, on!('=', Kind::LtEq)))
+            .or(on!('>', Kind::Gt, on!('=', Kind::GtEq)))
+            .or(on!('-', Kind::Minus, on!('>', Kind::MinusGt)))
+        {
+            Some(kind) => Some(self.new_token(kind, start)),
             _ => None
         }
     }
@@ -218,7 +207,7 @@ impl<'a> Lexer<'a> {
     }
     
     fn skip_whitepace(&mut self) {
-        while let Some((_, c)) = self.last_char {
+        while let Some(c) = self.last_char {
             if c.is_whitespace() {
                 self.next()
             } else {
@@ -228,9 +217,11 @@ impl<'a> Lexer<'a> {
     }
     
     fn next(&mut self) {
-        self.last_char = self.source_iterator.next();
-        if let Some((index, c)) = self.last_char {
-            self.location.offset = index;
+        let last_char = self.source_iterator.next();
+        self.last_char = last_char.map(|(_, c)| c);
+        self.last_char_index = last_char.map(|(l, _)| l).unwrap_or_default();
+        if let Some(c) = self.last_char {
+            self.location.offset = self.last_char_index;
             self.is_first_char = false;            
 
             if c == '\n' {

@@ -1,3 +1,7 @@
+#![feature(associated_consts)]
+#![feature(box_syntax)]
+#![feature(box_patterns)]
+
 extern crate getopts;
 
 use getopts::Options;
@@ -71,7 +75,7 @@ fn process(path: &Path) {
     while let Some(token) = lexer.read() {
         token_count += 1;
         last_line_index = token.location.line_index;
-        println!("{}", token);
+//        println!("{}", token);
     }
     
     println!(">> {} tokens, {} lines", token_count, last_line_index + 1);
