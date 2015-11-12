@@ -16,7 +16,7 @@ pub struct Token<'a> {
 }
 
 impl<'a> Token<'a> {
-    fn new<'x>(kind: Kind, text: &'a str, location: &Location<'a>) -> Token<'a> {
+    fn new(kind: Kind, text: &'a str, location: &Location<'a>) -> Token<'a> {
         Token { kind: kind, text: text, location: location.clone() }
     }
 }
@@ -86,7 +86,7 @@ impl<'a> Lexer<'a> {
         Ok(lexer)
     }
     
-    pub fn read(&mut self) -> Option<Token> {
+    pub fn read(&mut self) -> Option<Token<'a>> {
     	let current_line = self.location.line_index;
         if current_line >= self.next_line_to_print && current_line < self.source_lines.len() {
             self.next_line_to_print += 1;
@@ -106,6 +106,10 @@ impl<'a> Lexer<'a> {
             },
             None => None
         }
+    }
+    
+    pub fn location(&self) -> &Location<'a> {
+        &self.location
     }
     
     fn read_id(&mut self, start: &Location<'a>) -> Option<Token<'a>> {
@@ -221,15 +225,16 @@ impl<'a> Lexer<'a> {
         self.last_char = last_char.map(|(_, c)| c);
         self.last_char_index = last_char.map(|(l, _)| l).unwrap_or_default();
         if let Some(c) = self.last_char {
-            self.location.offset = self.last_char_index;
-            self.is_first_char = false;            
-
+            self.location.offset = self.last_char_index;      
+            
             if c == '\n' {
                 self.location.line_index += 1;
                 self.location.column_index = 0;
-            } else {
+            } else if !self.is_first_char {
                 self.location.column_index += 1;
             }
+            
+            self.is_first_char = false;      
         }
     }
 }

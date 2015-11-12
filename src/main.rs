@@ -12,8 +12,13 @@ use std::io::Read;
 
 mod source;
 mod lexer;
+mod parser;
+mod class;
+mod report;
+mod ast;
 
 use lexer::Lexer;
+use parser::Parser;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -70,15 +75,22 @@ fn process(path: &Path) {
     };
     
     println!("{}", lexer);
-    let mut token_count = 0;
-    let mut last_line_index = 0;
-    while let Some(token) = lexer.read() {
-        token_count += 1;
-        last_line_index = token.location.line_index;
-//        println!("{}", token);
-    }
+//    let mut token_count = 0;
+//    let mut last_line_index = 0;
+//    while let Some(token) = lexer.read() {
+//        token_count += 1;
+//        last_line_index = token.location.line_index;
+////        println!("{}", token);
+//    }
+//    
+//    println!(">> {} tokens, {} lines", token_count, last_line_index + 1);
     
-    println!(">> {} tokens, {} lines", token_count, last_line_index + 1);
+    let mut parser = Parser::new(lexer);
+    let ast = parser.parse();
+    match ast {
+        Ok(expr) => println!(">> {}", expr),
+        Err(error) => println!("error: {}: {}", error.location, error.message)
+    };
 }
 
 fn print_usage(program: &str, opts: Options) {
