@@ -1,9 +1,8 @@
-﻿let f = ~ a b -> a + b - b / 2
+﻿let f = \ a b -> a + b - b / 2
 let a = 1
 let b = 2
-let c = a >= b
 let d = c - 1
 let s = "тест юникода"
 a = b
-f = ~ a b -> f a b
+f = λ a b → f a b
 f 1 2
