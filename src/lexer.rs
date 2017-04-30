@@ -3,6 +3,7 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 use std::fmt::Result as FmtResult;
 use std::str::CharIndices;
+use std::cmp::Ordering;
 
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub enum Kind {
@@ -46,27 +47,20 @@ pub struct Lexer<'a> {
 pub type LexerResult<'a> = Result<Lexer<'a>, String>;
 
 impl<'a> Lexer<'a> {
-    #[inline]
-    fn byte_order_marks() -> Vec<Vec<u8>> {
-        vec!(
-            vec!(0x00, 0x00, 0xFE, 0xFF),  // UTF-32BE
-            vec!(0xFF, 0xFE, 0x00, 0x00),  // UTF-32LE
-            vec!(0xFF, 0xFE),              // UTF-16LE
-            vec!(0xFE, 0xFF),              // UTF-16BE
-            Lexer::utf8_byte_order_mark(), // UTF-8
-        )
-    }
-
-    #[inline]
-    fn utf8_byte_order_mark() -> Vec<u8> {
-        vec!(0xEF, 0xBB, 0xBF)
-    }
+    const UTF8_BOM: [u8; 3] = [0xEF, 0xBB, 0xBF];
+    const BYTE_ORDER_MARKS: &'static[&'static[u8]] = &[
+        &[0x00, 0x00, 0xFE, 0xFF],  // UTF-32BE
+        &[0xFF, 0xFE, 0x00, 0x00],  // UTF-32LE
+        &[0xFF, 0xFE],              // UTF-16LE
+        &[0xFE, 0xFF],              // UTF-16BE
+        &Lexer::UTF8_BOM,
+    ];
 
     pub fn new(source_name: &'a str, source: &'a str) -> LexerResult<'a> {
         let mut bom_length: usize = 0;
-        for bom in Lexer::byte_order_marks() {
+        for bom in Lexer::BYTE_ORDER_MARKS {
 	        if source.as_bytes().starts_with(&bom) {
-	        	if bom != Lexer::utf8_byte_order_mark() {
+	        	if (&bom[..]).cmp(&Lexer::UTF8_BOM[..]) != Ordering::Equal {
 	        		return Err(format!("error: {}: only UTF-8 encoding is supported", source_name))
 	        	} else {
                     bom_length = bom.len();
