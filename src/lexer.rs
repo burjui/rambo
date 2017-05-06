@@ -44,7 +44,7 @@ pub struct Lexer<'a> {
     stats: LexerStats
 }
 
-pub type LexerResult<'a> = Result<Lexer<'a>, String>;
+pub type LexerResult<'a> = Result<Option<Token<'a>>, String>;
 
 impl<'a> Lexer<'a> {
     const UTF8_BOM: [u8; 3] = [0xEF, 0xBB, 0xBF];
@@ -56,12 +56,12 @@ impl<'a> Lexer<'a> {
         &Lexer::UTF8_BOM,
     ];
 
-    pub fn new(source_name: &'a str, source: &'a str) -> LexerResult<'a> {
+    pub fn new(source_name: &'a str, source: &'a str) -> Result<Lexer<'a>, String> {
         let mut bom_length: usize = 0;
         for bom in Lexer::BYTE_ORDER_MARKS {
 	        if source.as_bytes().starts_with(&bom) {
 	        	if (&bom[..]).cmp(&Lexer::UTF8_BOM[..]) != Ordering::Equal {
-	        		return Err(format!("error: {}: only UTF-8 encoding is supported", source_name))
+	        		return Err(format!("{}: only UTF-8 encoding is supported", source_name))
 	        	} else {
                     bom_length = bom.len();
                     break;
@@ -74,25 +74,18 @@ impl<'a> Lexer<'a> {
         Ok(lexer)
     }
 
-    pub fn read(&mut self) -> Result<Option<Token<'a>>, String> {
+    pub fn read(&mut self) -> LexerResult<'a> {
         self.skip_whitepace();
         self.token_start = self.location;
-        match self.last_char {
-            Some(c) => {
-                None
-                .or(self.read_number())
-                .or(self.read_operator())
-                .or(self.read_string())
-                .or(self.read_id())
-                .map_or_else(
-                    || Err(format!("unrecognized character: {}", c)),
-                    |token| {
-                        self.stats.token_count += 1;
-                        Ok(Some(token))
-                    })
-            },
-            None => Ok(None)
-        }
+        self.last_char.map_or(Ok(None), |c| {
+            for matcher in &[ Lexer::read_number, Lexer::read_operator, Lexer::read_string, Lexer::read_id ] {
+                match matcher(self) {
+                    Ok(None) => {},
+                    something => return something
+                }
+            }
+            Err(format!("unexpected character: {}", c))
+        })
     }
 
     pub fn stats(&self) -> &LexerStats {
@@ -116,8 +109,8 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    fn read_id(&mut self) -> Option<Token<'a>> {
-        match self.last_char {
+    fn read_id(&mut self) -> LexerResult<'a> {
+        Ok(match self.last_char {
             Some(c) if c.is_alphabetic() => {
                 self.next();
                 while let Some(c) = self.last_char {
@@ -130,11 +123,11 @@ impl<'a> Lexer<'a> {
                 Some(self.new_token(Kind::Id))
             },
             _ => None
-        }
+        })
     }
 
-    fn read_number(&mut self) -> Option<Token<'a>> {
-        match self.last_char {
+    fn read_number(&mut self) -> LexerResult<'a> {
+        Ok(match self.last_char {
             Some(c) if c.is_numeric() => {
                 loop {
                     match self.last_char {
@@ -145,10 +138,10 @@ impl<'a> Lexer<'a> {
                 Some(self.new_token(Kind::Number))
             },
             _ => None
-        }
+        })
     }
 
-    fn read_string(&mut self) -> Option<Token<'a>> {
+    fn read_string(&mut self) -> LexerResult<'a> {
         match self.last_char {
             Some('"') => {
             	self.next();
@@ -164,19 +157,18 @@ impl<'a> Lexer<'a> {
                 match self.last_char {
                     Some('"') => {
                         self.next();
-                        Some(self.new_token(Kind::String))
+                        Ok(Some(self.new_token(Kind::String)))
                     },
                     _ => {
-                        println!("error: {}: unclosed string starting at {}", self.location, self.token_start);
-                        None
+                        Err(format!("{}: unclosed string starting at {}", self.location, self.token_start))
                     }
                 }
             },
-            _ => None
+            _ => Ok(None)
         }
     }
 
-    fn read_operator(&mut self) -> Option<Token<'a>> {
+    fn read_operator(&mut self) -> LexerResult<'a> {
         macro_rules! on {
             ($char: expr, $kind: expr, $handler: expr) => {
                 match self.last_char {
@@ -191,7 +183,7 @@ impl<'a> Lexer<'a> {
             ($char: expr, $kind: expr) => { on!($char, $kind, None) };
         }
 
-        match None
+        Ok(match None
             .or(on!('λ', Kind::Lambda))
             .or(on!('\\', Kind::Lambda))
             .or(on!('+', Kind::Plus))
@@ -205,7 +197,7 @@ impl<'a> Lexer<'a> {
         {
             Some(kind) => Some(self.new_token(kind)),
             _ => None
-        }
+        })
     }
 
     fn new_token(&self, kind: Kind) -> Token<'a> {

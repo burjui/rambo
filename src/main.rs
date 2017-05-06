@@ -3,12 +3,14 @@
 #![feature(box_patterns)]
 
 extern crate getopts;
+extern crate itertools;
 
 use getopts::Options;
 use std::env;
 use std::path::Path;
 use std::fs::File;
 use std::io::Read;
+use std::error::Error;
 
 mod source;
 mod lexer;
@@ -32,59 +34,35 @@ fn main() {
 
     if matches.free.is_empty() {
         print_usage(&args[0], opts);
-    }
-
-    for file in matches.free {
-        process(Path::new(&file));
-    }
-}
-
-fn process(path: &Path) {
-    println!(">> Processing {}...", path.to_string_lossy());
-
-    let mut file = match File::open(&path) {
-        Ok(f) => f,
-        Err(err) => {
-            println!("{}", err);
-            return
-        }
-    };
-
-    let mut content = String::new();
-    match file.read_to_string(&mut content) {
-        Ok(_) => {},
-        Err(message) => {
-            println!("{}", message);
-            return
-        }
-    };
-
-    let path_str_owned = path.to_string_lossy();
-    let path_str = path_str_owned.as_ref();
-    let mut lexer = match Lexer::new(path_str, &content) {
-    	Ok(lexer) => lexer,
-    	Err(message) => {
-    		println!("{}: {}", path_str, message);
-    		return;
-    	}
-    };
-
-    println!("{}", lexer);
-    loop {
-        match lexer.read() {
-            Ok(token_option) => match token_option {
-                Some(token) => println!("{}", token),
-                None => break
-            },
-            Err(message) => {
-                println!("Error: {}", message);
-                break;
+    } else {
+        for file in matches.free {
+            match process(Path::new(&file)) {
+                Ok(_) => {},
+                Err(error) => println!("error: {}", error.description())
             }
         }
     }
+}
+
+fn process(path: &Path) -> Result<(), Box<Error>> {
+    println!(">> Processing {}...", path.to_string_lossy());
+
+    let mut file = File::open(&path)?;
+    let mut content = String::new();
+    file.read_to_string(&mut content)?;
+    let path_str_owned = path.to_string_lossy();
+    let path_str = path_str_owned.as_ref();
+    let mut lexer = Lexer::new(path_str, &content)?;
+
+    println!("{}", lexer);
+    while let Some(token) = lexer.read()? {
+        // println!("{}", token)
+    }
 
     let stats = lexer.stats();
-    println!(">> {} bytes, {} lines, {} tokens", stats.byte_count, stats.line_count, stats.token_count);
+    println!(">> {}, {} lines, {} tokens", file_size_pretty(stats.byte_count), stats.line_count, stats.token_count);
+
+    Ok(())
 
     // let mut parser = Parser::new(lexer);
     // let ast = parser.parse();
@@ -99,3 +77,15 @@ fn print_usage(program: &str, opts: Options) {
     print!("{}", opts.usage(&brief));
 }
 
+fn file_size_pretty(size: usize) -> String {
+    for &(unit, name) in &[
+        (usize::pow(2, 30), "GiB"),
+        (usize::pow(2, 20), "MiB"),
+        (usize::pow(2, 10), "KiB"),
+    ] {
+        if size >= unit {
+            return format!("{:.2} {}", size as f32 / unit as f32, name)
+        }
+    }
+    format!("{} bytes", size)
+}

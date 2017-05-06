@@ -9,3 +9,4 @@ name = "rambo"
 
 [dependencies]
 getopts = "0.2"
+itertools = "0.6"
