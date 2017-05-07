@@ -32,36 +32,7 @@ impl<'a> Debug for Expr<'a> {
     }
 }
 
-// impl Display for Expr {
-//     fn fmt(&self, formatter: &mut Formatter) -> FmtResult {
-//         macro_ruleParseResults! impl_variants {
-//             ($($variant: $expr),*) => ($(&Expr::IntLiteral_(ref literal) => literal.fmt(formatter))*)
-//         }
-
-//         match self {
-//             &Expr::IntLiteral_(ref literal) => literal.fmt(formatter)
-//         }
-//     }
-// }
-
-pub struct ParserStats {
-    lexer_stats: LexerStats
-}
-
-use std::ops::Deref;
-
-impl Deref for ParserStats {
-    type Target = LexerStats;
-
-    fn deref(&self) -> &LexerStats {
-        &self.lexer_stats
-    }
-}
-
-pub type ParseResult<'a> = Result<Expr<'a>, String>;
-
-use std::rc::Rc;
-use std::cell::Cell;
+type ParseResult<'a> = Result<Expr<'a>, String>;
 
 pub struct Parser<'a> {
     buffer: TokenBuffer<'a>
@@ -72,8 +43,8 @@ impl<'a> Parser<'a> {
         Parser { buffer: TokenBuffer::new(lexer) }
     }
 
-    pub fn parse(&mut self) -> ParseResult {//Result<(Expr<'a>, ParserStats), String> {
-        // self.parse_expression_sequence().map(|result| (result, ParserStats { lexer_stats: self.buffer.lexer.stats().clone() }))
+    pub fn parse(&mut self) -> ParseResult {
+        self.buffer.init()?;
         self.parse_expression_sequence()
     }
 
@@ -81,13 +52,12 @@ impl<'a> Parser<'a> {
         self.buffer.lexer.stats()
     }
 
-    fn parse_expression_sequence(&mut self) -> ParseResult {
+    fn parse_expression_sequence(&mut self) -> ParseResult<'a> {
         let mut exprs: Vec<Expr> = vec!();
         while self.token().is_some() {
             exprs.push(self.parse_expr()?);
             self.read_token()?;
         }
-        println!("# {:?}", exprs);
         Ok(Expr::Sequence(exprs))
     }
 
@@ -121,20 +91,23 @@ struct TokenBuffer<'a> {
 
 impl<'a> TokenBuffer<'a> {
     fn new(lexer: Lexer<'a>) -> TokenBuffer<'a> {
-        let mut buffer = TokenBuffer {
+        TokenBuffer {
             lexer: lexer,
             tokens: [ None, None ],
-            token_index: 1,
-            next_token_index: 0
-        };
-        let _ = buffer.read_token();
-        buffer
+            token_index: 0,
+            next_token_index: 1
+        }
+    }
+
+    fn init(&mut self) -> Result<(), String> {
+        self.read_token()?;
+        self.read_token()
     }
 
     fn read_token(&mut self) -> Result<(), String> {
-        self.tokens[0] = self.lexer.read()?;
         use std::mem::swap;
         swap(&mut self.token_index, &mut self.next_token_index);
+        self.tokens[self.next_token_index] = self.lexer.read()?;
         Ok(())
     }
 

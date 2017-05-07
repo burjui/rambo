@@ -57,21 +57,15 @@ fn process(path: &Path) -> Result<(), Box<Error>> {
     let lexer = Lexer::new(path_str, &content)?;
 
     println!("{}", lexer);
-    // while let Some(token) = lexer.read()? {
-    //     // println!("{}", token)
-    // }
 
     let mut parser = Parser::new(lexer);
-    let expr = parser.parse()?;
-    println!(">> {:?}", expr);
-    // let (expr, stats) = parser.parse()?;
-    // match expr {
-    //     Expr::Int(_) => {},
-    //     Expr::String()
-    // }
+    {
+        let expr = parser.parse()?;
+        println!(">> {:?}", expr);
+    }
 
-    // let stats = stats.lexer_stats;
-    // println!(">> {}, {} lines, {} tokens", file_size_pretty(stats.byte_count), stats.line_count, stats.token_count);
+    let stats = { parser.lexer_stats() };
+    println!(">> {}, {} lines, {} tokens", file_size_pretty(stats.byte_count), stats.line_count, stats.token_count);
 
     Ok(())
 }
