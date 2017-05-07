@@ -2,7 +2,7 @@
     "version": "0.1.0",
     "command": "cargo",
     "isShellCommand": true,
-    "showOutput": "never",
+    // "showOutput": "never",
     "options": {
         "env": {
             "LANG": "C"
@@ -33,7 +33,8 @@
             "taskName": "test"
         },
         {
-            "taskName": "run"
+            "taskName": "run",
+            "args": [ "--", "test-data/main.rambo" ]
         },
         {
             "taskName": "clean"

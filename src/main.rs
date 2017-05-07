@@ -14,8 +14,10 @@ use std::error::Error;
 
 mod source;
 mod lexer;
+mod parser;
 
 use lexer::Lexer;
+use parser::*;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -52,24 +54,26 @@ fn process(path: &Path) -> Result<(), Box<Error>> {
     file.read_to_string(&mut content)?;
     let path_str_owned = path.to_string_lossy();
     let path_str = path_str_owned.as_ref();
-    let mut lexer = Lexer::new(path_str, &content)?;
+    let lexer = Lexer::new(path_str, &content)?;
 
     println!("{}", lexer);
-    while let Some(token) = lexer.read()? {
-        // println!("{}", token)
-    }
+    // while let Some(token) = lexer.read()? {
+    //     // println!("{}", token)
+    // }
 
-    let stats = lexer.stats();
-    println!(">> {}, {} lines, {} tokens", file_size_pretty(stats.byte_count), stats.line_count, stats.token_count);
+    let mut parser = Parser::new(lexer);
+    let expr = parser.parse()?;
+    println!(">> {:?}", expr);
+    // let (expr, stats) = parser.parse()?;
+    // match expr {
+    //     Expr::Int(_) => {},
+    //     Expr::String()
+    // }
+
+    // let stats = stats.lexer_stats;
+    // println!(">> {}, {} lines, {} tokens", file_size_pretty(stats.byte_count), stats.line_count, stats.token_count);
 
     Ok(())
-
-    // let mut parser = Parser::new(lexer);
-    // let ast = parser.parse();
-    // match ast {
-    //     Ok(expr) => println!(">> {}", expr),
-    //     Err(error) => println!("error: {}: {}", error.location, error.message)
-    // };
 }
 
 fn print_usage(program: &str, opts: Options) {

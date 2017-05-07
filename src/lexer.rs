@@ -10,6 +10,7 @@ pub enum Kind {
     Id, Number, String, Eq, EqEq, Lt, LtEq, Gt, GtEq, Lambda, Minus, Arrow, Plus, Star, Slash
 }
 
+#[derive(Copy, Clone)]
 pub struct Token<'a> {
     pub kind: Kind,
     pub text: &'a str,
@@ -28,6 +29,7 @@ impl<'a> Display for Token<'a> {
     }
 }
 
+#[derive(Copy, Clone)]
 pub struct LexerStats {
     pub byte_count: usize,
     pub line_count: usize,
