@@ -1,13 +1,11 @@
 use source::Location;
-use std::fmt::Display;
-use std::fmt::Formatter;
-use std::fmt::Result as FmtResult;
+use std::fmt::{Display, Debug, Formatter, Result as FmtResult};
 use std::str::CharIndices;
 use std::cmp::Ordering;
 
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub enum Kind {
-    Id, Number, String, Eq, EqEq, Lt, LtEq, Gt, GtEq, Lambda, Minus, Arrow, Plus, Star, Slash
+    EOF, Id, Number, String, LParen, RParen, Eq, EqEq, Lt, LtEq, Gt, GtEq, Lambda, Minus, Arrow, Plus, Star, Slash
 }
 
 #[derive(Copy, Clone)]
@@ -23,9 +21,15 @@ impl<'a> Token<'a> {
     }
 }
 
-impl<'a> Display for Token<'a> {
+impl<'a> Debug for Token<'a> {
     fn fmt(&self, formatter: &mut Formatter) -> FmtResult {
         formatter.write_str(&format!("{} ({:?}), {}", self.text, self.kind, self.location))
+    }
+}
+
+impl<'a> Display for Token<'a> {
+    fn fmt(&self, formatter: &mut Formatter) -> FmtResult {
+        formatter.write_str(if self.kind == Kind::EOF { "end of file" } else { self.text })
     }
 }
 
@@ -46,7 +50,7 @@ pub struct Lexer<'a> {
     stats: LexerStats
 }
 
-pub type LexerResult<'a> = Result<Option<Token<'a>>, String>;
+pub type LexerResult<'a, T> = Result<T, String>;
 
 impl<'a> Lexer<'a> {
     const UTF8_BOM: [u8; 3] = [0xEF, 0xBB, 0xBF];
@@ -76,18 +80,20 @@ impl<'a> Lexer<'a> {
         Ok(lexer)
     }
 
-    pub fn read(&mut self) -> LexerResult<'a> {
+    pub fn read(&mut self) -> LexerResult<'a, Token<'a>> {
         self.skip_whitepace();
         self.token_start = self.location;
-        self.last_char.map_or(Ok(None), |c| {
-            for matcher in &[ Lexer::read_number, Lexer::read_operator, Lexer::read_string, Lexer::read_id ] {
-                match matcher(self) {
-                    Ok(None) => {},
-                    something => return something
+        match self.last_char {
+            Some(c) => {
+                for matcher in &[ Lexer::read_number, Lexer::read_operator, Lexer::read_string, Lexer::read_id ] {
+                    if let Ok(Some(token)) = matcher(self) {
+                        return Ok(token)
+                    }
                 }
-            }
-            Err(format!("unexpected character: {}", c))
-        })
+                Err(format!("unexpected character: {}", c))
+            },
+            None => Ok(self.new_token(Kind::EOF))
+        }
     }
 
     pub fn stats(&self) -> &LexerStats {
@@ -111,7 +117,7 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    fn read_id(&mut self) -> LexerResult<'a> {
+    fn read_id(&mut self) -> LexerResult<'a, Option<Token<'a>>> {
         Ok(match self.last_char {
             Some(c) if c.is_alphabetic() => {
                 self.next();
@@ -128,7 +134,7 @@ impl<'a> Lexer<'a> {
         })
     }
 
-    fn read_number(&mut self) -> LexerResult<'a> {
+    fn read_number(&mut self) -> LexerResult<'a, Option<Token<'a>>> {
         Ok(match self.last_char {
             Some(c) if c.is_numeric() => {
                 loop {
@@ -143,7 +149,7 @@ impl<'a> Lexer<'a> {
         })
     }
 
-    fn read_string(&mut self) -> LexerResult<'a> {
+    fn read_string(&mut self) -> LexerResult<'a, Option<Token<'a>>> {
         match self.last_char {
             Some('"') => {
             	self.next();
@@ -170,7 +176,7 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    fn read_operator(&mut self) -> LexerResult<'a> {
+    fn read_operator(&mut self) -> LexerResult<'a, Option<Token<'a>>> {
         macro_rules! on {
             ($char: expr, $kind: expr, $handler: expr) => {
                 match self.last_char {
@@ -186,6 +192,8 @@ impl<'a> Lexer<'a> {
         }
 
         Ok(match None
+            .or(on!('(', Kind::LParen))
+            .or(on!(')', Kind::RParen))
             .or(on!('λ', Kind::Lambda))
             .or(on!('\\', Kind::Lambda))
             .or(on!('+', Kind::Plus))

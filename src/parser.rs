@@ -1,121 +1,157 @@
 use std::fmt::{Debug, Formatter, Result as FmtResult};
 use lexer::*;
-use itertools::Itertools;
+use source::*;
+use num::bigint::BigInt;
+use std::str::FromStr;
+use std::error::Error;
 
 pub enum Expr<'a> {
-    Int(i32),
+    Int(BigInt),
     String(&'a str),
     Id(&'a str),
-    Sequence(Vec<Expr<'a>>)
+    Lambda {
+        args: Vec<Expr<'a>>,
+        body: Box<Expr<'a>>
+    }
+}
+
+#[derive(Debug)]
+pub enum Entity<'a> {
+    Expr(Expr<'a>),
+    Binding {
+        name: &'a str,
+        value: Box<Expr<'a>>
+    }
 }
 
 impl<'a> Debug for Expr<'a> {
     fn fmt(&self, formatter: &mut Formatter) -> FmtResult {
         match self {
-            &Expr::Int(value) => write!(formatter, "{}", value),
+            &Expr::Int(ref value) => write!(formatter, "{}", value),
             &Expr::String(value) => write!(formatter, "\"{}\"", value),
             &Expr::Id(name) => write!(formatter, "{}", name),
-            &Expr::Sequence(ref exprs) => {
-                formatter.write_str("{ ")?;
-                let exprs_result = exprs
-                    .iter()
-                    .enumerate()
-                    .fold(Ok(()), |result, (i, expr)| {
-                        if i > 0 {
-                            result.and(formatter.write_str("; "))?
-                        }
-                        result.and(expr.fmt(formatter))
-                    });
-                exprs_result.and(formatter.write_str(" }"))
-            }
+            &Expr::Lambda { ref args, ref body } => write!(formatter, "'λ {:?} → {:?}", args, body),
         }
     }
 }
 
-type ParseResult<'a> = Result<Expr<'a>, String>;
+type ParseResult<'a, T> = Result<T, Box<Error>>;
 
 pub struct Parser<'a> {
-    buffer: TokenBuffer<'a>
+    lexer: Lexer<'a>,
+    token: Token<'a>
 }
 
 impl<'a> Parser<'a> {
     pub fn new(lexer: Lexer<'a>) -> Parser<'a> {
-        Parser { buffer: TokenBuffer::new(lexer) }
+        let dummy_token = Token {
+            kind: Kind::EOF,
+            text: "",
+            location: Location::new("")
+        };
+        Parser {
+            lexer,
+            token: dummy_token
+        }
     }
 
-    pub fn parse(&mut self) -> ParseResult {
-        self.buffer.init()?;
-        self.parse_expression_sequence()
+    pub fn parse(&mut self) -> ParseResult<'a, Box<Vec<Entity<'a>>>> {
+        self.read_token()?;
+        let mut entities = box(vec!());
+        while self.token.kind != Kind::EOF {
+            entities.push(
+                match self.token {
+                    Token { kind: Kind::Id, text: "let", .. } => {
+                        self.read_token()?;
+                        self.parse_binding()?
+                    },
+                    _ => Entity::Expr(self.parse_expr()?),
+                }
+            )
+        }
+        Ok(entities)
     }
 
     pub fn lexer_stats(&self) -> &LexerStats {
-        self.buffer.lexer.stats()
+        self.lexer.stats()
     }
 
-    fn parse_expression_sequence(&mut self) -> ParseResult<'a> {
-        let mut exprs: Vec<Expr> = vec!();
-        while self.token().is_some() {
-            exprs.push(self.parse_expr()?);
+    fn parse_expr(&mut self) -> ParseResult<'a, Expr<'a>> {
+        self.parse_primary()
+    }
+
+    fn parse_primary(&mut self) -> ParseResult<'a, Expr<'a>> {
+        let primary = self.token;
+        self.read_token()?;
+        match primary.kind {
+            Kind::Id => Ok(Expr::Id(primary.text)),
+            Kind::Number => BigInt::from_str(primary.text).map(Expr::Int).map_err(From::from),
+            Kind::String => Ok(Expr::String(primary.text)),
+            Kind::Lambda => self.parse_lambda(),
+            Kind::LParen => {
+                let expr = self.parse_expr();
+                match self.token.kind {
+                    Kind::RParen => {
+                        self.read_token()?;
+                        expr
+                    },
+                    _ => self.error(&format!("expected `)', found: {}", self.token), &self.token.location)
+                }
+            }
+            _ => self.error(&format!("expected an identifier, a literal or '(', not: {}", primary), &primary.location)
+        }
+    }
+
+    fn parse_binding(&mut self) -> ParseResult<'a, Entity<'a>> {
+        let name = self.token;
+        if name.kind != Kind::Id {
+            return self.error(&format!("expected an identifier, found: {}", name), &name.location);
+        }
+        self.read_token()?;
+
+        let equals = self.token;
+        if equals.kind != Kind::Eq {
+            return self.error(&format!("expected `=', found: {}", equals), &equals.location);
+        }
+        self.read_token()?;
+
+        let value = self.parse_expr()?;
+        Ok(Entity::Binding {
+            name: name.text,
+            value: box(value)
+        })
+    }
+
+    fn parse_lambda(&mut self) -> ParseResult<'a, Expr<'a>> {
+        let mut args = vec!();
+        while let Token { kind: Kind::Id, text: arg_name, .. } = self.token {
+            args.push(Expr::Id(arg_name));
             self.read_token()?;
         }
-        Ok(Expr::Sequence(exprs))
-    }
 
-    fn parse_expr(&mut self) -> ParseResult<'a> {
-        let token = self.token().clone();
-        self.read_token()?;
-        token.map_or_else(
-            || Err("unexpected end of file".to_owned()),
-            |token| Ok(Expr::String(token.text)))
-    }
-
-    fn read_token(&mut self) -> Result<(), String> {
-        self.buffer.read_token()
-    }
-
-    fn token(&self) -> &Option<Token<'a>> {
-        self.buffer.token()
-    }
-
-    fn next_token(&self) -> &Option<Token<'a>> {
-        self.buffer.next_token()
-    }
-}
-
-struct TokenBuffer<'a> {
-    lexer: Lexer<'a>,
-    tokens: [Option<Token<'a>>; 2],
-    token_index: usize,
-    next_token_index: usize
-}
-
-impl<'a> TokenBuffer<'a> {
-    fn new(lexer: Lexer<'a>) -> TokenBuffer<'a> {
-        TokenBuffer {
-            lexer: lexer,
-            tokens: [ None, None ],
-            token_index: 0,
-            next_token_index: 1
+        let arrow = self.token;
+        if arrow.kind != Kind::Arrow {
+            return self.error(&format!("expected an arrow, found: {}", arrow), &arrow.location);
         }
-    }
-
-    fn init(&mut self) -> Result<(), String> {
         self.read_token()?;
-        self.read_token()
+
+        let body = self.parse_expr()?;
+        Ok(Expr::Lambda {
+            args,
+            body: box(body)
+        })
     }
 
     fn read_token(&mut self) -> Result<(), String> {
-        use std::mem::swap;
-        swap(&mut self.token_index, &mut self.next_token_index);
-        self.tokens[self.next_token_index] = self.lexer.read()?;
+        self.token = self.lexer.read()?;
         Ok(())
     }
 
-    fn token(&self) -> &Option<Token<'a>> {
-        &self.tokens[self.token_index]
+    fn error<T>(&self, text: &str, location: &Location) -> ParseResult<'a, T> {
+        Err(self.format_error(text, location)).map_err(From::from)
     }
 
-    fn next_token(&self) -> &Option<Token<'a>> {
-        &self.tokens[self.next_token_index]
+    fn format_error(&self, text: &str, location: &Location) -> String {
+        format!("{}: {}", location, text)
     }
 }

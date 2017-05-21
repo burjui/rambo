@@ -4,6 +4,7 @@
 
 extern crate getopts;
 extern crate itertools;
+extern crate num;
 
 use getopts::Options;
 use std::env;
