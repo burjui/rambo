@@ -87,6 +87,7 @@ impl<'a> Lexer<'a> {
             Some(c) => {
                 for matcher in &[ Lexer::read_number, Lexer::read_operator, Lexer::read_string, Lexer::read_id ] {
                     if let Ok(Some(token)) = matcher(self) {
+                        self.stats.token_count += 1;
                         return Ok(token)
                     }
                 }
