@@ -1,9 +1,25 @@
-use std::fmt::{Debug, Formatter, Result as FmtResult};
+use std::fmt::{Debug, Formatter, Write, Result as FmtResult};
 use lexer::*;
 use source::*;
 use num::bigint::BigInt;
 use std::str::FromStr;
 use std::error::Error;
+
+pub enum BinaryOperation {
+    Assign, Add, Subtract, Multiply, Divide
+}
+
+impl Debug for BinaryOperation {
+    fn fmt(&self, formatter: &mut Formatter) -> FmtResult {
+        formatter.write_char(match self {
+            &BinaryOperation::Assign => '=',
+            &BinaryOperation::Add => '+',
+            &BinaryOperation::Subtract => '-',
+            &BinaryOperation::Multiply => '*',
+            &BinaryOperation::Divide => '/',
+        })
+    }
+}
 
 pub enum Expr<'a> {
     Int(BigInt),
@@ -12,6 +28,15 @@ pub enum Expr<'a> {
     Lambda {
         args: Vec<Expr<'a>>,
         body: Box<Expr<'a>>
+    },
+    Binary {
+        operation: BinaryOperation,
+        left: Box<Expr<'a>>,
+        right: Box<Expr<'a>>
+    },
+    Application {
+        function: Box<Expr<'a>>,
+        args: Box<Vec<Expr<'a>>>
     }
 }
 
@@ -31,6 +56,8 @@ impl<'a> Debug for Expr<'a> {
             &Expr::String(value) => write!(formatter, "\"{}\"", value),
             &Expr::Id(name) => write!(formatter, "{}", name),
             &Expr::Lambda { ref args, ref body } => write!(formatter, "'λ {:?} → {:?}", args, body),
+            &Expr::Binary { ref operation, ref left, ref right } => write!(formatter, "({:?} {:?} {:?})", left, operation, right),
+            &Expr::Application { ref function, ref args } => write!(formatter, "({:?} {:?})", function, args),
         }
     }
 }
@@ -77,7 +104,59 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_expr(&mut self) -> ParseResult<'a, Expr<'a>> {
-        self.parse_primary()
+        self.parse_binary(Parser::MIN_PRECEDENCE)
+    }
+
+    fn parse_binary(&mut self, precedence: u8) -> ParseResult<'a, Expr<'a>> {
+        if precedence > Parser::MAX_PRECEDENCE {
+            return self.parse_function_application()
+        }
+
+        let mut result = self.parse_binary(precedence + 1)?;
+        let first_token_kind = self.token.kind;
+        if !first_token_kind.is_binary_operator() {
+            return Ok(result)
+        }
+
+        let first_operator_precedence = first_token_kind.precedence();
+        if first_operator_precedence >= precedence {
+            loop {
+                let operator = self.token.kind;
+                if !operator.is_binary_operator() || operator.precedence() < first_operator_precedence {
+                    break
+                }
+                self.read_token()?;
+                let operator_associativity_adjustment = if operator.is_left_associative() { 1 } else { 0 };
+                let right_operand = self.parse_binary(first_operator_precedence + operator_associativity_adjustment)?;
+                result = Expr::Binary {
+                    operation: operator.binary_operation(),
+                    left: box(result),
+                    right: box(right_operand)
+                }
+            }
+        }
+
+        Ok(result)
+    }
+
+    fn parse_function_application(&mut self) -> ParseResult<'a, Expr<'a>> {
+        let first_expr_line_index = self.token.location.line_index;
+        let first_expr = self.parse_primary()?;
+        let mut args = box(vec!());
+        while self.token.kind.can_be_expression_start() && self.token.location.line_index == first_expr_line_index {
+            args.push(self.parse_primary()?)
+        }
+
+        let result =
+            if args.is_empty() {
+                first_expr
+            } else {
+                Expr::Application {
+                    function: box(first_expr),
+                    args
+                }
+            };
+        Ok(result)
     }
 
     fn parse_primary(&mut self) -> ParseResult<'a, Expr<'a>> {
@@ -153,5 +232,52 @@ impl<'a> Parser<'a> {
 
     fn format_error(&self, text: &str, location: &Location) -> String {
         format!("{}: {}", location, text)
+    }
+
+    const MIN_PRECEDENCE: u8 = 0;
+    const MAX_PRECEDENCE: u8 = 2;
+}
+
+impl Kind {
+    fn is_binary_operator(self) -> bool {
+        match self {
+            Kind::Eq | Kind::Plus | Kind::Minus | Kind::Star | Kind::Slash => true,
+            _ => false
+        }
+    }
+
+    fn precedence(self) -> u8 {
+        match self {
+            Kind::Eq => 0,
+            Kind::Plus | Kind::Minus => 1,
+            Kind::Star | Kind::Slash => 2,
+            _ => unreachable!()
+        }
+    }
+
+    fn is_left_associative(self) -> bool {
+        match self {
+            Kind::Eq => false,
+            Kind::Plus | Kind::Minus | Kind::Star | Kind::Slash => true,
+            _ => unreachable!()
+        }
+    }
+
+    fn binary_operation(self) -> BinaryOperation {
+        match self {
+            Kind::Eq => BinaryOperation::Assign,
+            Kind::Plus => BinaryOperation::Add,
+            Kind::Minus => BinaryOperation::Subtract,
+            Kind::Star => BinaryOperation::Multiply,
+            Kind::Slash => BinaryOperation::Divide,
+            _ => unreachable!()
+        }
+    }
+
+    fn can_be_expression_start(self) -> bool {
+        match self {
+            Kind::Id | Kind::Number | Kind::String | Kind::LParen | Kind::Lambda => true,
+            _ => false
+        }
     }
 }
