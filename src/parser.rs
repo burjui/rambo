@@ -213,7 +213,6 @@ impl<'a> Parser<'a> {
             Token::Lambda => self.parse_lambda(),
             Token::LParen => {
                 let expr = self.parse_expr();
-                println!("## {:?} {}", expr, self.lexeme.source.segment.start);
                 match self.lexeme.token {
                     Token::RParen => {
                         self.read_lexeme()?;

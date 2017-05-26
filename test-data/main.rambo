@@ -1,4 +1,4 @@
-﻿let f = \ a b -> (a + b) * (b - 2 + \a -> a + 1)
+﻿let f = (\ a b -> (a + b) * (b - 2 + (\a -> a + 1) + 1))
 let a = 1
 let b = 2
 let d = c - 1

@@ -163,36 +163,33 @@ impl<'a> Lexer<'a> {
 
     fn read_operator(&mut self) -> LexerResult<'a, Option<Lexeme<'a>>> {
         macro_rules! on {
-            ($char: expr, $token: expr, $handler: expr) => {
+            ($char: tt, $token: expr, $handler: expr) => (
                 match self.last_char {
                     Some($char) => {
                         self.read_char();
-                        ($handler).or(Some($token))
+                        $handler.or(Some($token))
                     },
                     _ => None
                 }
-            };
+            );
 
             ($char: expr, $token: expr) => { on!($char, $token, None) };
         }
 
-        Ok(match None
-            .or(on!('(', Token::LParen))
-            .or(on!(')', Token::RParen))
-            .or(on!('λ', Token::Lambda))
-            .or(on!('\\', Token::Lambda))
-            .or(on!('+', Token::Plus))
-            .or(on!('-', Token::Minus, on!('>', Token::Arrow)))
-            .or(on!('*', Token::Star))
-            .or(on!('/', Token::Slash))
-            .or(on!('=', Token::Eq, on!('=', Token::EqEq)))
-            .or(on!('<', Token::Lt, on!('=', Token::LtEq)))
-            .or(on!('>', Token::Gt, on!('=', Token::GtEq)))
-            .or(on!('→', Token::Arrow))
-        {
-            Some(token) => Some(self.new_lexeme(token)),
-            _ => None
-        })
+        Ok(None
+            .or_else(|| on!('(', Token::LParen))
+            .or_else(|| on!(')', Token::RParen))
+            .or_else(|| on!('λ', Token::Lambda))
+            .or_else(|| on!('\\', Token::Lambda))
+            .or_else(|| on!('+', Token::Plus))
+            .or_else(|| on!('-', Token::Minus, on!('>', Token::Arrow)))
+            .or_else(|| on!('*', Token::Star))
+            .or_else(|| on!('/', Token::Slash))
+            .or_else(|| on!('=', Token::Eq, on!('=', Token::EqEq)))
+            .or_else(|| on!('<', Token::Lt, on!('=', Token::LtEq)))
+            .or_else(|| on!('>', Token::Gt, on!('=', Token::GtEq)))
+            .or_else(|| on!('→', Token::Arrow))
+            .map(|token| self.new_lexeme(token)))
     }
 
     fn new_lexeme(&self, token: Token) -> Lexeme<'a> {
