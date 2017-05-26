@@ -22,9 +22,9 @@ impl Debug for BinaryOperation {
 }
 
 pub enum Expr<'a> {
-    Int(BigInt),
-    String(&'a str),
-    Id(&'a str),
+    Int { value: BigInt, source: Source<'a> },
+    String(Source<'a>),
+    Id(Source<'a>),
     Lambda {
         args: Vec<Expr<'a>>,
         body: Box<Expr<'a>>
@@ -40,11 +40,10 @@ pub enum Expr<'a> {
     }
 }
 
-#[derive(Debug)]
 pub enum Entity<'a> {
     Expr(Expr<'a>),
     Binding {
-        name: &'a str,
+        name: Source<'a>,
         value: Box<Expr<'a>>
     }
 }
@@ -52,12 +51,21 @@ pub enum Entity<'a> {
 impl<'a> Debug for Expr<'a> {
     fn fmt(&self, formatter: &mut Formatter) -> FmtResult {
         match self {
-            &Expr::Int(ref value) => write!(formatter, "{}", value),
-            &Expr::String(value) => write!(formatter, "\"{}\"", value),
-            &Expr::Id(name) => write!(formatter, "{}", name),
-            &Expr::Lambda { ref args, ref body } => write!(formatter, "'λ {:?} → {:?}", args, body),
+            &Expr::Int { ref value, .. } => write!(formatter, "{}", value),
+            &Expr::String(value) => write!(formatter, "{:?}", value),
+            &Expr::Id(name) => write!(formatter, "{:?}", name),
+            &Expr::Lambda { ref args, ref body } => write!(formatter, "λ {:?} → {:?}", args, body),
             &Expr::Binary { ref operation, ref left, ref right } => write!(formatter, "({:?} {:?} {:?})", left, operation, right),
             &Expr::Application { ref function, ref args } => write!(formatter, "({:?} {:?})", function, args),
+        }
+    }
+}
+
+impl<'a> Debug for Entity<'a> {
+    fn fmt(&self, formatter: &mut Formatter) -> FmtResult {
+        match self {
+            &Entity::Expr(ref expr) => expr.fmt(formatter),
+            &Entity::Binding { ref name, ref value } => write!(formatter, "let {:?} = {:?}", name, value)
         }
     }
 }
@@ -66,33 +74,36 @@ type ParseResult<'a, T> = Result<T, Box<Error>>;
 
 pub struct Parser<'a> {
     lexer: Lexer<'a>,
-    token: Token<'a>
+    lexeme: Lexeme<'a>
 }
 
 impl<'a> Parser<'a> {
     pub fn new(lexer: Lexer<'a>) -> Parser<'a> {
-        let dummy_token = Token {
-            kind: Kind::EOF,
-            text: "",
-            location: Location::new("")
+        let dummy_lexeme = Lexeme {
+            token: Token::EOF,
+            source: lexer.make_source(
+                Segment {
+                    start: Location::new(),
+                    end: Location::new()
+                }
+            )
         };
         Parser {
             lexer,
-            token: dummy_token
+            lexeme: dummy_lexeme
         }
     }
 
     pub fn parse(&mut self) -> ParseResult<'a, Box<Vec<Entity<'a>>>> {
-        self.read_token()?;
+        self.read_lexeme()?;
         let mut entities = box(vec!());
-        while self.token.kind != Kind::EOF {
+        while self.lexeme.token != Token::EOF {
             entities.push(
-                match self.token {
-                    Token { kind: Kind::Id, text: "let", .. } => {
-                        self.read_token()?;
-                        self.parse_binding()?
-                    },
-                    _ => Entity::Expr(self.parse_expr()?),
+                if self.lexeme.token == Token::Id && self.lexeme.text() == "let" {
+                    self.read_lexeme()?;
+                    self.parse_binding()?
+                } else {
+                    Entity::Expr(self.parse_expr()?)
                 }
             )
         }
@@ -113,19 +124,19 @@ impl<'a> Parser<'a> {
         }
 
         let mut result = self.parse_binary(precedence + 1)?;
-        let first_token_kind = self.token.kind;
-        if !first_token_kind.is_binary_operator() {
+        let first_lexeme_token = self.lexeme.token;
+        if !first_lexeme_token.is_binary_operator() {
             return Ok(result)
         }
 
-        let first_operator_precedence = first_token_kind.precedence();
+        let first_operator_precedence = first_lexeme_token.precedence();
         if first_operator_precedence >= precedence {
             loop {
-                let operator = self.token.kind;
+                let operator = self.lexeme.token;
                 if !operator.is_binary_operator() || operator.precedence() < first_operator_precedence {
                     break
                 }
-                self.read_token()?;
+                self.read_lexeme()?;
                 let operator_associativity_adjustment = if operator.is_left_associative() { 1 } else { 0 };
                 let right_operand = self.parse_binary(first_operator_precedence + operator_associativity_adjustment)?;
                 result = Expr::Binary {
@@ -140,10 +151,10 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_function_application(&mut self) -> ParseResult<'a, Expr<'a>> {
-        let first_expr_line_index = self.token.location.line_index;
+        let first_expr_line_index = self.lexeme.source.segment.start.line_index;
         let first_expr = self.parse_primary()?;
         let mut args = box(vec!());
-        while self.token.kind.can_be_expression_start() && self.token.location.line_index == first_expr_line_index {
+        while self.lexeme.token.can_be_expression_start() && self.lexeme.source.segment.start.line_index == first_expr_line_index {
             args.push(self.parse_primary()?)
         }
 
@@ -160,59 +171,62 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_primary(&mut self) -> ParseResult<'a, Expr<'a>> {
-        let primary = self.token;
-        self.read_token()?;
-        match primary.kind {
-            Kind::Id => Ok(Expr::Id(primary.text)),
-            Kind::Number => BigInt::from_str(primary.text).map(Expr::Int).map_err(From::from),
-            Kind::String => Ok(Expr::String(primary.text)),
-            Kind::Lambda => self.parse_lambda(),
-            Kind::LParen => {
+        let primary = self.lexeme;
+        self.read_lexeme()?;
+        match primary.token {
+            Token::Id => Ok(Expr::Id(primary.source)),
+            Token::Number => {
+                let value = BigInt::from_str(primary.text())?;
+                Ok(Expr::Int { value, source: primary.source })
+            },
+            Token::String => Ok(Expr::String(primary.source)),
+            Token::Lambda => self.parse_lambda(),
+            Token::LParen => {
                 let expr = self.parse_expr();
-                match self.token.kind {
-                    Kind::RParen => {
-                        self.read_token()?;
+                match self.lexeme.token {
+                    Token::RParen => {
+                        self.read_lexeme()?;
                         expr
                     },
-                    _ => self.error(&format!("expected `)', found: {}", self.token), &self.token.location)
+                    _ => self.error(&format!("expected `)', found: {}", self.lexeme), &self.lexeme.source)
                 }
             }
-            _ => self.error(&format!("expected an identifier, a literal or '(', not: {}", primary), &primary.location)
+            _ => self.error(&format!("expected an identifier, a literal or '(', not: {}", primary), &primary.source)
         }
     }
 
     fn parse_binding(&mut self) -> ParseResult<'a, Entity<'a>> {
-        let name = self.token;
-        if name.kind != Kind::Id {
-            return self.error(&format!("expected an identifier, found: {}", name), &name.location);
+        let name = self.lexeme;
+        if name.token != Token::Id {
+            return self.error(&format!("expected an identifier, found: {}", name), &name.source);
         }
-        self.read_token()?;
+        self.read_lexeme()?;
 
-        let equals = self.token;
-        if equals.kind != Kind::Eq {
-            return self.error(&format!("expected `=', found: {}", equals), &equals.location);
+        let equals = self.lexeme;
+        if equals.token != Token::Eq {
+            return self.error(&format!("expected `=', found: {}", equals), &equals.source);
         }
-        self.read_token()?;
+        self.read_lexeme()?;
 
         let value = self.parse_expr()?;
         Ok(Entity::Binding {
-            name: name.text,
+            name: name.source,
             value: box(value)
         })
     }
 
     fn parse_lambda(&mut self) -> ParseResult<'a, Expr<'a>> {
         let mut args = vec!();
-        while let Token { kind: Kind::Id, text: arg_name, .. } = self.token {
-            args.push(Expr::Id(arg_name));
-            self.read_token()?;
+        while let Lexeme { token: Token::Id, source } = self.lexeme {
+            args.push(Expr::Id(source));
+            self.read_lexeme()?;
         }
 
-        let arrow = self.token;
-        if arrow.kind != Kind::Arrow {
-            return self.error(&format!("expected an arrow, found: {}", arrow), &arrow.location);
+        let arrow = self.lexeme;
+        if arrow.token != Token::Arrow {
+            return self.error(&format!("expected an arrow, found: {}", arrow), &arrow.source);
         }
-        self.read_token()?;
+        self.read_lexeme()?;
 
         let body = self.parse_expr()?;
         Ok(Expr::Lambda {
@@ -221,62 +235,62 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn read_token(&mut self) -> Result<(), String> {
-        self.token = self.lexer.read()?;
+    fn read_lexeme(&mut self) -> Result<(), String> {
+        self.lexeme = self.lexer.read()?;
         Ok(())
     }
 
-    fn error<T>(&self, text: &str, location: &Location) -> ParseResult<'a, T> {
-        Err(self.format_error(text, location)).map_err(From::from)
+    fn error<T>(&self, text: &str, source: &Source) -> ParseResult<'a, T> {
+        Err(self.format_error(text, source)).map_err(From::from)
     }
 
-    fn format_error(&self, text: &str, location: &Location) -> String {
-        format!("{}: {}", location, text)
+    fn format_error(&self, text: &str, source: &Source) -> String {
+        format!("{}: {}", source, text)
     }
 
     const MIN_PRECEDENCE: u8 = 0;
     const MAX_PRECEDENCE: u8 = 2;
 }
 
-impl Kind {
+impl Token {
     fn is_binary_operator(self) -> bool {
         match self {
-            Kind::Eq | Kind::Plus | Kind::Minus | Kind::Star | Kind::Slash => true,
+            Token::Eq | Token::Plus | Token::Minus | Token::Star | Token::Slash => true,
             _ => false
         }
     }
 
     fn precedence(self) -> u8 {
         match self {
-            Kind::Eq => 0,
-            Kind::Plus | Kind::Minus => 1,
-            Kind::Star | Kind::Slash => 2,
+            Token::Eq => 0,
+            Token::Plus | Token::Minus => 1,
+            Token::Star | Token::Slash => 2,
             _ => unreachable!()
         }
     }
 
     fn is_left_associative(self) -> bool {
         match self {
-            Kind::Eq => false,
-            Kind::Plus | Kind::Minus | Kind::Star | Kind::Slash => true,
+            Token::Eq => false,
+            Token::Plus | Token::Minus | Token::Star | Token::Slash => true,
             _ => unreachable!()
         }
     }
 
     fn binary_operation(self) -> BinaryOperation {
         match self {
-            Kind::Eq => BinaryOperation::Assign,
-            Kind::Plus => BinaryOperation::Add,
-            Kind::Minus => BinaryOperation::Subtract,
-            Kind::Star => BinaryOperation::Multiply,
-            Kind::Slash => BinaryOperation::Divide,
+            Token::Eq => BinaryOperation::Assign,
+            Token::Plus => BinaryOperation::Add,
+            Token::Minus => BinaryOperation::Subtract,
+            Token::Star => BinaryOperation::Multiply,
+            Token::Slash => BinaryOperation::Divide,
             _ => unreachable!()
         }
     }
 
     fn can_be_expression_start(self) -> bool {
         match self {
-            Kind::Id | Kind::Number | Kind::String | Kind::LParen | Kind::Lambda => true,
+            Token::Id | Token::Number | Token::String | Token::LParen | Token::Lambda => true,
             _ => false
         }
     }

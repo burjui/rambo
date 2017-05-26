@@ -1,35 +1,37 @@
-use source::Location;
+use source::*;
 use std::fmt::{Display, Debug, Formatter, Result as FmtResult};
 use std::str::CharIndices;
-use std::cmp::Ordering;
 
 #[derive(Debug, PartialEq, Copy, Clone)]
-pub enum Kind {
+pub enum Token {
     EOF, Id, Number, String, LParen, RParen, Eq, EqEq, Lt, LtEq, Gt, GtEq, Lambda, Minus, Arrow, Plus, Star, Slash
 }
 
 #[derive(Copy, Clone)]
-pub struct Token<'a> {
-    pub kind: Kind,
-    pub text: &'a str,
-    pub location: Location<'a>
+pub struct Lexeme<'a> {
+    pub token: Token,
+    pub source: Source<'a>
 }
 
-impl<'a> Token<'a> {
-    fn new(kind: Kind, text: &'a str, location: &Location<'a>) -> Token<'a> {
-        Token { kind: kind, text: text, location: location.clone() }
+impl<'a> Lexeme<'a> {
+    pub fn text(&self) -> &'a str {
+        self.source.text()
+    }
+
+    fn new(token: Token, source: Source<'a>) -> Lexeme<'a> {
+        Lexeme { token, source }
     }
 }
 
-impl<'a> Debug for Token<'a> {
+impl<'a> Debug for Lexeme<'a> {
     fn fmt(&self, formatter: &mut Formatter) -> FmtResult {
-        formatter.write_str(&format!("{} ({:?}), {}", self.text, self.kind, self.location))
+        formatter.write_str(&format!("{} ({:?}) | {}", self.text(), self.token, self.source.segment.start))
     }
 }
 
-impl<'a> Display for Token<'a> {
+impl<'a> Display for Lexeme<'a> {
     fn fmt(&self, formatter: &mut Formatter) -> FmtResult {
-        formatter.write_str(if self.kind == Kind::EOF { "end of file" } else { self.text })
+        formatter.write_str(if self.token == Token::EOF { "end of file" } else { self.text() })
     }
 }
 
@@ -37,14 +39,14 @@ impl<'a> Display for Token<'a> {
 pub struct LexerStats {
     pub byte_count: usize,
     pub line_count: usize,
-    pub token_count: usize,
+    pub lexeme_count: usize,
 }
 
 pub struct Lexer<'a> {
-    source: &'a str,
+    source_file: &'a SourceFile<'a>,
     source_iterator: CharIndices<'a>,
-    location: Location<'a>,
-    token_start: Location<'a>,
+    location: Location,
+    lexeme_start: Location,
     last_char: Option<char>,
     is_first_char: bool,
     stats: LexerStats
@@ -53,47 +55,39 @@ pub struct Lexer<'a> {
 pub type LexerResult<'a, T> = Result<T, String>;
 
 impl<'a> Lexer<'a> {
-    const UTF8_BOM: [u8; 3] = [0xEF, 0xBB, 0xBF];
-    const BYTE_ORDER_MARKS: &'static[&'static[u8]] = &[
-        &[0x00, 0x00, 0xFE, 0xFF],  // UTF-32BE
-        &[0xFF, 0xFE, 0x00, 0x00],  // UTF-32LE
-        &[0xFF, 0xFE],              // UTF-16LE
-        &[0xFE, 0xFF],              // UTF-16BE
-        &Lexer::UTF8_BOM,
-    ];
-
-    pub fn new(source_name: &'a str, source: &'a str) -> Result<Lexer<'a>, String> {
-        let mut bom_length: usize = 0;
-        for bom in Lexer::BYTE_ORDER_MARKS {
-	        if source.as_bytes().starts_with(&bom) {
-	        	if (&bom[..]).cmp(&Lexer::UTF8_BOM[..]) != Ordering::Equal {
-	        		return Err(format!("{}: only UTF-8 encoding is supported", source_name))
-	        	} else {
-                    bom_length = bom.len();
-                    break;
-                }
-	        }
-        }
-
-        let mut lexer = Lexer::make_lexer(source_name, &source[bom_length..], bom_length);
-        lexer.next();
-        Ok(lexer)
+    pub fn new(source_file: &'a SourceFile<'a>) -> Lexer<'a> {
+        let starting_location = Location::new();
+        let mut lexer = Lexer {
+            source_file,
+            source_iterator: source_file.text.char_indices(),
+            location: starting_location,
+            lexeme_start: starting_location,
+            last_char: None,
+            is_first_char: true,
+            stats: LexerStats {
+                byte_count: 0,
+                line_count: 1,
+                lexeme_count: 0
+            }
+        };
+        lexer.read_char();
+        lexer
     }
 
-    pub fn read(&mut self) -> LexerResult<'a, Token<'a>> {
+    pub fn read(&mut self) -> LexerResult<'a, Lexeme<'a>> {
         self.skip_whitepace();
-        self.token_start = self.location;
+        self.lexeme_start = self.location;
         match self.last_char {
             Some(c) => {
                 for matcher in &[ Lexer::read_number, Lexer::read_operator, Lexer::read_string, Lexer::read_id ] {
-                    if let Ok(Some(token)) = matcher(self) {
-                        self.stats.token_count += 1;
-                        return Ok(token)
+                    if let Ok(Some(lexeme)) = matcher(self) {
+                        self.stats.lexeme_count += 1;
+                        return Ok(lexeme)
                     }
                 }
                 Err(format!("unexpected character: {}", c))
             },
-            None => Ok(self.new_token(Kind::EOF))
+            None => Ok(self.new_lexeme(Token::EOF))
         }
     }
 
@@ -101,75 +95,65 @@ impl<'a> Lexer<'a> {
         &self.stats
     }
 
-    fn make_lexer(source_name: &'a str, source: &'a str, bom_length: usize) -> Lexer<'a> {
-        let starting_location = Location::new(source_name);
-        Lexer {
-            source: source,
-            source_iterator: source.char_indices(),
-            location: starting_location,
-            token_start: starting_location,
-            last_char: None,
-            is_first_char: true,
-            stats: LexerStats {
-                byte_count: bom_length,
-                line_count: 1,
-                token_count: 0
-            }
+    pub fn make_source(&self, segment: Segment) -> Source<'a> {
+        Source {
+            file: self.source_file,
+            segment
         }
     }
 
-    fn read_id(&mut self) -> LexerResult<'a, Option<Token<'a>>> {
+    fn read_id(&mut self) -> LexerResult<'a, Option<Lexeme<'a>>> {
         Ok(match self.last_char {
             Some(c) if c.is_alphabetic() => {
-                self.next();
+                self.read_char();
                 while let Some(c) = self.last_char {
                     if c.is_alphanumeric() || c == '_' {
-                        self.next()
+                        self.read_char()
                     } else {
                         break
                     }
                 }
-                Some(self.new_token(Kind::Id))
+                Some(self.new_lexeme(Token::Id))
             },
             _ => None
         })
     }
 
-    fn read_number(&mut self) -> LexerResult<'a, Option<Token<'a>>> {
+    fn read_number(&mut self) -> LexerResult<'a, Option<Lexeme<'a>>> {
         Ok(match self.last_char {
             Some(c) if c.is_numeric() => {
                 loop {
                     match self.last_char {
-                        Some(c) if c.is_numeric() => self.next(),
+                        Some(c) if c.is_numeric() => self.read_char(),
                         _ => break
                     }
                 }
-                Some(self.new_token(Kind::Number))
+                Some(self.new_lexeme(Token::Number))
             },
             _ => None
         })
     }
 
-    fn read_string(&mut self) -> LexerResult<'a, Option<Token<'a>>> {
+    fn read_string(&mut self) -> LexerResult<'a, Option<Lexeme<'a>>> {
         match self.last_char {
             Some('"') => {
-            	self.next();
+            	self.read_char();
 
                 loop {
                     match self.last_char {
                         Some('"') => break,
-                        Some(_) => self.next(),
+                        Some(_) => self.read_char(),
                         None => break
                     }
                 }
 
                 match self.last_char {
                     Some('"') => {
-                        self.next();
-                        Ok(Some(self.new_token(Kind::String)))
+                        self.read_char();
+                        Ok(Some(self.new_lexeme(Token::String)))
                     },
                     _ => {
-                        Err(format!("{}: unclosed string starting at {}", self.location, self.token_start))
+                        Err(format!("{}: unclosed string starting at {}", self.location, self.lexeme_start))
                     }
                 }
             },
@@ -177,59 +161,59 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    fn read_operator(&mut self) -> LexerResult<'a, Option<Token<'a>>> {
+    fn read_operator(&mut self) -> LexerResult<'a, Option<Lexeme<'a>>> {
         macro_rules! on {
-            ($char: expr, $kind: expr, $handler: expr) => {
+            ($char: expr, $token: expr, $handler: expr) => {
                 match self.last_char {
                     Some($char) => {
-                        self.next();
-                        ($handler).or(Some($kind))
+                        self.read_char();
+                        ($handler).or(Some($token))
                     },
                     _ => None
                 }
             };
 
-            ($char: expr, $kind: expr) => { on!($char, $kind, None) };
+            ($char: expr, $token: expr) => { on!($char, $token, None) };
         }
 
         Ok(match None
-            .or(on!('(', Kind::LParen))
-            .or(on!(')', Kind::RParen))
-            .or(on!('λ', Kind::Lambda))
-            .or(on!('\\', Kind::Lambda))
-            .or(on!('+', Kind::Plus))
-            .or(on!('-', Kind::Minus, on!('>', Kind::Arrow)))
-            .or(on!('*', Kind::Star))
-            .or(on!('/', Kind::Slash))
-            .or(on!('=', Kind::Eq, on!('=', Kind::EqEq)))
-            .or(on!('<', Kind::Lt, on!('=', Kind::LtEq)))
-            .or(on!('>', Kind::Gt, on!('=', Kind::GtEq)))
-            .or(on!('→', Kind::Arrow))
+            .or(on!('(', Token::LParen))
+            .or(on!(')', Token::RParen))
+            .or(on!('λ', Token::Lambda))
+            .or(on!('\\', Token::Lambda))
+            .or(on!('+', Token::Plus))
+            .or(on!('-', Token::Minus, on!('>', Token::Arrow)))
+            .or(on!('*', Token::Star))
+            .or(on!('/', Token::Slash))
+            .or(on!('=', Token::Eq, on!('=', Token::EqEq)))
+            .or(on!('<', Token::Lt, on!('=', Token::LtEq)))
+            .or(on!('>', Token::Gt, on!('=', Token::GtEq)))
+            .or(on!('→', Token::Arrow))
         {
-            Some(kind) => Some(self.new_token(kind)),
+            Some(token) => Some(self.new_lexeme(token)),
             _ => None
         })
     }
 
-    fn new_token(&self, kind: Kind) -> Token<'a> {
-        Token::new(kind, self.source_from(&self.token_start), &self.token_start)
-    }
-
-    fn source_from(&self, start: &Location) -> &'a str {
-        &self.source[start.offset..self.location.offset]
+    fn new_lexeme(&self, token: Token) -> Lexeme<'a> {
+        let segment = Segment {
+            start: self.lexeme_start,
+            end: self.location
+        };
+        Lexeme::new(token, self.make_source(segment))
     }
 
     fn skip_whitepace(&mut self) {
         while let Some(c) = self.last_char {
             if c.is_whitespace() {
-                self.next()
+                self.read_char()
             } else {
                 break
             }
         }
     }
 
-    fn next(&mut self) {
+    fn read_char(&mut self) {
         let last_char = self.source_iterator.next();
         if let Some((offset, c)) = last_char {
             self.location.offset = offset;
@@ -249,9 +233,9 @@ impl<'a> Lexer<'a> {
     }
 }
 
-impl<'a> Display for Lexer<'a> {
+impl<'a> Debug for Lexer<'a> {
     fn fmt(&self, formatter: &mut Formatter) -> FmtResult {
         formatter.write_str(
-            &format!("Lexer{{ source: {}, location: {}}}", self.source.len(), self.location))
+            &format!("Lexer{{ source: {{ {:?}, {} bytes }}, location: {}}}", self.source_file.path, self.source_file.text.len(), self.location))
     }
 }
