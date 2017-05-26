@@ -58,7 +58,7 @@ fn process(path: &Path) -> Result<(), Box<Error>> {
     println!("{:?}", lexer);
     let mut parser = Parser::new(lexer);
     let entities = parser.parse()?;
-    println!(">> {}", entities.iter().map(|x| format!("{:?}", x)).join("\n"));
+    println!(">> Parsed:\n{}", entities.iter().map(|x| format!("{:?}", x)).join("\n"));
     let node_count: usize = entities.iter().map(Entity::node_count).sum();
     println!(">> {} nodes", node_count);
     let stats = { parser.lexer_stats() };

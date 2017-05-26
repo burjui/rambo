@@ -1,12 +1,21 @@
 use std::fmt::{Debug, Formatter, Write, Result as FmtResult};
 use lexer::*;
 use source::*;
-use num::bigint::BigInt;
-use std::str::FromStr;
 use std::error::Error;
+use itertools::Itertools;
 
 pub enum BinaryOperation {
     Assign, Add, Subtract, Multiply, Divide
+}
+
+impl BinaryOperation {
+    fn precedence(&self) -> Precedence {
+        match self {
+            &BinaryOperation::Assign => Precedence::Assignment,
+            &BinaryOperation::Add | &BinaryOperation::Subtract => Precedence::Additive,
+            &BinaryOperation::Multiply | &BinaryOperation::Divide => Precedence::Multiplicative,
+        }
+    }
 }
 
 impl Debug for BinaryOperation {
@@ -22,7 +31,7 @@ impl Debug for BinaryOperation {
 }
 
 pub enum Expr<'a> {
-    Int { value: BigInt, source: Source<'a> },
+    Int(Source<'a>),
     String(Source<'a>),
     Id(Source<'a>),
     Lambda {
@@ -40,24 +49,48 @@ pub enum Expr<'a> {
     }
 }
 
-pub enum Entity<'a> {
-    Expr(Expr<'a>),
-    Binding {
-        name: Source<'a>,
-        value: Box<Expr<'a>>
+impl<'a> Expr<'a> {
+    fn precedence(&self) -> Precedence {
+        match self {
+            &Expr::Int(_) | &Expr::String(_) | &Expr::Id(_) => Precedence::Primitive,
+            &Expr::Lambda { .. } => Precedence::Lambda,
+            &Expr::Binary { ref operation, .. } => operation.precedence(),
+            &Expr::Application { .. } => Precedence::Application,
+        }
+    }
+
+    fn format(&self, subexpr: &Expr) -> String {
+        let need_parenthesis = self.precedence() > subexpr.precedence();
+        let opening_parenthesis = if need_parenthesis { "(" } else { "" };
+        let closing_parenthesis = if need_parenthesis { ")" } else { "" };
+        format!("{}{:?}{}", opening_parenthesis, subexpr, closing_parenthesis)
+    }
+
+    fn format_list(&self, list: &[Expr]) -> String {
+        list.iter().map(|x| self.format(x)).join(" ")
     }
 }
 
 impl<'a> Debug for Expr<'a> {
     fn fmt(&self, formatter: &mut Formatter) -> FmtResult {
         match self {
-            &Expr::Int { ref value, .. } => write!(formatter, "{}", value),
-            &Expr::String(value) => write!(formatter, "{:?}", value),
-            &Expr::Id(name) => write!(formatter, "{:?}", name),
-            &Expr::Lambda { ref args, ref body } => write!(formatter, "λ {:?} → {:?}", args, body),
-            &Expr::Binary { ref operation, ref left, ref right } => write!(formatter, "({:?} {:?} {:?})", left, operation, right),
-            &Expr::Application { ref function, ref args } => write!(formatter, "({:?} {:?})", function, args),
+            &Expr::Int(source) | &Expr::String(source) | &Expr::Id(source) =>
+                write!(formatter, "{:?}", source),
+            &Expr::Lambda { ref args, ref body } =>
+                write!(formatter, "λ {} → {}", self.format_list(args.as_slice()), self.format(body)),
+            &Expr::Binary { ref operation, ref left, ref right } =>
+                write!(formatter, "{} {:?} {}", self.format(left), operation, self.format(right)),
+            &Expr::Application { ref function, ref args } =>
+                write!(formatter, "{} {}", self.format(function), self.format_list(args.as_slice())),
         }
+    }
+}
+
+pub enum Entity<'a> {
+    Expr(Expr<'a>),
+    Binding {
+        name: Source<'a>,
+        value: Box<Expr<'a>>
     }
 }
 
@@ -175,14 +208,12 @@ impl<'a> Parser<'a> {
         self.read_lexeme()?;
         match primary.token {
             Token::Id => Ok(Expr::Id(primary.source)),
-            Token::Number => {
-                let value = BigInt::from_str(primary.text())?;
-                Ok(Expr::Int { value, source: primary.source })
-            },
+            Token::Number => Ok(Expr::Int(primary.source)),
             Token::String => Ok(Expr::String(primary.source)),
             Token::Lambda => self.parse_lambda(),
             Token::LParen => {
                 let expr = self.parse_expr();
+                println!("## {:?} {}", expr, self.lexeme.source.segment.start);
                 match self.lexeme.token {
                     Token::RParen => {
                         self.read_lexeme()?;
@@ -250,6 +281,16 @@ impl<'a> Parser<'a> {
 
     const MIN_PRECEDENCE: u8 = 0;
     const MAX_PRECEDENCE: u8 = 2;
+}
+
+#[derive(PartialOrd, PartialEq)]
+enum Precedence {
+    Assignment,
+    Lambda,
+    Additive,
+    Multiplicative,
+    Application,
+    Primitive
 }
 
 impl Token {
