@@ -181,40 +181,40 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_binary(&mut self, precedence: Precedence) -> ParseResult<'a, Expr<'a>> {
-        match precedence.next_binary_precedence() {
-            None => self.parse_function_application(),
-            Some(next_precedence) => {
-                let mut result = self.parse_binary(next_precedence)?;
-                let first_lexeme_token = self.lexeme.token;
-                if !first_lexeme_token.is_binary_operator() {
-                    return Ok(result)
-                }
+        let mut parse_next = |self_: &mut Parser<'a>, precedence: Option<Precedence>| {
+            if let Some(precedence) = precedence {
+                self_.parse_binary(precedence)
+            } else {
+                self_.parse_function_application()
+            }
+        };
 
-                let first_operator_precedence = first_lexeme_token.precedence();
-                if first_operator_precedence >= precedence {
-                    loop {
-                        let operator = self.lexeme.token;
-                        if !operator.is_binary_operator() || operator.precedence() < first_operator_precedence {
-                            break
-                        }
-                        self.read_lexeme()?;
-                        let right_precedence = Some(first_operator_precedence)
-                            .and_then(|p| if operator.is_left_associative() { p.next_binary_precedence() } else { Some(p) });
-                        let right_operand = match right_precedence {
-                            None => self.parse_function_application(),
-                            Some(p) => self.parse_binary(p)
-                        }?;
-                        result = Expr::Binary {
-                            operation: operator.binary_operation(),
-                            left: box(result),
-                            right: box(right_operand)
-                        }
-                    }
-                }
+        let mut result = parse_next(self, precedence.next_binary_precedence())?;
+        let first_lexeme_token = self.lexeme.token;
+        if !first_lexeme_token.is_binary_operator() {
+            return Ok(result)
+        }
 
-                Ok(result)
+        let first_operator_precedence = first_lexeme_token.precedence();
+        if first_operator_precedence >= precedence {
+            loop {
+                let operator = self.lexeme.token;
+                if !operator.is_binary_operator() || operator.precedence() < first_operator_precedence {
+                    break
+                }
+                self.read_lexeme()?;
+                let right_precedence = Some(first_operator_precedence)
+                    .and_then(|p| if operator.is_left_associative() { p.next_binary_precedence() } else { Some(p) });
+                let right_operand = parse_next(self, right_precedence)?;
+                result = Expr::Binary {
+                    operation: operator.binary_operation(),
+                    left: box(result),
+                    right: box(right_operand)
+                };
             }
         }
+
+        Ok(result)
     }
 
     fn parse_function_application(&mut self) -> ParseResult<'a, Expr<'a>> {
@@ -332,7 +332,7 @@ impl<'a> Parser<'a> {
     }
 }
 
-#[derive(Copy, Clone, PartialOrd, PartialEq)]
+#[derive(Copy, Clone, PartialOrd, PartialEq, Debug)]
 enum Precedence {
     Assignment,
     Lambda,
