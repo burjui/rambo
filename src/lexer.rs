@@ -201,6 +201,7 @@ impl<'a> Lexer<'a> {
         Lexeme::new(token, self.make_source(segment))
     }
 
+    // TODO comments
     fn skip_whitepace(&mut self) {
         while let Some(c) = self.last_char {
             if c.is_whitespace() {
@@ -226,6 +227,12 @@ impl<'a> Lexer<'a> {
             }
 
             self.is_first_char = false;
+        } else {
+            let end_offset = self.source_file.text.len();
+            if self.location.offset != end_offset {
+                self.location.offset = end_offset;
+                self.location.column_index += 1;
+            }
         }
         self.last_char = last_char.map(|(_, c)| c);
     }
