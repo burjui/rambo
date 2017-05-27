@@ -59,8 +59,6 @@ fn process(path: &Path) -> Result<(), Box<Error>> {
     let mut parser = Parser::new(lexer);
     let entities = parser.parse()?;
     println!(">> Parsed:\n{}", entities.iter().map(|x| format!("{:?}", x)).join("\n"));
-    let node_count: usize = entities.iter().map(Entity::node_count).sum();
-    println!(">> {} nodes", node_count);
     let stats = { parser.lexer_stats() };
     println!(">> {}, {} lines, {} lexemes", file_size_pretty(bom_length + stats.byte_count), stats.line_count, stats.lexeme_count);
     Ok(())
@@ -101,30 +99,6 @@ impl<'a> SourceFile<'a> {
         };
         Ok((result, bom_length))
     }
-}
-
-impl<'a> Entity<'a> {
-    fn node_count(&self) -> usize {
-        match self {
-            &Entity::Expr(ref expr) => expr.node_count(),
-            &Entity::Binding { ref value, .. } => value.node_count()
-        }
-    }
-}
-
-impl<'a> Expr<'a> {
-    fn node_count(&self) -> usize {
-        match self {
-            &Expr::Int {..} | &Expr::String(_) | &Expr::Id(_) => 1,
-            &Expr::Lambda { ref args, ref body } => sum_node_count(&mut args.iter()) + body.node_count(),
-            &Expr::Binary { ref left, ref right, .. } => left.node_count() + right.node_count(),
-            &Expr::Application { ref function, ref args } => function.node_count() + sum_node_count(&mut args.iter()),
-        }
-    }
-}
-
-fn sum_node_count(iterator: &mut Iterator<Item = &Expr>) -> usize {
-    iterator.map(Expr::node_count).sum()
 }
 
 fn print_usage(program: &str, opts: Options) {

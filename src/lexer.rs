@@ -4,7 +4,7 @@ use std::str::CharIndices;
 
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub enum Token {
-    EOF, Id, Number, String, LParen, RParen, Eq, EqEq, Lt, LtEq, Gt, GtEq, Lambda, Minus, Arrow, Plus, Star, Slash
+    EOF, Id, Number, String, LParen, RParen, Eq, EqEq, Lt, LtEq, Gt, GtEq, Lambda, Minus, Arrow, Plus, Star, Slash, Colon
 }
 
 #[derive(Copy, Clone)]
@@ -189,6 +189,7 @@ impl<'a> Lexer<'a> {
             .or_else(|| on!('<', Token::Lt, on!('=', Token::LtEq)))
             .or_else(|| on!('>', Token::Gt, on!('=', Token::GtEq)))
             .or_else(|| on!('→', Token::Arrow))
+            .or_else(|| on!(':', Token::Colon))
             .map(|token| self.new_lexeme(token)))
     }
 

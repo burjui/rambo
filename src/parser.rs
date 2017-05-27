@@ -4,6 +4,30 @@ use source::*;
 use std::error::Error;
 use itertools::Itertools;
 
+// TODO Consistent indentation (tabs -> spaces)
+
+// TODO impl Debug with parenthesis
+#[derive(PartialEq, Debug)]
+pub enum Type {
+    Number,
+    String,
+    Function {
+        args: Vec<Type>,
+        result: Box<Type>
+    }
+}
+
+pub struct Parameter<'a> {
+    pub name: Source<'a>,
+    pub type_: Type
+}
+
+impl<'a> Debug for Parameter<'a> {
+    fn fmt(&self, formatter: &mut Formatter) -> FmtResult {
+        write!(formatter, "({:?}: {:?})", self.name, self.type_)
+    }
+}
+
 pub enum BinaryOperation {
     Assign, Add, Subtract, Multiply, Divide
 }
@@ -35,7 +59,7 @@ pub enum Expr<'a> {
     String(Source<'a>),
     Id(Source<'a>),
     Lambda {
-        args: Vec<Expr<'a>>,
+        parameters: Vec<Parameter<'a>>,
         body: Box<Expr<'a>>
     },
     Binary {
@@ -45,7 +69,7 @@ pub enum Expr<'a> {
     },
     Application {
         function: Box<Expr<'a>>,
-        args: Box<Vec<Expr<'a>>>
+        args: Vec<Expr<'a>>
     }
 }
 
@@ -66,7 +90,7 @@ impl<'a> Expr<'a> {
         format!("{}{:?}{}", opening_parenthesis, subexpr, closing_parenthesis)
     }
 
-    fn format_list(&self, list: &[Expr]) -> String {
+    fn format_exprs(&self, list: &[Expr]) -> String {
         list.iter().map(|x| self.format(x)).join(" ")
     }
 }
@@ -76,12 +100,12 @@ impl<'a> Debug for Expr<'a> {
         match self {
             &Expr::Int(source) | &Expr::String(source) | &Expr::Id(source) =>
                 write!(formatter, "{:?}", source),
-            &Expr::Lambda { ref args, ref body } =>
-                write!(formatter, "λ {} → {}", self.format_list(args.as_slice()), self.format(body)),
+            &Expr::Lambda { ref parameters, ref body } =>
+                write!(formatter, "λ {} → {}", format_parameters(parameters.as_slice()), self.format(body)),
             &Expr::Binary { ref operation, ref left, ref right } =>
                 write!(formatter, "{} {:?} {}", self.format(left), operation, self.format(right)),
             &Expr::Application { ref function, ref args } =>
-                write!(formatter, "{} {}", self.format(function), self.format_list(args.as_slice())),
+                write!(formatter, "{} {}", self.format(function), self.format_exprs(args.as_slice())),
         }
     }
 }
@@ -110,6 +134,10 @@ pub struct Parser<'a> {
     lexeme: Lexeme<'a>
 }
 
+macro_rules! error {
+    ($self_: ident, $text: expr, $location: expr) => ($self_.error(line!(), $text, $location));
+}
+
 impl<'a> Parser<'a> {
     pub fn new(lexer: Lexer<'a>) -> Parser<'a> {
         let dummy_lexeme = Lexeme {
@@ -127,9 +155,9 @@ impl<'a> Parser<'a> {
         }
     }
 
-    pub fn parse(&mut self) -> ParseResult<'a, Box<Vec<Entity<'a>>>> {
+    pub fn parse(&mut self) -> ParseResult<'a, Vec<Entity<'a>>> {
         self.read_lexeme()?;
-        let mut entities = box(vec!());
+        let mut entities = vec![];
         while self.lexeme.token != Token::EOF {
             entities.push(
                 if self.lexeme.token == Token::Id && self.lexeme.text() == "let" {
@@ -186,7 +214,7 @@ impl<'a> Parser<'a> {
     fn parse_function_application(&mut self) -> ParseResult<'a, Expr<'a>> {
         let first_expr_line_index = self.lexeme.source.segment.start.line_index;
         let first_expr = self.parse_primary()?;
-        let mut args = box(vec!());
+        let mut args = vec![];
         while self.lexeme.token.can_be_expression_start() && self.lexeme.source.segment.start.line_index == first_expr_line_index {
             args.push(self.parse_primary()?)
         }
@@ -212,32 +240,17 @@ impl<'a> Parser<'a> {
             Token::String => Ok(Expr::String(primary.source)),
             Token::Lambda => self.parse_lambda(),
             Token::LParen => {
-                let expr = self.parse_expr();
-                match self.lexeme.token {
-                    Token::RParen => {
-                        self.read_lexeme()?;
-                        expr
-                    },
-                    _ => self.error(&format!("expected `)', found: {}", self.lexeme), &self.lexeme.source)
-                }
+                let expr = self.parse_expr()?;
+                self.expect(Token::RParen, ")")?;
+                Ok(expr)
             }
-            _ => self.error(&format!("expected an identifier, a literal or '(', not: {}", primary), &primary.source)
+            _ => error!(self, &format!("expected an identifier, a literal or '(', not: {}", primary), &primary.source)
         }
     }
 
     fn parse_binding(&mut self) -> ParseResult<'a, Entity<'a>> {
-        let name = self.lexeme;
-        if name.token != Token::Id {
-            return self.error(&format!("expected an identifier, found: {}", name), &name.source);
-        }
-        self.read_lexeme()?;
-
-        let equals = self.lexeme;
-        if equals.token != Token::Eq {
-            return self.error(&format!("expected `=', found: {}", equals), &equals.source);
-        }
-        self.read_lexeme()?;
-
+        let name = self.expect(Token::Id, "identifier")?;
+        self.expect(Token::Eq, "=")?;
         let value = self.parse_expr()?;
         Ok(Entity::Binding {
             name: name.source,
@@ -246,38 +259,73 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_lambda(&mut self) -> ParseResult<'a, Expr<'a>> {
-        let mut args = vec!();
-        while let Lexeme { token: Token::Id, source } = self.lexeme {
-            args.push(Expr::Id(source));
-            self.read_lexeme()?;
+        let mut parameters = vec![];
+        while self.lexeme.token == Token::LParen {
+            let parameter = self.parse_parameter()?;
+            parameters.push(parameter);
         }
-
-        let arrow = self.lexeme;
-        if arrow.token != Token::Arrow {
-            return self.error(&format!("expected an arrow, found: {}", arrow), &arrow.source);
+        if parameters.is_empty() {
+            error!(self, &format!("expected an argument list, found: {}", self.lexeme), &self.lexeme.source)
+        } else {
+            self.expect(Token::Arrow, "arrow")?;
+            let body = self.parse_expr()?;
+            Ok(Expr::Lambda {
+                parameters,
+                body: box(body)
+            })
         }
-        self.read_lexeme()?;
+    }
 
-        let body = self.parse_expr()?;
-        Ok(Expr::Lambda {
-            args,
-            body: box(body)
+    fn parse_parameter(&mut self) -> ParseResult<'a, Parameter<'a>> {
+        self.expect(Token::LParen, "(")?;
+        let Lexeme { source: name, .. } = self.expect(Token::Id, "identifier")?;
+        self.expect(Token::Colon, ":")?;
+        let type_ = self.parse_type()?;
+        self.expect(Token::RParen, ")")?;
+        Ok(Parameter {
+            name,
+            type_
         })
     }
 
-    fn read_lexeme(&mut self) -> Result<(), String> {
+    fn parse_type(&mut self) -> ParseResult<'a, Type> {
+        Ok(self.lexeme)
+            .and_then(|type_name| match (type_name.token, type_name.text()) {
+                (Token::Id, "num") => Ok(Type::Number),
+                (Token::Id, "str") => Ok(Type::String),
+                _ => Err((type_name))
+            })
+            .or_else(|type_name| error!(self, &format!("expected a type, found: {}", type_name), &type_name.source))
+            .and_then(|type_| self.read_lexeme().and(Ok(type_)))
+    }
+
+    fn expect(&mut self, token: Token, name: &str) -> ParseResult<'a, Lexeme<'a>> {
+        let lexeme = self.lexeme;
+        if lexeme.token != token {
+            let starts_with_a_letter = name.chars().next().into_iter().all(char::is_alphanumeric);
+            let (opening_quote, closing_quote) = if starts_with_a_letter { ("`", "'") } else { ("", "") };
+            error!(self, &format!("expected {} {}{}{}, found: {}",
+                                  article(name), opening_quote, name, closing_quote, lexeme), &lexeme.source)
+        } else {
+            self.read_lexeme()?;
+            Ok(lexeme)
+        }
+    }
+
+    fn read_lexeme(&mut self) -> ParseResult<'a, ()> {
         self.lexeme = self.lexer.read()?;
         Ok(())
     }
 
-    fn error<T>(&self, text: &str, source: &Source) -> ParseResult<'a, T> {
-        Err(self.format_error(text, source)).map_err(From::from)
+    fn error<T>(&self, line: u32, text: &str, source: &Source) -> ParseResult<'a, T> {
+        Err(self.format_error(line, text, source)).map_err(From::from)
     }
 
-    fn format_error(&self, text: &str, source: &Source) -> String {
-        format!("{}: {}", source, text)
+    fn format_error(&self, line: u32, text: &str, source: &Source) -> String {
+        format!("[{}] {}: {}", line, source, text)
     }
 
+    // TODO use Precedence instead
     const MIN_PRECEDENCE: u8 = 0;
     const MAX_PRECEDENCE: u8 = 2;
 }
@@ -334,4 +382,18 @@ impl Token {
             _ => false
         }
     }
+}
+
+fn format_parameters(list: &[Parameter]) -> String {
+    list.iter().map(|x| format_parameter(x)).join(" ")
+}
+
+fn format_parameter(parameter: &Parameter) -> String {
+    format!("({:?}: {:?})", parameter.name, parameter.type_)
+}
+
+fn article(word: &str) -> &str {
+    "aouie".chars()
+        .find(|&c| word.starts_with(c))
+        .map_or("a", |_| "an")
 }
