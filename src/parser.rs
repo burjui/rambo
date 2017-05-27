@@ -5,7 +5,7 @@ use std::error::Error;
 use itertools::Itertools;
 
 // TODO impl Debug with parenthesis
-#[derive(PartialEq, Debug)]
+#[derive(Clone, PartialEq, Debug)]
 pub enum Type {
     Number,
     String,
@@ -15,6 +15,7 @@ pub enum Type {
     }
 }
 
+#[derive(Clone)]
 pub struct Parameter<'a> {
     pub name: Source<'a>,
     pub type_: Type
@@ -26,6 +27,7 @@ impl<'a> Debug for Parameter<'a> {
     }
 }
 
+#[derive(Copy, Clone)]
 pub enum BinaryOperation {
     Assign, Add, Subtract, Multiply, Divide
 }
@@ -52,6 +54,7 @@ impl Debug for BinaryOperation {
     }
 }
 
+#[derive(Clone)]
 pub enum Expr<'a> {
     Int(Source<'a>),
     String(Source<'a>),
@@ -174,39 +177,44 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_expr(&mut self) -> ParseResult<'a, Expr<'a>> {
-        self.parse_binary(Parser::MIN_PRECEDENCE)
+        self.parse_binary(Precedence::Assignment)
     }
 
-    fn parse_binary(&mut self, precedence: u8) -> ParseResult<'a, Expr<'a>> {
-        if precedence > Parser::MAX_PRECEDENCE {
-            return self.parse_function_application()
-        }
-
-        let mut result = self.parse_binary(precedence + 1)?;
-        let first_lexeme_token = self.lexeme.token;
-        if !first_lexeme_token.is_binary_operator() {
-            return Ok(result)
-        }
-
-        let first_operator_precedence = first_lexeme_token.precedence();
-        if first_operator_precedence >= precedence {
-            loop {
-                let operator = self.lexeme.token;
-                if !operator.is_binary_operator() || operator.precedence() < first_operator_precedence {
-                    break
+    fn parse_binary(&mut self, precedence: Precedence) -> ParseResult<'a, Expr<'a>> {
+        match precedence.next_binary_precedence() {
+            None => self.parse_function_application(),
+            Some(next_precedence) => {
+                let mut result = self.parse_binary(next_precedence)?;
+                let first_lexeme_token = self.lexeme.token;
+                if !first_lexeme_token.is_binary_operator() {
+                    return Ok(result)
                 }
-                self.read_lexeme()?;
-                let operator_associativity_adjustment = if operator.is_left_associative() { 1 } else { 0 };
-                let right_operand = self.parse_binary(first_operator_precedence + operator_associativity_adjustment)?;
-                result = Expr::Binary {
-                    operation: operator.binary_operation(),
-                    left: box(result),
-                    right: box(right_operand)
+
+                let first_operator_precedence = first_lexeme_token.precedence();
+                if first_operator_precedence >= precedence {
+                    loop {
+                        let operator = self.lexeme.token;
+                        if !operator.is_binary_operator() || operator.precedence() < first_operator_precedence {
+                            break
+                        }
+                        self.read_lexeme()?;
+                        let right_precedence = Some(first_operator_precedence)
+                            .and_then(|p| if operator.is_left_associative() { p.next_binary_precedence() } else { Some(p) });
+                        let right_operand = match right_precedence {
+                            None => self.parse_function_application(),
+                            Some(p) => self.parse_binary(p)
+                        }?;
+                        result = Expr::Binary {
+                            operation: operator.binary_operation(),
+                            left: box(result),
+                            right: box(right_operand)
+                        }
+                    }
                 }
+
+                Ok(result)
             }
         }
-
-        Ok(result)
     }
 
     fn parse_function_application(&mut self) -> ParseResult<'a, Expr<'a>> {
@@ -322,13 +330,9 @@ impl<'a> Parser<'a> {
     fn format_error(&self, line: u32, text: &str, source: &Source) -> String {
         format!("[{}] {}: {}", line, source, text)
     }
-
-    // TODO use Precedence instead
-    const MIN_PRECEDENCE: u8 = 0;
-    const MAX_PRECEDENCE: u8 = 2;
 }
 
-#[derive(PartialOrd, PartialEq)]
+#[derive(Copy, Clone, PartialOrd, PartialEq)]
 enum Precedence {
     Assignment,
     Lambda,
@@ -336,6 +340,20 @@ enum Precedence {
     Multiplicative,
     Application,
     Primitive
+}
+
+impl Precedence {
+    fn next_binary_precedence(&self) -> Option<Precedence> {
+        let next_precedence = match *self {
+            Precedence::Assignment => Some(Precedence::Additive),
+            Precedence::Additive => Some(Precedence::Multiplicative),
+            _ => None
+        };
+        if let Some(next_precedence) = next_precedence {
+            assert!(next_precedence > *self)
+        }
+        next_precedence
+    }
 }
 
 impl Token {
@@ -346,11 +364,11 @@ impl Token {
         }
     }
 
-    fn precedence(self) -> u8 {
+    fn precedence(self) -> Precedence {
         match self {
-            Token::Eq => 0,
-            Token::Plus | Token::Minus => 1,
-            Token::Star | Token::Slash => 2,
+            Token::Eq => Precedence::Assignment,
+            Token::Plus | Token::Minus => Precedence::Additive,
+            Token::Star | Token::Slash => Precedence::Multiplicative,
             _ => unreachable!()
         }
     }
