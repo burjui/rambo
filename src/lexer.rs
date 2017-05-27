@@ -137,7 +137,7 @@ impl<'a> Lexer<'a> {
     fn read_string(&mut self) -> LexerResult<'a, Option<Lexeme<'a>>> {
         match self.last_char {
             Some('"') => {
-            	self.read_char();
+                self.read_char();
 
                 loop {
                     match self.last_char {

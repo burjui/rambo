@@ -4,8 +4,6 @@ use source::*;
 use std::error::Error;
 use itertools::Itertools;
 
-// TODO Consistent indentation (tabs -> spaces)
-
 // TODO impl Debug with parenthesis
 #[derive(PartialEq, Debug)]
 pub enum Type {
