@@ -9,8 +9,7 @@ pub struct Source<'a> {
 
 pub struct SourceFile<'a> {
     pub path: &'a Path,
-    pub text: &'a str,
-    pub line_offsets: Vec<usize>
+    pub text: &'a str
 }
 
 #[derive(Copy, Clone)]

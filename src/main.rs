@@ -6,6 +6,11 @@ extern crate getopts;
 extern crate itertools;
 extern crate num;
 
+mod source;
+mod lexer;
+mod parser;
+mod eval;
+
 use getopts::Options;
 use std::env;
 use std::path::Path;
@@ -14,24 +19,17 @@ use std::io::Read;
 use std::error::Error;
 use itertools::Itertools;
 
-mod source;
-mod lexer;
-mod parser;
-
 use source::*;
 use lexer::Lexer;
 use parser::*;
+use eval::*;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
     let mut opts = Options::new();
     opts.optflag("h", "help", "print this help menu");
 
-    let matches = match opts.parse(&args[1..]) {
-        Ok(m) => { m }
-        Err(f) => { panic!(f.to_string()) }
-    };
-
+    let matches = opts.parse(&args[1..]).unwrap();
     if matches.opt_present("h") {
         print_usage(&args[0], opts);
     } else if matches.free.is_empty() {
@@ -50,9 +48,8 @@ fn process(path: &Path) -> Result<(), Box<Error>> {
     println!(">> Processing {}...", path.to_string_lossy());
     let text = read_file(path)?;
     let (source_file, bom_length) = SourceFile {
-        path: path,
-        text: &text,
-        line_offsets: vec![]
+        path: &path,
+        text: &text
     }.skip_byte_order_mark()?;
     let lexer = Lexer::new(&source_file);
     println!("{:?}", lexer);
@@ -61,6 +58,9 @@ fn process(path: &Path) -> Result<(), Box<Error>> {
     println!(">> Parsed:\n{}", entities.iter().map(|x| format!("{:?}", x)).join("\n"));
     let stats = { parser.lexer_stats() };
     println!(">> {}, {} lines, {} lexemes", file_size_pretty(bom_length + stats.byte_count), stats.line_count, stats.lexeme_count);
+    let mut evaluator = Evaluator::new();
+    let evalue = evaluator.eval_module(entities.as_slice())?;
+    println!(">> Evaluated: {:?}", evalue);
     Ok(())
 }
 
@@ -94,8 +94,7 @@ impl<'a> SourceFile<'a> {
             )?;
         let result = SourceFile {
             path: self.path,
-            text: &self.text[bom_length..],
-            line_offsets: self.line_offsets.clone()
+            text: &self.text[bom_length..]
         };
         Ok((result, bom_length))
     }

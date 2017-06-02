@@ -10,7 +10,7 @@ pub enum Type {
     Number,
     String,
     Function {
-        args: Vec<Type>,
+        parameters: Vec<Type>,
         result: Box<Type>
     }
 }
@@ -70,7 +70,7 @@ pub enum Expr<'a> {
     },
     Application {
         function: Box<Expr<'a>>,
-        args: Vec<Expr<'a>>
+        arguments: Vec<Expr<'a>>
     }
 }
 
@@ -105,8 +105,8 @@ impl<'a> Debug for Expr<'a> {
                 write!(formatter, "λ {} → {}", format_parameters(parameters.as_slice()), self.format(body)),
             &Expr::Binary { ref operation, ref left, ref right } =>
                 write!(formatter, "{} {:?} {}", self.format(left), operation, self.format(right)),
-            &Expr::Application { ref function, ref args } =>
-                write!(formatter, "{} {}", self.format(function), self.format_exprs(args.as_slice())),
+            &Expr::Application { ref function, ref arguments } =>
+                write!(formatter, "{} {}", self.format(function), self.format_exprs(arguments.as_slice())),
         }
     }
 }
@@ -181,7 +181,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_binary(&mut self, precedence: Precedence) -> ParseResult<'a, Expr<'a>> {
-        let mut parse_next = |self_: &mut Parser<'a>, precedence: Option<Precedence>| {
+        let parse_next = |self_: &mut Parser<'a>, precedence: Option<Precedence>| {
             if let Some(precedence) = precedence {
                 self_.parse_binary(precedence)
             } else {
@@ -220,18 +220,18 @@ impl<'a> Parser<'a> {
     fn parse_function_application(&mut self) -> ParseResult<'a, Expr<'a>> {
         let first_expr_line_index = self.lexeme.source.segment.start.line_index;
         let first_expr = self.parse_primary()?;
-        let mut args = vec![];
+        let mut arguments = vec![];
         while self.lexeme.token.can_be_expression_start() && self.lexeme.source.segment.start.line_index == first_expr_line_index {
-            args.push(self.parse_primary()?)
+            arguments.push(self.parse_primary()?)
         }
 
         let result =
-            if args.is_empty() {
+            if arguments.is_empty() {
                 first_expr
             } else {
                 Expr::Application {
                     function: box(first_expr),
-                    args
+                    arguments: arguments
                 }
             };
         Ok(result)
