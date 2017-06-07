@@ -42,13 +42,12 @@ impl<'a> Display for Lexeme<'a> {
 
 #[derive(Copy, Clone)]
 pub struct LexerStats {
-    pub byte_count: usize,
     pub line_count: usize,
     pub lexeme_count: usize,
 }
 
 pub struct Lexer<'a> {
-    source_file: &'a SourceFile<'a>,
+    source_file: &'a SourceFile,
     source_iterator: CharIndices<'a>,
     location: Location,
     lexeme_start: Location,
@@ -60,17 +59,16 @@ pub struct Lexer<'a> {
 pub type LexerResult<'a, T> = Result<T, String>;
 
 impl<'a> Lexer<'a> {
-    pub fn new(source_file: &'a SourceFile<'a>) -> Lexer<'a> {
+    pub fn new(source_file: &'a SourceFile) -> Lexer<'a> {
         let starting_location = Location::new();
         let mut lexer = Lexer {
             source_file,
-            source_iterator: source_file.text.char_indices(),
+            source_iterator: source_file.text().char_indices(),
             location: starting_location,
             lexeme_start: starting_location,
             last_char: None,
             is_first_char: true,
             stats: LexerStats {
-                byte_count: 0,
                 line_count: 1,
                 lexeme_count: 0
             }
@@ -221,7 +219,6 @@ impl<'a> Lexer<'a> {
         let last_char = self.source_iterator.next();
         if let Some((offset, c)) = last_char {
             self.location.offset = offset;
-            self.stats.byte_count += c.len_utf8();
 
             if c == '\n' {
                 self.location.line_index += 1;
@@ -233,7 +230,7 @@ impl<'a> Lexer<'a> {
 
             self.is_first_char = false;
         } else {
-            let end_offset = self.source_file.text.len();
+            let end_offset = self.source_file.text().len();
             if self.location.offset != end_offset {
                 self.location.offset = end_offset;
                 self.location.column_index += 1;
@@ -246,6 +243,6 @@ impl<'a> Lexer<'a> {
 impl<'a> Debug for Lexer<'a> {
     fn fmt(&self, formatter: &mut Formatter) -> FmtResult {
         formatter.write_str(
-            &format!("Lexer{{ source: {{ {:?}, {} bytes }}, location: {}}}", self.source_file.path, self.source_file.text.len(), self.location))
+            &format!("Lexer{{ source: {{ {:?}, {} bytes }}, location: {}}}", self.source_file.path(), self.source_file.size, self.location))
     }
 }

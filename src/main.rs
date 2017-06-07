@@ -17,8 +17,6 @@ mod semantics;
 use getopts::Options;
 use std::env;
 use std::path::Path;
-use std::fs::File;
-use std::io::Read;
 use std::error::Error;
 use itertools::Itertools;
 
@@ -50,61 +48,21 @@ fn main() {
 
 fn process(path: &Path) -> Result<(), Box<Error>> {
     println!(">> Processing {}...", path.to_string_lossy());
-    let text = read_file(path)?;
-    let (source_file, bom_length) = SourceFile {
-        path: &path,
-        text: &text
-    }.skip_byte_order_mark()?;
+    let source_file = SourceFile::new(path)?;
     let lexer = Lexer::new(&source_file);
     println!("{:?}", lexer);
     let mut parser = Parser::new(lexer);
     let entities = parser.parse()?;
     println!(">> AST:\n{}", entities.iter().map(|x| format!("{:?}", x)).join("\n"));
     let stats = { parser.lexer_stats() };
-    println!(">> {}, {} lines, {} lexemes", file_size_pretty(bom_length + stats.byte_count), stats.line_count, stats.lexeme_count);
+    println!(">> {}, {} lines, {} lexemes", file_size_pretty(source_file.size), stats.line_count, stats.lexeme_count);
     let semantics = Semantics::new();
     let typed_entities = semantics.check_module(entities.as_slice())?;
-    println!(">> Semantic check:\n{}", typed_entities.iter().map(|x| format!("# {:?}", x)).join("\n"));
+    println!(">> Semantic check:\n{}", typed_entities.iter().map(|x| format!("{:?}", x)).join("\n"));
     let mut evaluator = Evaluator::new();
     let evalue = evaluator.eval_module(typed_entities.as_slice())?;
     println!(">> Evaluated: {:?}", evalue);
     Ok(())
-}
-
-fn read_file(path: &Path) -> Result<String, Box<Error>> {
-    let mut file = File::open(&path)?;
-    let mut text = String::new();
-    file.read_to_string(&mut text)?;
-    Ok(text)
-}
-
-impl<'a> SourceFile<'a> {
-    fn skip_byte_order_mark(&self) -> Result<(SourceFile<'a>, usize), String> {
-        const UTF8_BOM: [u8; 3] = [0xEF, 0xBB, 0xBF];
-        const BOMS: &[(&[u8], &str)] = &[
-            (&[0x00, 0x00, 0xFE, 0xFF], "UTF-32BE"),
-            (&[0xFF, 0xFE, 0x00, 0x00], "UTF-32LE"),
-            (&[0xFF, 0xFE], "UTF-16LE"),
-            (&[0xFE, 0xFF], "UTF-16BE"),
-            (&UTF8_BOM, "UTF8")
-        ];
-        let text_bytes = self.text.as_bytes();
-        let bom_length = BOMS.iter()
-            .find(|&&(bom, _)| text_bytes.starts_with(bom))
-            .map_or(Ok(0), |&(bom, bom_name)|
-                if bom == UTF8_BOM {
-                    Ok(bom.len())
-                } else {
-                    Err(format!("{:?}: this file has a {} byte order mark at the beginning, \
-                                but only UTF-8 encoding is supported", self.path, bom_name))
-                }
-            )?;
-        let result = SourceFile {
-            path: self.path,
-            text: &self.text[bom_length..]
-        };
-        Ok((result, bom_length))
-    }
 }
 
 fn print_usage(program: &str, opts: Options) {
