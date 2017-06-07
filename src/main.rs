@@ -6,10 +6,13 @@ extern crate getopts;
 extern crate itertools;
 extern crate num;
 
+#[macro_use]
+mod utils;
 mod source;
 mod lexer;
 mod parser;
 mod eval;
+mod semantics;
 
 use getopts::Options;
 use std::env;
@@ -23,6 +26,7 @@ use source::*;
 use lexer::Lexer;
 use parser::*;
 use eval::*;
+use semantics::*;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -55,11 +59,14 @@ fn process(path: &Path) -> Result<(), Box<Error>> {
     println!("{:?}", lexer);
     let mut parser = Parser::new(lexer);
     let entities = parser.parse()?;
-    println!(">> Parsed:\n{}", entities.iter().map(|x| format!("{:?}", x)).join("\n"));
+    println!(">> AST:\n{}", entities.iter().map(|x| format!("{:?}", x)).join("\n"));
     let stats = { parser.lexer_stats() };
     println!(">> {}, {} lines, {} lexemes", file_size_pretty(bom_length + stats.byte_count), stats.line_count, stats.lexeme_count);
+    let semantics = Semantics::new();
+    let typed_entities = semantics.check_module(entities.as_slice())?;
+    println!(">> Semantic check:\n{}", typed_entities.iter().map(|x| format!("# {:?}", x)).join("\n"));
     let mut evaluator = Evaluator::new();
-    let evalue = evaluator.eval_module(entities.as_slice())?;
+    let evalue = evaluator.eval_module(typed_entities.as_slice())?;
     println!(">> Evaluated: {:?}", evalue);
     Ok(())
 }

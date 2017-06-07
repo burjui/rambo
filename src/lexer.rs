@@ -2,9 +2,14 @@ use source::*;
 use std::fmt::{Display, Debug, Formatter, Result as FmtResult};
 use std::str::CharIndices;
 
+
+// TODO construct line offsets by scanning the source code for newlines and ignoring empty lines,
+// TODO simplify skip_whitepace()
+// TODO reduce Location to offset only and compute line and column indices based on that
+
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub enum Token {
-    EOF, Id, Number, String, LParen, RParen, Eq, EqEq, Lt, LtEq, Gt, GtEq, Lambda, Minus, Arrow, Plus, Star, Slash, Colon
+    EOF, Id, Int, String, LParen, RParen, Eq, EqEq, Lt, LtEq, Gt, GtEq, Lambda, Minus, Arrow, Plus, Star, Slash, Colon
 }
 
 #[derive(Copy, Clone)]
@@ -79,7 +84,7 @@ impl<'a> Lexer<'a> {
         self.lexeme_start = self.location;
         match self.last_char {
             Some(c) => {
-                for matcher in &[ Lexer::read_number, Lexer::read_operator, Lexer::read_string, Lexer::read_id ] {
+                for matcher in &[ Lexer::read_int, Lexer::read_operator, Lexer::read_string, Lexer::read_id ] {
                     if let Ok(Some(lexeme)) = matcher(self) {
                         self.stats.lexeme_count += 1;
                         return Ok(lexeme)
@@ -119,7 +124,7 @@ impl<'a> Lexer<'a> {
         })
     }
 
-    fn read_number(&mut self) -> LexerResult<'a, Option<Lexeme<'a>>> {
+    fn read_int(&mut self) -> LexerResult<'a, Option<Lexeme<'a>>> {
         Ok(match self.last_char {
             Some(c) if c.is_numeric() => {
                 loop {
@@ -128,7 +133,7 @@ impl<'a> Lexer<'a> {
                         _ => break
                     }
                 }
-                Some(self.new_lexeme(Token::Number))
+                Some(self.new_lexeme(Token::Int))
             },
             _ => None
         })

@@ -1,9 +1,7 @@
-﻿let f = \ (a: num) (b: num) -> a + b
-let a = 1
+﻿let a = 1
 let b = 2
-let c = 3
-let d = c - 1
-let s = "тест юникода"
-a = b
+(a + 1) * (b - 1)
+let f = \ (a: num) (b: num) -> a + b
 let g = λ (a: num) (b: num) → f a b + 1
+"x" + "y"
 g 1 2

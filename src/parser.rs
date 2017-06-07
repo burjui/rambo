@@ -1,19 +1,10 @@
 use std::fmt::{Debug, Formatter, Write, Result as FmtResult};
-use lexer::*;
-use source::*;
 use std::error::Error;
 use itertools::Itertools;
 
-// TODO impl Debug with parenthesis
-#[derive(Clone, PartialEq, Debug)]
-pub enum Type {
-    Number,
-    String,
-    Function {
-        parameters: Vec<Type>,
-        result: Box<Type>
-    }
-}
+use lexer::*;
+use source::*;
+use semantics::*;
 
 #[derive(Clone)]
 pub struct Parameter<'a> {
@@ -55,6 +46,7 @@ impl Debug for BinaryOperation {
 }
 
 #[derive(Clone)]
+//#[derive(Debug)]
 pub enum Expr<'a> {
     Int(Source<'a>),
     String(Source<'a>),
@@ -71,6 +63,21 @@ pub enum Expr<'a> {
     Application {
         function: Box<Expr<'a>>,
         arguments: Vec<Expr<'a>>
+    }
+}
+
+impl<'a> Debug for Expr<'a> {
+    fn fmt(&self, formatter: &mut Formatter) -> FmtResult {
+        match self {
+            &Expr::Int(source) | &Expr::String(source) | &Expr::Id(source) =>
+                write!(formatter, "{:?}", source),
+            &Expr::Lambda { ref parameters, ref body } =>
+                write!(formatter, "λ {} → {}", format_parameters(parameters.as_slice()), self.format(body)),
+            &Expr::Binary { ref operation, ref left, ref right } =>
+                write!(formatter, "{} {:?} {}", self.format(left), operation, self.format(right)),
+            &Expr::Application { ref function, ref arguments } =>
+                write!(formatter, "{} {}", self.format(function), self.format_exprs(arguments.as_slice())),
+        }
     }
 }
 
@@ -93,21 +100,6 @@ impl<'a> Expr<'a> {
 
     fn format_exprs(&self, list: &[Expr]) -> String {
         list.iter().map(|x| self.format(x)).join(" ")
-    }
-}
-
-impl<'a> Debug for Expr<'a> {
-    fn fmt(&self, formatter: &mut Formatter) -> FmtResult {
-        match self {
-            &Expr::Int(source) | &Expr::String(source) | &Expr::Id(source) =>
-                write!(formatter, "{:?}", source),
-            &Expr::Lambda { ref parameters, ref body } =>
-                write!(formatter, "λ {} → {}", format_parameters(parameters.as_slice()), self.format(body)),
-            &Expr::Binary { ref operation, ref left, ref right } =>
-                write!(formatter, "{} {:?} {}", self.format(left), operation, self.format(right)),
-            &Expr::Application { ref function, ref arguments } =>
-                write!(formatter, "{} {}", self.format(function), self.format_exprs(arguments.as_slice())),
-        }
     }
 }
 
@@ -242,7 +234,7 @@ impl<'a> Parser<'a> {
         self.read_lexeme()?;
         match primary.token {
             Token::Id => Ok(Expr::Id(primary.source)),
-            Token::Number => Ok(Expr::Int(primary.source)),
+            Token::Int => Ok(Expr::Int(primary.source)),
             Token::String => Ok(Expr::String(primary.source)),
             Token::Lambda => self.parse_lambda(),
             Token::LParen => {
@@ -297,7 +289,7 @@ impl<'a> Parser<'a> {
     fn parse_type(&mut self) -> ParseResult<'a, Type> {
         Ok(self.lexeme)
             .and_then(|type_name| match (type_name.token, type_name.text()) {
-                (Token::Id, "num") => Ok(Type::Number),
+                (Token::Id, "num") => Ok(Type::Int),
                 (Token::Id, "str") => Ok(Type::String),
                 _ => Err((type_name))
             })
@@ -394,7 +386,7 @@ impl Token {
 
     fn can_be_expression_start(self) -> bool {
         match self {
-            Token::Id | Token::Number | Token::String | Token::LParen | Token::Lambda => true,
+            Token::Id | Token::Int | Token::String | Token::LParen | Token::Lambda => true,
             _ => false
         }
     }
