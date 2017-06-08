@@ -48,14 +48,15 @@ fn main() {
 
 fn process(path: &Path) -> Result<(), Box<Error>> {
     println!(">> Processing {}...", path.to_string_lossy());
-    let source_file = SourceFile::new(path)?;
-    let lexer = Lexer::new(&source_file);
+    let source_code = SourceFile::read(path)?;
+    let file = SourceFile::new(&source_code, path)?;
+    let lexer = Lexer::new(&file);
     println!("{:?}", lexer);
     let mut parser = Parser::new(lexer);
     let entities = parser.parse()?;
     println!(">> AST:\n{}", entities.iter().map(|x| format!("{:?}", x)).join("\n"));
     let stats = { parser.lexer_stats() };
-    println!(">> {}, {} lines, {} lexemes", file_size_pretty(source_file.size), stats.line_count, stats.lexeme_count);
+    println!(">> {}, {} lines, {} lexemes", file_size_pretty(source_code.len()), file.lines.len(), stats.lexeme_count);
     let semantics = Semantics::new();
     let typed_entities = semantics.check_module(entities.as_slice())?;
     println!(">> Semantic check:\n{}", typed_entities.iter().map(|x| format!("{:?}", x)).join("\n"));

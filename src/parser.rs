@@ -133,18 +133,10 @@ macro_rules! error {
 
 impl<'a> Parser<'a> {
     pub fn new(lexer: Lexer<'a>) -> Parser<'a> {
-        let dummy_lexeme = Lexeme {
-            token: Token::EOF,
-            source: lexer.make_source(
-                Segment {
-                    start: Location::new(),
-                    end: Location::new()
-                }
-            )
-        };
+        let eof_lexeme = lexer.eof_lexeme;
         Parser {
             lexer,
-            lexeme: dummy_lexeme
+            lexeme: eof_lexeme
         }
     }
 
@@ -210,10 +202,10 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_function_application(&mut self) -> ParseResult<'a, Expr<'a>> {
-        let first_expr_line_index = self.lexeme.source.segment.start.line_index;
+        let first_expr_line_index = self.lexeme.source.start.line;
         let first_expr = self.parse_primary()?;
         let mut arguments = vec![];
-        while self.lexeme.token.can_be_expression_start() && self.lexeme.source.segment.start.line_index == first_expr_line_index {
+        while self.lexeme.token.can_be_expression_start() && self.lexeme.source.start.line == first_expr_line_index {
             arguments.push(self.parse_primary()?)
         }
 
