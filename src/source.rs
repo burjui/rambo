@@ -27,6 +27,24 @@ pub struct Source<'a> {
     pub range: Range
 }
 
+impl<'a> Source<'a> {
+    pub fn text(&self) -> &'a str {
+        &self.file.text[self.range.start .. self.range.end]
+    }
+}
+
+impl<'a> Display for Source<'a> {
+    fn fmt(&self, formatter: &mut Formatter) -> FmtResult {
+        write!(formatter, "{:?}({:?})", self.file.path.to_string_lossy(), self.file.position(self.range.start).unwrap())
+    }
+}
+
+impl<'a> Debug for Source<'a> {
+    fn fmt(&self, formatter: &mut Formatter) -> FmtResult {
+        formatter.write_str(self.text())
+    }
+}
+
 pub struct SourceFile<'a> {
     pub path: &'a Path,
     pub text: &'a str,
@@ -103,23 +121,5 @@ impl<'a> SourceFile<'a> {
             }
         }
         lines
-    }
-}
-
-impl<'a> Source<'a> {
-    pub fn text(&self) -> &'a str {
-        &self.file.text[self.range.start .. self.range.end]
-    }
-}
-
-impl<'a> Display for Source<'a> {
-    fn fmt(&self, formatter: &mut Formatter) -> FmtResult {
-        write!(formatter, "{:?}({:?})", self.file.path.to_string_lossy(), self.file.position(self.range.start).unwrap())
-    }
-}
-
-impl<'a> Debug for Source<'a> {
-    fn fmt(&self, formatter: &mut Formatter) -> FmtResult {
-        formatter.write_str(self.text())
     }
 }

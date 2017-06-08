@@ -1,7 +1,8 @@
 use source::*;
 use std::fmt::{Display, Debug, Formatter, Result as FmtResult};
-use std::str::CharIndices;
 use std::error::Error;
+use std::iter::once;
+use itertools::Itertools;
 
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub enum Token {
@@ -41,19 +42,20 @@ pub struct LexerStats {
 pub struct Lexer<'a> {
     pub eof_lexeme: Lexeme<'a>,
     file: &'a SourceFile<'a>,
-    source_iterator: CharIndices<'a>,
+    source_iterator: Box<Iterator<Item = ((usize, char), (usize, char))> + 'a>,
     lexeme_offset: usize,
     lexeme_line: usize,
     current_offset: usize,
     current_line: usize,
-    last_char: Option<char>,
+    current_character: Option<char>,
+    next_character: Option<char>,
     stats: LexerStats
 }
 
 pub type LexerResult<'a, T> = Result<T, Box<Error>>;
 
 impl<'a> Lexer<'a> {
-    pub fn new(file: &'a SourceFile) -> Lexer<'a> {
+    pub fn new(file: &'a SourceFile<'a>) -> Lexer<'a> {
         let eof_offset = file.text.len();
         let eof_lexeme = Lexeme {
             token: Token::EOF,
@@ -65,14 +67,19 @@ impl<'a> Lexer<'a> {
                 }
             }
         };
+        let source_iterator = box(file.text
+            .char_indices()
+            .chain(once((eof_offset, '\0')))
+            .tuple_windows::<(_, _)>());
         let mut lexer = Lexer {
             file,
-            source_iterator: file.text.char_indices(),
+            source_iterator,
             lexeme_offset: 0,
             lexeme_line: 0,
             current_offset: 0,
             current_line: 0,
-            last_char: None,
+            current_character: None,
+            next_character: None,
             stats: LexerStats {
                 lexeme_count: 0
             },
@@ -84,10 +91,10 @@ impl<'a> Lexer<'a> {
 
     /// Returns (Lexeme, line) pair
     pub fn read(&mut self) -> LexerResult<'a, (Lexeme<'a>, usize)> {
-        self.skip_whitepace();
+        self.skip_whitepace()?;
         self.lexeme_offset = self.current_offset;
         self.lexeme_line = self.current_line;
-        match self.last_char {
+        match self.current_character {
             Some(c) => {
                 for matcher in &[ Lexer::read_int, Lexer::read_operator, Lexer::read_string, Lexer::read_id ] {
                     if let Some(lexeme) = matcher(self)? {
@@ -107,10 +114,10 @@ impl<'a> Lexer<'a> {
     }
 
     fn read_id(&mut self) -> LexerResult<'a, Option<Lexeme<'a>>> {
-        Ok(match self.last_char {
+        Ok(match self.current_character {
             Some(c) if c.is_alphabetic() => {
                 self.read_char();
-                while let Some(c) = self.last_char {
+                while let Some(c) = self.current_character {
                     if c.is_alphanumeric() || c == '_' {
                         self.read_char()
                     } else {
@@ -124,10 +131,10 @@ impl<'a> Lexer<'a> {
     }
 
     fn read_int(&mut self) -> LexerResult<'a, Option<Lexeme<'a>>> {
-        Ok(match self.last_char {
+        Ok(match self.current_character {
             Some(c) if c.is_numeric() => {
                 loop {
-                    match self.last_char {
+                    match self.current_character {
                         Some(c) if c.is_numeric() => self.read_char(),
                         _ => break
                     }
@@ -139,19 +146,19 @@ impl<'a> Lexer<'a> {
     }
 
     fn read_string(&mut self) -> LexerResult<'a, Option<Lexeme<'a>>> {
-        match self.last_char {
+        match self.current_character {
             Some('"') => {
                 self.read_char();
 
                 loop {
-                    match self.last_char {
+                    match self.current_character {
                         Some('"') => break,
                         Some(_) => self.read_char(),
                         None => break
                     }
                 }
 
-                match self.last_char {
+                match self.current_character {
                     Some('"') => {
                         self.read_char();
                         Ok(Some(self.new_lexeme(Token::String)))
@@ -171,7 +178,7 @@ impl<'a> Lexer<'a> {
     fn read_operator(&mut self) -> LexerResult<'a, Option<Lexeme<'a>>> {
         macro_rules! on {
             ($char: tt, $token: expr, $handler: expr) => (
-                match self.last_char {
+                match self.current_character {
                     Some($char) => {
                         self.read_char();
                         $handler.or(Some($token))
@@ -212,27 +219,61 @@ impl<'a> Lexer<'a> {
     }
 
     // TODO comments
-    fn skip_whitepace(&mut self) {
-        while let Some(c) = self.last_char {
+    fn skip_whitepace(&mut self) -> LexerResult<()> {
+        while let Some(c) = self.current_character {
             if c.is_whitespace() {
                 self.read_char()
+            } else if let (Some('/'), Some('*')) = (self.current_character, self.next_character) {
+                self.skip_comment()?
             } else {
                 break
             }
         }
+        Ok(())
+    }
+
+    fn skip_comment(&mut self) -> LexerResult<()> {
+        let comment_start = self.current_offset;
+        self.read_char();
+        self.read_char();
+        const TERMINATOR: (char, char) = ('*', '/');
+        while let Some(chars) = self.current_chars() {
+            if chars == TERMINATOR {
+                break
+            } else {
+                self.read_char();
+            }
+        }
+        let x = self.current_chars();
+        if self.current_chars() == Some(TERMINATOR) {
+            self.read_char();
+            self.read_char();
+        } else {
+            return error!("{}({:?}): unterminated comment starting at {:?}",
+            self.file.path.to_string_lossy(),
+            self.file.position(self.current_offset)?,
+            self.file.position(comment_start)?);
+        }
+        Ok(())
+    }
+
+    fn current_chars(&self) -> Option<(char, char)> {
+        self.current_character.into_iter().zip(self.next_character.into_iter()).next()
     }
 
     fn read_char(&mut self) {
-        self.last_char = if let Some((offset, c)) = self.source_iterator.next() {
+        if let Some(((offset, character), (_, next_character))) = self.source_iterator.next() {
             self.current_offset = offset;
             if offset >= self.file.lines[self.current_line].end {
                 self.current_line += 1;
             }
-            Some(c)
+            self.current_character = Some(character);
+            self.next_character = Some(next_character);
         } else {
             self.current_offset = self.file.text.len();
-            None
-        };
+            self.current_character = None;
+            self.next_character = None;
+        }
     }
 }
 
