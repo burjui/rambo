@@ -125,7 +125,8 @@ type ParseResult<'a, T> = Result<T, Box<Error>>;
 pub struct Parser<'a> {
     lexer: Lexer<'a>,
     lexeme: Lexeme<'a>,
-    lexeme_line: usize
+    lexeme_line: usize,
+    previous_lexeme_line: usize
 }
 
 macro_rules! error {
@@ -138,7 +139,8 @@ impl<'a> Parser<'a> {
         Parser {
             lexer,
             lexeme: eof_lexeme,
-            lexeme_line: 0
+            lexeme_line: 0,
+            previous_lexeme_line: 0
         }
     }
 
@@ -177,7 +179,7 @@ impl<'a> Parser<'a> {
 
         let mut result = parse_next(self, precedence.next_binary_precedence())?;
         let first_lexeme_token = self.lexeme.token;
-        if !first_lexeme_token.is_binary_operator() {
+        if self.previous_lexeme_line != self.lexeme_line || !first_lexeme_token.is_binary_operator() {
             return Ok(result)
         }
 
@@ -208,7 +210,7 @@ impl<'a> Parser<'a> {
         let first_expr = self.parse_primary()?;
         let mut arguments = vec![];
         while self.lexeme.token.can_be_expression_start() && self.lexeme_line == first_expr_line_index {
-            arguments.push(self.parse_primary()?)
+            arguments.push(self.parse_primary()?);
         }
 
         let result =
@@ -236,7 +238,7 @@ impl<'a> Parser<'a> {
                 self.expect(Token::RParen, ")")?;
                 Ok(expr)
             }
-            _ => error!(self, &format!("expected an identifier, a literal or '(', not: {}", primary), &primary.source)
+            _ => error!(self, &format!("expected an expression, found: {}", primary), &primary.source)
         }
     }
 
@@ -307,6 +309,7 @@ impl<'a> Parser<'a> {
     fn read_lexeme(&mut self) -> ParseResult<'a, ()> {
         let (lexeme, line) = self.lexer.read()?;
         self.lexeme = lexeme;
+        self.previous_lexeme_line = self.lexeme_line;
         self.lexeme_line = line;
         Ok(())
     }
