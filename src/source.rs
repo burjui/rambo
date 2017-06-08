@@ -5,32 +5,32 @@ use std::iter::once;
 
 #[derive(Copy, Clone)]
 pub struct Position {
-    pub offset: usize,
-    pub line: usize
+    pub line: usize,
+    pub column: usize
 }
 
 impl Debug for Position {
     fn fmt(&self, formatter: &mut Formatter) -> FmtResult {
-        formatter.write_str(&format!("[{}, L{}]", self.offset, self.line + 1))
+        formatter.write_str(&format!("{}:{}", self.line + 1, self.column + 1))
     }
+}
+
+#[derive(Copy, Clone)]
+pub struct Range {
+    pub start: usize,
+    pub end: usize
 }
 
 #[derive(Copy, Clone)]
 pub struct Source<'a> {
     pub file: &'a SourceFile<'a>,
-    pub start: Position,
-    pub end: Position
-}
-
-pub struct Line {
-    pub start: usize,
-    pub end: usize,
+    pub range: Range
 }
 
 pub struct SourceFile<'a> {
     pub path: &'a Path,
     pub text: &'a str,
-    pub lines: Vec<Line>
+    pub lines: Vec<Range>,
 }
 
 impl<'a> SourceFile<'a> {
@@ -53,8 +53,16 @@ impl<'a> SourceFile<'a> {
         })
     }
 
-    pub fn column(&self, position: &Position) -> usize {
-        position.offset - self.lines[position.line].start
+    pub fn position(&self, offset: usize) -> Result<Position, Box<Error>> {
+        for (index, line) in self.lines.iter().enumerate() {
+            if offset <= line.end {
+                return Ok(Position {
+                    line: index,
+                    column: offset - line.start
+                })
+            }
+        }
+        error!("{:?}: offset {} is out of range", self.path.to_string_lossy(), offset)
     }
 
     fn skip_byte_order_mark(text: &'a str, path: &Path) -> Result<&'a str, Box<Error>> {
@@ -80,16 +88,17 @@ impl<'a> SourceFile<'a> {
         Ok(&text[bom_length..])
     }
 
-    fn collect_lines(text: &str) -> Vec<Line> {
+    fn collect_lines(text: &str) -> Vec<Range> {
         let mut lines = vec![];
         let mut line_start = 0;
         let eof = (text.len(), '\n');
         for (offset, character) in text.char_indices().chain(once(eof)) {
             if character == '\n' {
-                lines.push(Line {
+                let range = Range {
                     start: line_start,
                     end: offset
-                });
+                };
+                lines.push(range);
                 line_start = offset + 1;
             }
         }
@@ -99,13 +108,13 @@ impl<'a> SourceFile<'a> {
 
 impl<'a> Source<'a> {
     pub fn text(&self) -> &'a str {
-        &self.file.text[self.start.offset .. self.end.offset]
+        &self.file.text[self.range.start .. self.range.end]
     }
 }
 
 impl<'a> Display for Source<'a> {
     fn fmt(&self, formatter: &mut Formatter) -> FmtResult {
-        write!(formatter, "{:?}({:?}:{:?})", self.file.path, self.start.line, self.file.column(&self.start))
+        write!(formatter, "{:?}({:?})", self.file.path.to_string_lossy(), self.file.position(self.range.start).unwrap())
     }
 }
 

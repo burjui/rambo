@@ -294,7 +294,7 @@ impl Semantics {
                 let argument_count = arguments.len();
                 if argument_count != parameter_count {
                     return error!("invalid number of arguments: expected {}, found {}:\n  {:?}",
-                    parameter_count, argument_count, expr);
+                        parameter_count, argument_count, expr);
                 }
 
                 let mut arguments_checked = vec![];
@@ -303,7 +303,7 @@ impl Semantics {
                     let argument_type = argument_checked.type_();
                     if &argument_type != &parameter.type_ {
                         return error!("argument type mismatch for {}: expected `{:?}', found `{:?}'\n  {:?}",
-                        parameter.name, parameter.type_, argument_type, argument);
+                            parameter.name, parameter.type_, argument_type, argument);
                     }
                     arguments_checked.push(argument_checked);
                 }

@@ -124,7 +124,8 @@ type ParseResult<'a, T> = Result<T, Box<Error>>;
 
 pub struct Parser<'a> {
     lexer: Lexer<'a>,
-    lexeme: Lexeme<'a>
+    lexeme: Lexeme<'a>,
+    lexeme_line: usize
 }
 
 macro_rules! error {
@@ -136,7 +137,8 @@ impl<'a> Parser<'a> {
         let eof_lexeme = lexer.eof_lexeme;
         Parser {
             lexer,
-            lexeme: eof_lexeme
+            lexeme: eof_lexeme,
+            lexeme_line: 0
         }
     }
 
@@ -202,10 +204,10 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_function_application(&mut self) -> ParseResult<'a, Expr<'a>> {
-        let first_expr_line_index = self.lexeme.source.start.line;
+        let first_expr_line_index = self.lexeme_line;
         let first_expr = self.parse_primary()?;
         let mut arguments = vec![];
-        while self.lexeme.token.can_be_expression_start() && self.lexeme.source.start.line == first_expr_line_index {
+        while self.lexeme.token.can_be_expression_start() && self.lexeme_line == first_expr_line_index {
             arguments.push(self.parse_primary()?)
         }
 
@@ -303,7 +305,9 @@ impl<'a> Parser<'a> {
     }
 
     fn read_lexeme(&mut self) -> ParseResult<'a, ()> {
-        self.lexeme = self.lexer.read()?;
+        let (lexeme, line) = self.lexer.read()?;
+        self.lexeme = lexeme;
+        self.lexeme_line = line;
         Ok(())
     }
 
