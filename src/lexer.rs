@@ -54,13 +54,14 @@ pub type LexerResult<'a, T> = Result<T, Box<Error>>;
 
 impl<'a> Lexer<'a> {
     pub fn new(file: &'a SourceFile) -> Lexer<'a> {
+        let eof_offset = file.text.len();
         let eof_lexeme = Lexeme {
             token: Token::EOF,
             source: Source {
                 file,
                 range: Range {
-                    start: 0,
-                    end: 0
+                    start: eof_offset,
+                    end: eof_offset
                 }
             }
         };
