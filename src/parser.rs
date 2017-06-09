@@ -187,7 +187,8 @@ impl<'a> Parser<'a> {
         if first_operator_precedence >= precedence {
             loop {
                 let operator = self.lexeme.token;
-                if !operator.is_binary_operator() || operator.precedence() < first_operator_precedence {
+                if self.previous_lexeme_line != self.lexeme_line || !operator.is_binary_operator() ||
+                    operator.precedence() < first_operator_precedence {
                     break
                 }
                 self.read_lexeme()?;
