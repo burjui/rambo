@@ -81,7 +81,7 @@ impl Debug for TypedExpr {
         match self {
             &TypedExpr::Int(ref value) => write!(formatter, "{}", value),
             &TypedExpr::String(ref value) => write!(formatter, "{}", value),
-            &TypedExpr::Deref(ref binding) => write!(formatter, "(*{})", binding.name),
+            &TypedExpr::Deref(ref binding) => write!(formatter, "(*{})", binding.borrow().name),
             &TypedExpr::AddInt(ref left, ref right) => write!(formatter, "({:?} + {:?})", left, right),
             &TypedExpr::SubInt(ref left, ref right) => write!(formatter, "({:?} - {:?})", left, right),
             &TypedExpr::MulInt(ref left, ref right) => write!(formatter, "({:?} * {:?})", left, right),
@@ -106,7 +106,7 @@ impl TypedExpr {
             &TypedExpr::String(_) |
             &TypedExpr::AddStr(_, _) => Type::String,
 
-            &TypedExpr::Deref(ref binding) => binding.type_(),
+            &TypedExpr::Deref(ref binding) => binding.borrow().type_(),
             &TypedExpr::Assign(ref left, _) => left.type_(),
             &TypedExpr::Lambda { ref type_, .. } => Type::Function(type_.clone()),
             &TypedExpr::Application { ref type_, .. } => type_.clone(),
@@ -129,7 +129,7 @@ impl BindingValue {
     }
 }
 
-pub type BindingRef = Rc<Binding>;
+pub type BindingRef = Rc<RefCell<Binding>>;
 
 pub struct Binding {
     pub name: String,
@@ -158,7 +158,7 @@ impl Debug for TypedEntity {
     fn fmt(&self, formatter: &mut Formatter) -> FmtResult {
         match self {
             &TypedEntity::Expr(ref expr) => expr.fmt(formatter),
-            &TypedEntity::Binding(ref binding) => binding.fmt(formatter)
+            &TypedEntity::Binding(ref binding) => binding.borrow().fmt(formatter)
         }
     }
 }
@@ -187,11 +187,11 @@ impl Semantics {
                 },
                 &Entity::Binding { ref name, ref value } =>  {
                     let value = self.check_expr(&scope, value)?;
-                    let binding = Rc::new(Binding {
+                    let binding = Rc::new(RefCell::new(Binding {
                         name: name.text().to_string(),
                         value: BindingValue::Var(value),
                         index: binding_index
-                    });
+                    }));
                     binding_index += 1;
                     scope.bind(name.text(), &binding)?;
                     TypedEntity::Binding(binding)
@@ -256,11 +256,11 @@ impl Semantics {
                 let lambda_scope = Scope::new(Some(scope.clone()));
                 for (parameter_index, parameter) in parameters.iter().enumerate() {
                     let parameter_name = parameter.name.text();
-                    let binding = Rc::new(Binding {
+                    let binding = Rc::new(RefCell::new(Binding {
                         name: parameter_name.to_string(),
                         value: BindingValue::Arg(parameter.type_.clone()),
                         index: parameter_index
-                    });
+                    }));
                     lambda_scope.bind(parameter_name, &binding)?;
                 }
                 let body = self.check_expr(&lambda_scope, body)?;

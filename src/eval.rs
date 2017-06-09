@@ -24,9 +24,9 @@ impl<'a> Evaluator {
             match entity {
                 &TypedEntity::Expr(ref expr) => result = self.eval_expr(expr)?,
                 &TypedEntity::Binding(ref binding) => {
-                    let value = match &binding.value {
+                    let value = match &binding.borrow().value {
                         &BindingValue::Var(ref expr) => self.eval_expr(expr)?,
-                        &BindingValue::Arg(_) => panic!("{:?}", binding.value)
+                        &BindingValue::Arg(_) => panic!("{:?}", binding.borrow().value)
                     };
                     self.bindings.push(value);
                 }
@@ -76,17 +76,17 @@ impl<'a> Evaluator {
                     unreachable!()
                 };
                 let value = self.eval_expr(right)?;
-                self.bindings[left_binding.index] = value.clone();
+                self.bindings[left_binding.borrow().index] = value.clone();
                 Ok(value)
             },
             &TypedExpr::Deref(ref binding) => {
-                match &binding.value {
+                match &binding.borrow().value {
                     &BindingValue::Var(_) => {
-                        let value = self.bindings[binding.index].clone();
+                        let value = self.bindings[binding.borrow().index].clone();
                         Ok(value)
                     },
                     &BindingValue::Arg(_) => {
-                        let value = self.stack[self.stack.len() - 1 - binding.index].clone();
+                        let value = self.stack[self.stack.len() - 1 - binding.borrow().index].clone();
                         Ok(value)
                     }
                 }

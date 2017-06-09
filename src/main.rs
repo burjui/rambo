@@ -13,6 +13,7 @@ mod lexer;
 mod parser;
 mod eval;
 mod semantics;
+mod dataflow;
 
 use getopts::Options;
 use std::env;
@@ -25,6 +26,7 @@ use lexer::Lexer;
 use parser::*;
 use eval::*;
 use semantics::*;
+use dataflow::*;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -60,6 +62,8 @@ fn process(path: &Path) -> Result<(), Box<Error>> {
     let semantics = Semantics::new();
     let typed_entities = semantics.check_module(entities.as_slice())?;
     println!(">> Semantic check:\n{}", typed_entities.iter().map(|x| format!("{:?}", x)).join("\n"));
+    let typed_entities = remove_unused_bindings(typed_entities);
+    println!(">> Removed unused bindings:\n{}", typed_entities.iter().map(|x| format!("{:?}", x)).join("\n"));
     let mut evaluator = Evaluator::new();
     let evalue = evaluator.eval_module(typed_entities.as_slice())?;
     println!(">> Evaluated: {:?}", evalue);

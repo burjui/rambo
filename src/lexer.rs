@@ -222,9 +222,11 @@ impl<'a> Lexer<'a> {
     fn skip_whitepace(&mut self) -> LexerResult<()> {
         while let Some(c) = self.current_character {
             if c.is_whitespace() {
-                self.read_char()
-            } else if let (Some('/'), Some('*')) = (self.current_character, self.next_character) {
-                self.skip_comment()?
+                self.read_char();
+            } else if let Some(('/', '/')) = self.current_chars() {
+                self.skip_line_comment();
+            } else if let Some(('/', '*')) = self.current_chars() {
+                self.skip_multiline_comment()?;
             } else {
                 break
             }
@@ -232,7 +234,18 @@ impl<'a> Lexer<'a> {
         Ok(())
     }
 
-    fn skip_comment(&mut self) -> LexerResult<()> {
+    fn skip_line_comment(&mut self) {
+        self.read_char();
+        self.read_char();
+        while let Some(c) = self.current_character {
+            self.read_char();
+            if c == '\n' {
+                break;
+            }
+        }
+    }
+
+    fn skip_multiline_comment(&mut self) -> LexerResult<()> {
         let comment_start = self.current_offset;
         self.read_char();
         self.read_char();
