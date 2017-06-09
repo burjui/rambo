@@ -244,7 +244,6 @@ impl<'a> Lexer<'a> {
                 self.read_char();
             }
         }
-        let x = self.current_chars();
         if self.current_chars() == Some(TERMINATOR) {
             self.read_char();
             self.read_char();
