@@ -13,7 +13,12 @@ pub fn remove_unused_bindings(code: Vec<TypedEntity>) -> Vec<TypedEntity> {
                 })
             .collect::<Vec<bool>>();
         code = code.into_iter().enumerate()
-            .filter_map(|(i, entity)| if used[i] { Some(entity) } else { None })
+            .filter_map(|(i, entity)| if used[i] {
+                Some(entity)
+            } else {
+                println!("warning: unused binding: {:?}", entity);
+                None
+            })
             .collect::<Vec<TypedEntity>>();
         if used.iter().all(|&id| id) {
             break
