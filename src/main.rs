@@ -59,8 +59,7 @@ fn process(path: &Path) -> Result<(), Box<Error>> {
     println!(">> AST:\n{}", entities.iter().map(|x| format!("{:?}", x)).join("\n"));
     let stats = { parser.lexer_stats() };
     println!(">> {}, {} lines, {} lexemes", file_size_pretty(source_code.len()), file.lines.len(), stats.lexeme_count);
-    let semantics = Semantics::new();
-    let typed_entities = semantics.check_module(entities.as_slice())?;
+    let typed_entities = check_module(entities.as_slice())?;
     println!(">> Semantic check:\n{}", typed_entities.iter().map(|x| format!("{:?}", x)).join("\n"));
     let typed_entities = remove_unused_bindings(typed_entities);
     println!(">> Removed unused bindings:\n{}", typed_entities.iter().map(|x| format!("{:?}", x)).join("\n"));

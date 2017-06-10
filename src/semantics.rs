@@ -165,154 +165,145 @@ impl Debug for TypedEntity {
 
 type CheckResult<T> = Result<T, Box<Error>>;
 
-pub struct Semantics {
+pub fn check_module(code: &[Entity]) -> CheckResult<Vec<TypedEntity>> {
+    let mut typed_module = vec![];
+    let scope = Scope::new(None);
+    let mut binding_index = 0;
+    for entity in code {
+        let entity_checked = match entity {
+            &Entity::Expr(ref expr) => {
+                let expr = check_expr(&scope, expr)?;
+                TypedEntity::Expr(expr)
+            },
+            &Entity::Binding { ref name, ref value } =>  {
+                let value = check_expr(&scope, value)?;
+                let binding = Rc::new(RefCell::new(Binding {
+                    name: name.text().to_string(),
+                    value: BindingValue::Var(value),
+                    index: binding_index
+                }));
+                binding_index += 1;
+                scope.bind(name.text(), &binding)?;
+                TypedEntity::Binding(binding)
+            }
+        };
+        typed_module.push(entity_checked);
+    }
+    Ok(typed_module)
 }
 
-impl Semantics {
-    pub fn new() -> Semantics {
-        Semantics {}
-    }
-
-    pub fn check_module(&self, code: &[Entity]) -> CheckResult<Vec<TypedEntity>> {
-        let mut typed_module = vec![];
-        let scope = Scope::new(None);
-        let mut binding_index = 0;
-        for entity in code {
-            let entity_checked = match entity {
-                &Entity::Expr(ref expr) => {
-                    let expr = self.check_expr(&scope, expr)?;
-                    TypedEntity::Expr(expr)
-                },
-                &Entity::Binding { ref name, ref value } =>  {
-                    let value = self.check_expr(&scope, value)?;
-                    let binding = Rc::new(RefCell::new(Binding {
-                        name: name.text().to_string(),
-                        value: BindingValue::Var(value),
-                        index: binding_index
-                    }));
-                    binding_index += 1;
-                    scope.bind(name.text(), &binding)?;
-                    TypedEntity::Binding(binding)
-                }
-            };
-            typed_module.push(entity_checked);
-        }
-        Ok(typed_module)
-    }
-
-    fn check_expr(&self, scope: &ScopeRef, expr: &Expr) -> CheckResult<ExprRef> {
-        match expr {
-            &Expr::Int(ref source) => {
-                let value = source.text().parse::<BigInt>()?;
-                Ok(Rc::new(TypedExpr::Int(value)))
-            },
-            &Expr::String(ref source) => {
-                let value = source.text().to_string();
-                Ok(Rc::new(TypedExpr::String(value)))
-            },
-            &Expr::Id(ref name) => scope.resolve(name.text()),
-            &Expr::Binary { ref operation, ref left, ref right } => {
-                let left_checked = self.check_expr(scope, left)?;
-                let right_checked = self.check_expr(scope, right)?;
-                let left_type = left_checked.type_();
-                let right_type = right_checked.type_();
-                if left_type != right_type {
-                    error!("operands of `{:?}' have incompatible types:\n  {:?}: {:?}\n  {:?}: {:?}",
-                    operation, left, left_type, right, right_type)
-                } else {
-                    match operation {
-                        &BinaryOperation::Assign => {
-                            if let TypedExpr::Deref(_) = *left_checked {
-                                Ok(Rc::new(TypedExpr::Assign(left_checked, right_checked)))
-                            } else {
-                                error!("a variable expected at the left side of assignment, but found: {:?}", left_checked)
-                            }
-                        },
-                        &BinaryOperation::Add => match &left_type {
-                            &Type::Int => Ok(Rc::new(TypedExpr::AddInt(left_checked, right_checked))),
-                            &Type::String => Ok(Rc::new(TypedExpr::AddStr(left_checked, right_checked))),
-                            _ => error!("operation `{:?}' is not implemented for type `{:?}'", operation, left_type)
-                        },
-                        operation => {
-                            if let &Type::Int = &left_type {
-                                let constructor =
-                                    match operation {
-                                        &BinaryOperation::Subtract => TypedExpr::SubInt,
-                                        &BinaryOperation::Multiply => TypedExpr::MulInt,
-                                        &BinaryOperation::Divide => TypedExpr::DivInt,
-                                        _ => unreachable!()
-                                    };
-                                Ok(Rc::new(constructor(left_checked, right_checked)))
-                            } else {
-                                error!("operation `{:?}' is not implemented for type `{:?}'", operation, left_type)
-                            }
+fn check_expr(scope: &ScopeRef, expr: &Expr) -> CheckResult<ExprRef> {
+    match expr {
+        &Expr::Int(ref source) => {
+            let value = source.text().parse::<BigInt>()?;
+            Ok(Rc::new(TypedExpr::Int(value)))
+        },
+        &Expr::String(ref source) => {
+            let value = source.text().to_string();
+            Ok(Rc::new(TypedExpr::String(value)))
+        },
+        &Expr::Id(ref name) => scope.resolve(name.text()),
+        &Expr::Binary { ref operation, ref left, ref right } => {
+            let left_checked = check_expr(scope, left)?;
+            let right_checked = check_expr(scope, right)?;
+            let left_type = left_checked.type_();
+            let right_type = right_checked.type_();
+            if left_type != right_type {
+                error!("operands of `{:?}' have incompatible types:\n  {:?}: {:?}\n  {:?}: {:?}",
+                operation, left, left_type, right, right_type)
+            } else {
+                match operation {
+                    &BinaryOperation::Assign => {
+                        if let TypedExpr::Deref(_) = *left_checked {
+                            Ok(Rc::new(TypedExpr::Assign(left_checked, right_checked)))
+                        } else {
+                            error!("a variable expected at the left side of assignment, but found: {:?}", left_checked)
+                        }
+                    },
+                    &BinaryOperation::Add => match &left_type {
+                        &Type::Int => Ok(Rc::new(TypedExpr::AddInt(left_checked, right_checked))),
+                        &Type::String => Ok(Rc::new(TypedExpr::AddStr(left_checked, right_checked))),
+                        _ => error!("operation `{:?}' is not implemented for type `{:?}'", operation, left_type)
+                    },
+                    operation => {
+                        if let &Type::Int = &left_type {
+                            let constructor =
+                                match operation {
+                                    &BinaryOperation::Subtract => TypedExpr::SubInt,
+                                    &BinaryOperation::Multiply => TypedExpr::MulInt,
+                                    &BinaryOperation::Divide => TypedExpr::DivInt,
+                                    _ => unreachable!()
+                                };
+                            Ok(Rc::new(constructor(left_checked, right_checked)))
+                        } else {
+                            error!("operation `{:?}' is not implemented for type `{:?}'", operation, left_type)
                         }
                     }
                 }
-            },
-            &Expr::Lambda { ref parameters, ref body } => {
-                let lambda_scope = Scope::new(Some(scope.clone()));
-                for (parameter_index, parameter) in parameters.iter().enumerate() {
-                    let parameter_name = parameter.name.text();
-                    let binding = Rc::new(RefCell::new(Binding {
-                        name: parameter_name.to_string(),
-                        value: BindingValue::Arg(parameter.type_.clone()),
-                        index: parameter_index
-                    }));
-                    lambda_scope.bind(parameter_name, &binding)?;
-                }
-                let body = self.check_expr(&lambda_scope, body)?;
-                let parameters = parameters.iter()
-                    .map(|parameter| Parameter {
-                        name: parameter.name.text().to_string(),
-                        type_: parameter.type_.clone()
-                    })
-                    .collect();
-                let function_type = Rc::new(FunctionType {
-                    parameters,
-                    result: body.type_()
-                });
-                Ok(Rc::new(TypedExpr::Lambda{
-                    type_: function_type,
-                    body
-                }))
-            },
-            &Expr::Application { ref function, ref arguments } => {
-                let function_checked = self.check_expr(scope, function)?;
-                let function_checked_type = function_checked.type_();
-                let function_type;
-                if let &Type::Function(ref type_) = &function_checked_type {
-                    function_type = type_.clone()
-                } else {
-                    return error!("expected a function, found `{:?}' of type `{:?}'", function, function_checked_type);
-                };
+            }
+        },
+        &Expr::Lambda { ref parameters, ref body } => {
+            let lambda_scope = Scope::new(Some(scope.clone()));
+            for (parameter_index, parameter) in parameters.iter().enumerate() {
+                let parameter_name = parameter.name.text();
+                let binding = Rc::new(RefCell::new(Binding {
+                    name: parameter_name.to_string(),
+                    value: BindingValue::Arg(parameter.type_.clone()),
+                    index: parameter_index
+                }));
+                lambda_scope.bind(parameter_name, &binding)?;
+            }
+            let body = check_expr(&lambda_scope, body)?;
+            let parameters = parameters.iter()
+                .map(|parameter| Parameter {
+                    name: parameter.name.text().to_string(),
+                    type_: parameter.type_.clone()
+                })
+                .collect();
+            let function_type = Rc::new(FunctionType {
+                parameters,
+                result: body.type_()
+            });
+            Ok(Rc::new(TypedExpr::Lambda{
+                type_: function_type,
+                body
+            }))
+        },
+        &Expr::Application { ref function, ref arguments } => {
+            let function_checked = check_expr(scope, function)?;
+            let function_checked_type = function_checked.type_();
+            let function_type;
+            if let &Type::Function(ref type_) = &function_checked_type {
+                function_type = type_.clone()
+            } else {
+                return error!("expected a function, found `{:?}' of type `{:?}'", function, function_checked_type);
+            };
 
-                let function_parameters = &function_type.parameters;
-                let parameter_count = function_parameters.len();
-                let argument_count = arguments.len();
-                if argument_count != parameter_count {
-                    return error!("invalid number of arguments: expected {}, found {}:\n  {:?}",
-                        parameter_count, argument_count, expr);
-                }
+            let function_parameters = &function_type.parameters;
+            let parameter_count = function_parameters.len();
+            let argument_count = arguments.len();
+            if argument_count != parameter_count {
+                return error!("invalid number of arguments: expected {}, found {}:\n  {:?}",
+                    parameter_count, argument_count, expr);
+            }
 
-                let mut arguments_checked = vec![];
-                for (parameter, argument) in function_parameters.iter().zip(arguments.iter()) {
-                    let argument_checked = self.check_expr(scope, argument)?;
-                    let argument_type = argument_checked.type_();
-                    if &argument_type != &parameter.type_ {
-                        return error!("argument type mismatch for {}: expected `{:?}', found `{:?}'\n  {:?}",
-                            parameter.name, parameter.type_, argument_type, argument);
-                    }
-                    arguments_checked.push(argument_checked);
+            let mut arguments_checked = vec![];
+            for (parameter, argument) in function_parameters.iter().zip(arguments.iter()) {
+                let argument_checked = check_expr(scope, argument)?;
+                let argument_type = argument_checked.type_();
+                if &argument_type != &parameter.type_ {
+                    return error!("argument type mismatch for {}: expected `{:?}', found `{:?}'\n  {:?}",
+                        parameter.name, parameter.type_, argument_type, argument);
                 }
+                arguments_checked.push(argument_checked);
+            }
 
-                Ok(Rc::new(TypedExpr::Application {
-                    type_: function_type.result.clone(),
-                    function: function_checked,
-                    arguments: arguments_checked
-                }))
-            },
-        }
+            Ok(Rc::new(TypedExpr::Application {
+                type_: function_type.result.clone(),
+                function: function_checked,
+                arguments: arguments_checked
+            }))
+        },
     }
 }
 
