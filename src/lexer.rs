@@ -218,7 +218,6 @@ impl<'a> Lexer<'a> {
         Lexeme { token, source }
     }
 
-    // TODO comments
     fn skip_whitepace(&mut self) -> LexerResult<()> {
         while let Some(c) = self.current_character {
             if c.is_whitespace() {

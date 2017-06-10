@@ -163,8 +163,6 @@ impl Debug for TypedEntity {
     }
 }
 
-// TODO check for unused binding upon exiting a scope
-
 type CheckResult<T> = Result<T, Box<Error>>;
 
 pub struct Semantics {
