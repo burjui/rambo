@@ -1,8 +1,12 @@
 ﻿let a = 1
-let c = 3
-let f = \ (a: num) (b: num) -> a + b
-let g = λ (a: num) (b: num) → f a b + c
-let b = 2
-(a + 1) * (b - 1)
-"x" + "y"
-//g 1 2
+let a = a
+let a = a
+let a = a
+let a = a
+let a = a
+let a = a
+let a = a
+let a = a
+let a = a
+let a = a
+let a = a

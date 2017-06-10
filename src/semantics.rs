@@ -81,7 +81,13 @@ impl Debug for TypedExpr {
         match self {
             &TypedExpr::Int(ref value) => write!(formatter, "{}", value),
             &TypedExpr::String(ref value) => write!(formatter, "{}", value),
-            &TypedExpr::Deref(ref binding) => write!(formatter, "(*{})", binding.borrow().name),
+            &TypedExpr::Deref(ref binding) => {
+                let suffix = match &binding.borrow().value {
+                    &BindingValue::Var(_) => format!("[{}]", binding.borrow().index),
+                    _ => "".to_string()
+                };
+                write!(formatter, "(*{}{})", binding.borrow().name, suffix)
+            },
             &TypedExpr::AddInt(ref left, ref right) => write!(formatter, "({:?} + {:?})", left, right),
             &TypedExpr::SubInt(ref left, ref right) => write!(formatter, "({:?} - {:?})", left, right),
             &TypedExpr::MulInt(ref left, ref right) => write!(formatter, "({:?} * {:?})", left, right),
@@ -145,7 +151,7 @@ impl Binding {
 
 impl Debug for Binding {
     fn fmt(&self, formatter: &mut Formatter) -> FmtResult {
-        write!(formatter, "let {} = {:?}", self.name, self.value)
+        write!(formatter, "let {}[{}] = {:?}", self.name, self.index, self.value)
     }
 }
 
@@ -323,13 +329,15 @@ impl Scope {
     }
 
     fn bind(&self, name: &str, binding: &BindingRef) -> Result<(), Box<Error>> {
-        if self.bindings.borrow().contains_key(name) {
-            error!("redefinition of {}", name)
-        } else {
-            let deref = Rc::new(TypedExpr::Deref(binding.clone()));
-            self.bindings.borrow_mut().insert(name.to_string(), (binding.clone(), deref));
-            Ok(())
+        if let &BindingValue::Arg(_) = &binding.borrow().value {
+            if self.bindings.borrow().contains_key(name) {
+                return error!("redefinition of parameter {}", name)
+            }
         }
+
+        let deref = Rc::new(TypedExpr::Deref(binding.clone()));
+        self.bindings.borrow_mut().insert(name.to_string(), (binding.clone(), deref));
+        Ok(())
     }
 
     fn resolve(&self, name: &str) -> Result<ExprRef, Box<Error>> {
