@@ -26,6 +26,12 @@ pub fn remove_unused_bindings(code: Vec<TypedEntity>) -> Vec<TypedEntity> {
             process_binding(binding, &mut usages);
         }
 
+        for (binding, usage) in bindings.iter().zip(usages.iter()) {
+            if *usage == 0 {
+                println!("warning: unused binding: {:?}", binding.borrow());
+            }
+        }
+
         let mut new_binding_index = 0;
         for (index, binding) in bindings.iter().enumerate() {
             if usages[index] > 0 {
@@ -33,11 +39,14 @@ pub fn remove_unused_bindings(code: Vec<TypedEntity>) -> Vec<TypedEntity> {
                 new_binding_index += 1;
 
                 if let &BindingValue::Var(ref expr) = &binding.borrow().value {
-                    if let &TypedExpr::Deref(_) = expr.deref() {
-                        println!("warning: redundant binding: {:?}", binding.borrow());
+                    if let &TypedExpr::Deref(ref referenced_binding) = expr.deref() {
+                        let binding = binding.borrow();
+                        println!("warning: redundant binding: {:?}\n  you can remove it and use `{}' in place of `{}'",
+                                 binding, referenced_binding.borrow().name, binding.name);
                     }
                 }
             } else {
+
                 binding.borrow_mut().index = usize::MAX;
             }
         }
@@ -63,7 +72,6 @@ pub fn remove_unused_bindings(code: Vec<TypedEntity>) -> Vec<TypedEntity> {
 
 fn process_binding(binding: &BindingRef, usages: &mut Vec<usize>) {
     if usages[binding.borrow().index] == 0 {
-        println!("warning: unused binding: {:?}", binding.borrow());
         if let &BindingValue::Var(ref expr) = &binding.borrow().value {
             process_expr(expr, usages);
         }
