@@ -316,7 +316,7 @@ fn check_expr(scope: &ScopeRef, expr: &Expr) -> CheckResult<ExprRef> {
 type ScopeRef = Rc<Scope>;
 
 struct Scope {
-    bindings: RefCell<HashMap<String, (BindingRef, ExprRef)>>,
+    bindings: RefCell<HashMap<String, BindingRef>>,
     outer_scope: Option<ScopeRef>
 }
 
@@ -335,14 +335,13 @@ impl Scope {
             }
         }
 
-        let deref = Rc::new(TypedExpr::Deref(binding.clone()));
-        self.bindings.borrow_mut().insert(name.to_string(), (binding.clone(), deref));
+        self.bindings.borrow_mut().insert(name.to_string(), binding.clone());
         Ok(())
     }
 
     fn resolve(&self, name: &str) -> Result<ExprRef, Box<Error>> {
         self.bindings.borrow().get(name)
-            .map(|&(_, ref deref)| deref.clone())
+            .map(|binding| Rc::new(TypedExpr::Deref(binding.clone())))
             .map_or_else(
                 || self.outer_scope.clone().map_or_else(
                     || Err(From::from(format!("`{}' is undefined", name))),

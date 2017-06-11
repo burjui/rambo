@@ -6,7 +6,15 @@ let a = a
 let a = a
 let a = a
 let a = a
+let b = 1
 let a = a
 let a = a
+let c = a
+let d = c + 1
+let d1 = a + 3
+let d2 = 1 - a
 let a = a
 let a = a
+let x = b
+let e = d + 2
+x
