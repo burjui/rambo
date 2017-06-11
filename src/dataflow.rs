@@ -22,10 +22,6 @@ pub fn remove_unused_bindings(code: Vec<TypedEntity>) -> Vec<TypedEntity> {
             *usage = Rc::strong_count(binding) - 1;
         }
 
-        for (binding, usage) in bindings.iter().zip(usages.iter()) {
-            println!("-- [{}] {:?}", usage, binding.borrow());
-        }
-
         for binding in bindings.iter() {
             process_binding(binding, &mut usages);
         }
