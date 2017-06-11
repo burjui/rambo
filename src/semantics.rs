@@ -208,7 +208,7 @@ fn check_expr(scope: &ScopeRef, expr: &Expr) -> CheckResult<ExprRef> {
             let value = source.text().to_string();
             Ok(Rc::new(TypedExpr::String(value)))
         },
-        &Expr::Id(ref name) => scope.resolve(name.text()),
+        &Expr::Id(ref name) => scope.resolve(name.text()).map(Rc::new),
         &Expr::Binary { ref operation, ref left, ref right } => {
             let left_checked = check_expr(scope, left)?;
             let right_checked = check_expr(scope, right)?;
@@ -339,13 +339,13 @@ impl Scope {
         Ok(())
     }
 
-    fn resolve(&self, name: &str) -> Result<ExprRef, Box<Error>> {
+    fn resolve(&self, name: &str) -> Result<TypedExpr, Box<Error>> {
+        self.find(name).ok_or_else(|| From::from(format!("`{}' is undefined", name)))
+    }
+
+    fn find(&self, name: &str) -> Option<TypedExpr> {
         self.bindings.borrow().get(name)
-            .map(|binding| Rc::new(TypedExpr::Deref(binding.clone())))
-            .map_or_else(
-                || self.outer_scope.clone().map_or_else(
-                    || Err(From::from(format!("`{}' is undefined", name))),
-                    |scope| scope.resolve(name)),
-                Ok)
+            .map(|binding| TypedExpr::Deref(binding.clone()))
+            .or_else(|| self.outer_scope.clone().and_then(|scope| scope.find(name)))
     }
 }
