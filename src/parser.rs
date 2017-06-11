@@ -103,7 +103,7 @@ impl<'a> Expr<'a> {
     }
 }
 
-pub enum Entity<'a> {
+pub enum Statement<'a> {
     Expr(Expr<'a>),
     Binding {
         name: Source<'a>,
@@ -111,11 +111,11 @@ pub enum Entity<'a> {
     }
 }
 
-impl<'a> Debug for Entity<'a> {
+impl<'a> Debug for Statement<'a> {
     fn fmt(&self, formatter: &mut Formatter) -> FmtResult {
         match self {
-            &Entity::Expr(ref expr) => expr.fmt(formatter),
-            &Entity::Binding { ref name, ref value } => write!(formatter, "let {:?} = {:?}", name, value)
+            &Statement::Expr(ref expr) => expr.fmt(formatter),
+            &Statement::Binding { ref name, ref value } => write!(formatter, "let {:?} = {:?}", name, value)
         }
     }
 }
@@ -144,7 +144,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    pub fn parse(&mut self) -> ParseResult<'a, Vec<Entity<'a>>> {
+    pub fn parse(&mut self) -> ParseResult<'a, Vec<Statement<'a>>> {
         self.read_lexeme()?;
         let mut entities = vec![];
         while self.lexeme.token != Token::EOF {
@@ -153,7 +153,7 @@ impl<'a> Parser<'a> {
                     self.read_lexeme()?;
                     self.parse_binding()?
                 } else {
-                    Entity::Expr(self.parse_expr()?)
+                    Statement::Expr(self.parse_expr()?)
                 }
             )
         }
@@ -243,11 +243,11 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_binding(&mut self) -> ParseResult<'a, Entity<'a>> {
+    fn parse_binding(&mut self) -> ParseResult<'a, Statement<'a>> {
         let name = self.expect(Token::Id, "identifier")?;
         self.expect(Token::Eq, "=")?;
         let value = self.parse_expr()?;
-        Ok(Entity::Binding {
+        Ok(Statement::Binding {
             name: name.source,
             value: box(value)
         })

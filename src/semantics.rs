@@ -155,33 +155,33 @@ impl Debug for Binding {
     }
 }
 
-pub enum TypedEntity {
+pub enum TypedStatement {
     Expr(ExprRef),
     Binding(BindingRef)
 }
 
-impl Debug for TypedEntity {
+impl Debug for TypedStatement {
     fn fmt(&self, formatter: &mut Formatter) -> FmtResult {
         match self {
-            &TypedEntity::Expr(ref expr) => expr.fmt(formatter),
-            &TypedEntity::Binding(ref binding) => binding.borrow().fmt(formatter)
+            &TypedStatement::Expr(ref expr) => expr.fmt(formatter),
+            &TypedStatement::Binding(ref binding) => binding.borrow().fmt(formatter)
         }
     }
 }
 
 type CheckResult<T> = Result<T, Box<Error>>;
 
-pub fn check_module(code: &[Entity]) -> CheckResult<Vec<TypedEntity>> {
+pub fn check_module(code: &[Statement]) -> CheckResult<Vec<TypedStatement>> {
     let mut typed_module = vec![];
     let scope = Scope::new(None);
     let mut binding_index = 0;
-    for entity in code {
-        let entity_checked = match entity {
-            &Entity::Expr(ref expr) => {
+    for statement in code {
+        let statement_checked = match statement {
+            &Statement::Expr(ref expr) => {
                 let expr = check_expr(&scope, expr)?;
-                TypedEntity::Expr(expr)
+                TypedStatement::Expr(expr)
             },
-            &Entity::Binding { ref name, ref value } =>  {
+            &Statement::Binding { ref name, ref value } =>  {
                 let value = check_expr(&scope, value)?;
                 let binding = Rc::new(RefCell::new(Binding {
                     name: name.text().to_string(),
@@ -190,10 +190,10 @@ pub fn check_module(code: &[Entity]) -> CheckResult<Vec<TypedEntity>> {
                 }));
                 binding_index += 1;
                 scope.bind(name.text(), &binding)?;
-                TypedEntity::Binding(binding)
+                TypedStatement::Binding(binding)
             }
         };
-        typed_module.push(entity_checked);
+        typed_module.push(statement_checked);
     }
     Ok(typed_module)
 }

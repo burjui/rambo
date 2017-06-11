@@ -4,13 +4,13 @@ use std::usize;
 
 use semantics::*;
 
-// TODO use Position and the source code instead of TypedEntity::Debug for warnings
+// TODO use Position and the source code instead of TypedStatement::Debug for warnings
 
-pub fn remove_unused_bindings(code: Vec<TypedEntity>) -> Vec<TypedEntity> {
+pub fn remove_unused_bindings(code: Vec<TypedStatement>) -> Vec<TypedStatement> {
     let usages = {
         let mut bindings = vec![];
-        for entity in code.iter() {
-            if let &TypedEntity::Binding(ref binding) = entity {
+        for statement in code.iter() {
+            if let &TypedStatement::Binding(ref binding) = statement {
                 bindings.push(binding);
             }
         }
@@ -60,14 +60,14 @@ pub fn remove_unused_bindings(code: Vec<TypedEntity>) -> Vec<TypedEntity> {
     };
 
     code.into_iter()
-        .filter(|entity| match entity {
-            &TypedEntity::Binding(ref binding) => {
+        .filter(|statement| match statement {
+            &TypedStatement::Binding(ref binding) => {
                 let binding_index = binding.borrow().index;
                 binding_index != usize::MAX && usages[binding_index] > 0
             },
             _ => true
         })
-        .collect::<Vec<TypedEntity>>()
+        .collect::<Vec<TypedStatement>>()
 }
 
 fn process_binding(binding: &BindingRef, usages: &mut Vec<usize>) {
