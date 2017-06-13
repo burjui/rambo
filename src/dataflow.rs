@@ -40,18 +40,13 @@ pub fn remove_unused_bindings(code: Vec<TypedStatement>) -> Vec<TypedStatement> 
 
                 if let &BindingValue::Var(ref expr) = &binding.borrow().value {
                     if let &TypedExpr::Deref(ref referenced_binding) = expr.deref() {
-                        let (binding, referenced_binding) = (binding.borrow(), referenced_binding.borrow());
-                        let renaming_suggestion = if binding.name != referenced_binding.name {
-                            format!("and use `{}' in place of `{}'", referenced_binding.name, binding.name)
-                        } else {
-                            "".to_string()
-                        };
-                        println!("warning: redundant binding: {:?}\n  you can safely remove it{}",
-                                 binding, renaming_suggestion);
+                        let binding = binding.borrow();
+                        if binding.name == referenced_binding.borrow().name {
+                            println!("warning: redundant binding: {:?}", binding);
+                        }
                     }
                 }
             } else {
-
                 binding.borrow_mut().index = usize::MAX;
             }
         }
