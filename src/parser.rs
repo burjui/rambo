@@ -146,9 +146,9 @@ impl<'a> Parser<'a> {
 
     pub fn parse(&mut self) -> ParseResult<'a, Vec<Statement<'a>>> {
         self.read_lexeme()?;
-        let mut entities = vec![];
+        let mut statements = vec![];
         while self.lexeme.token != Token::EOF {
-            entities.push(
+            statements.push(
                 if self.lexeme.token == Token::Id && self.lexeme.text() == "let" {
                     self.read_lexeme()?;
                     self.parse_binding()?
@@ -157,7 +157,7 @@ impl<'a> Parser<'a> {
                 }
             )
         }
-        Ok(entities)
+        Ok(statements)
     }
 
     pub fn lexer_stats(&self) -> &LexerStats {

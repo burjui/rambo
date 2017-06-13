@@ -13,7 +13,8 @@ mod lexer;
 mod parser;
 mod eval;
 mod semantics;
-mod dataflow;
+mod dead_bindings;
+mod constants;
 
 use getopts::Options;
 use std::env;
@@ -26,7 +27,8 @@ use lexer::Lexer;
 use parser::*;
 use eval::*;
 use semantics::*;
-use dataflow::*;
+use dead_bindings::*;
+use constants::*;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -54,20 +56,39 @@ fn process(path: &Path) -> Result<(), Box<Error>> {
     let file = SourceFile::new(&source_code, path)?;
     let lexer = Lexer::new(&file);
     println!("{:?}", lexer);
+
     let mut parser = Parser::new(lexer);
-    let entities = parser.parse()?;
-    println!(">> AST:\n{}", entities.iter().map(|x| format!("{:?}", x)).join("\n"));
+    let statements = parser.parse()?;
     let stats = { parser.lexer_stats() };
     println!(">> {}, {} lines, {} lexemes", file_size_pretty(source_code.len()), file.lines.len(), stats.lexeme_count);
-    let typed_entities = check_module(entities.as_slice())?;
-    println!(">> Semantic check:\n{}", typed_entities.iter().map(|x| format!("{:?}", x)).join("\n"));
-    let typed_entities = remove_unused_bindings(typed_entities);
-    println!(">> Removed unused bindings:\n{}", typed_entities.iter().map(|x| format!("{:?}", x)).join("\n"));
+    println!(">> AST:\n{}", statements.iter().by_line());
+
+    let statements = check_module(statements.as_slice())?;
+    println!(">> Semantic check:\n{}", statements.iter().by_line());
+
+    let statements = remove_dead_bindings(statements, Warnings::On);
+    println!(">> Removed unused bindings:\n{}", statements.iter().by_line());
+
+    let mut cfp = CFP::new();
+    let statements = cfp.fold_and_propagate_constants(statements);
+    println!(">> CFP:\n{}", statements.iter().by_line());
+
     let mut evaluator = Evaluator::new();
-    let evalue = evaluator.eval_module(typed_entities.as_slice())?;
+    let evalue = evaluator.eval_module(statements.as_slice())?;
     println!(">> Evaluated: {:?}", evalue);
+
     Ok(())
 }
+
+use std::fmt::Debug;
+pub trait ByLine: Iterator {
+    fn by_line(&mut self) -> String
+        where Self: Sized, Self::Item: Debug {
+        self.map(|x| format!("{:?}", x)).join("\n")
+    }
+}
+
+impl<I> ByLine for I where I: Iterator {}
 
 fn print_usage(program: &str, opts: Options) {
     let brief = format!("Usage: {} FILES [options]", program);

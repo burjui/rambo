@@ -56,11 +56,13 @@ impl Debug for Type {
 pub type ExprRef = Rc<TypedExpr>;
 
 pub enum TypedExpr {
+    Phantom(Type),
     Int(BigInt),
     String(String),
     Deref(BindingRef),
     Lambda {
         type_: FunctionTypeRef,
+        parameter_bindings: Vec<BindingRef>,
         body: ExprRef
     },
     Application {
@@ -79,6 +81,7 @@ pub enum TypedExpr {
 impl Debug for TypedExpr {
     fn fmt(&self, formatter: &mut Formatter) -> FmtResult {
         match self {
+            &TypedExpr::Phantom(_) => write!(formatter, "@"),
             &TypedExpr::Int(ref value) => write!(formatter, "{}", value),
             &TypedExpr::String(ref value) => write!(formatter, "{}", value),
             &TypedExpr::Deref(ref binding) => {
@@ -94,7 +97,7 @@ impl Debug for TypedExpr {
             &TypedExpr::DivInt(ref left, ref right) => write!(formatter, "({:?} / {:?})", left, right),
             &TypedExpr::AddStr(ref left, ref right) => write!(formatter, "({:?} + {:?})", left, right),
             &TypedExpr::Assign(ref left, ref right) => write!(formatter, "({:?} = {:?})", left, right),
-            &TypedExpr::Lambda { ref type_, ref body } => write!(formatter, "(λ {:?} = {:?})", type_, body),
+            &TypedExpr::Lambda { ref type_, ref body, .. } => write!(formatter, "(λ {:?} = {:?})", type_, body),
             &TypedExpr::Application { ref function, ref arguments, .. } => write!(formatter, "({:?} @ {:?})", function, arguments),
         }
     }
@@ -103,6 +106,8 @@ impl Debug for TypedExpr {
 impl TypedExpr {
     pub fn type_(&self) -> Type {
         match self {
+            &TypedExpr::Phantom(ref type_) => type_.clone(),
+
             &TypedExpr::Int(_) |
             &TypedExpr::AddInt(_, _) |
             &TypedExpr::SubInt(_, _) |
@@ -120,7 +125,7 @@ impl TypedExpr {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum BindingValue {
     Var(ExprRef),
     Arg(Type)
@@ -140,7 +145,9 @@ pub type BindingRef = Rc<RefCell<Binding>>;
 pub struct Binding {
     pub name: String,
     pub value: BindingValue,
-    pub index: usize
+    pub index: usize,
+    pub assigned: bool,
+    pub dirty: bool
 }
 
 impl Binding {
@@ -155,6 +162,7 @@ impl Debug for Binding {
     }
 }
 
+#[derive(Clone)]
 pub enum TypedStatement {
     Expr(ExprRef),
     Binding(BindingRef)
@@ -186,10 +194,12 @@ pub fn check_module(code: &[Statement]) -> CheckResult<Vec<TypedStatement>> {
                 let binding = Rc::new(RefCell::new(Binding {
                     name: name.text().to_string(),
                     value: BindingValue::Var(value),
-                    index: binding_index
+                    index: binding_index,
+                    assigned: false,
+                    dirty: false
                 }));
                 binding_index += 1;
-                scope.bind(name.text(), &binding)?;
+                scope.bind(binding.clone())?;
                 TypedStatement::Binding(binding)
             }
         };
@@ -202,13 +212,13 @@ fn check_expr(scope: &ScopeRef, expr: &Expr) -> CheckResult<ExprRef> {
     match expr {
         &Expr::Int(ref source) => {
             let value = source.text().parse::<BigInt>()?;
-            Ok(Rc::new(TypedExpr::Int(value)))
+            Ok(ExprRef::new(TypedExpr::Int(value)))
         },
         &Expr::String(ref source) => {
             let value = source.text().to_string();
-            Ok(Rc::new(TypedExpr::String(value)))
+            Ok(ExprRef::new(TypedExpr::String(value)))
         },
-        &Expr::Id(ref name) => scope.resolve(name.text()).map(Rc::new),
+        &Expr::Id(ref name) => scope.resolve(name.text()),
         &Expr::Binary { ref operation, ref left, ref right } => {
             let left_checked = check_expr(scope, left)?;
             let right_checked = check_expr(scope, right)?;
@@ -221,14 +231,14 @@ fn check_expr(scope: &ScopeRef, expr: &Expr) -> CheckResult<ExprRef> {
                 match operation {
                     &BinaryOperation::Assign => {
                         if let TypedExpr::Deref(_) = *left_checked {
-                            Ok(Rc::new(TypedExpr::Assign(left_checked, right_checked)))
+                            Ok(ExprRef::new(TypedExpr::Assign(left_checked, right_checked)))
                         } else {
                             error!("a variable expected at the left side of assignment, but found: {:?}", left_checked)
                         }
                     },
                     &BinaryOperation::Add => match &left_type {
-                        &Type::Int => Ok(Rc::new(TypedExpr::AddInt(left_checked, right_checked))),
-                        &Type::String => Ok(Rc::new(TypedExpr::AddStr(left_checked, right_checked))),
+                        &Type::Int => Ok(ExprRef::new(TypedExpr::AddInt(left_checked, right_checked))),
+                        &Type::String => Ok(ExprRef::new(TypedExpr::AddStr(left_checked, right_checked))),
                         _ => error!("operation `{:?}' is not implemented for type `{:?}'", operation, left_type)
                     },
                     operation => {
@@ -240,7 +250,7 @@ fn check_expr(scope: &ScopeRef, expr: &Expr) -> CheckResult<ExprRef> {
                                     &BinaryOperation::Divide => TypedExpr::DivInt,
                                     _ => unreachable!()
                                 };
-                            Ok(Rc::new(constructor(left_checked, right_checked)))
+                            Ok(ExprRef::new(constructor(left_checked, right_checked)))
                         } else {
                             error!("operation `{:?}' is not implemented for type `{:?}'", operation, left_type)
                         }
@@ -250,14 +260,18 @@ fn check_expr(scope: &ScopeRef, expr: &Expr) -> CheckResult<ExprRef> {
         },
         &Expr::Lambda { ref parameters, ref body } => {
             let lambda_scope = Scope::new(Some(scope.clone()));
+            let mut parameter_bindings = vec![];
             for (parameter_index, parameter) in parameters.iter().enumerate() {
                 let parameter_name = parameter.name.text();
                 let binding = Rc::new(RefCell::new(Binding {
                     name: parameter_name.to_string(),
                     value: BindingValue::Arg(parameter.type_.clone()),
-                    index: parameter_index
+                    index: parameter_index,
+                    assigned: false,
+                    dirty: false
                 }));
-                lambda_scope.bind(parameter_name, &binding)?;
+                parameter_bindings.push(binding.clone());
+                lambda_scope.bind(binding)?;
             }
             let body = check_expr(&lambda_scope, body)?;
             let parameters = parameters.iter()
@@ -270,8 +284,9 @@ fn check_expr(scope: &ScopeRef, expr: &Expr) -> CheckResult<ExprRef> {
                 parameters,
                 result: body.type_()
             });
-            Ok(Rc::new(TypedExpr::Lambda{
+            Ok(ExprRef::new(TypedExpr::Lambda{
                 type_: function_type,
+                parameter_bindings,
                 body
             }))
         },
@@ -304,7 +319,7 @@ fn check_expr(scope: &ScopeRef, expr: &Expr) -> CheckResult<ExprRef> {
                 arguments_checked.push(argument_checked);
             }
 
-            Ok(Rc::new(TypedExpr::Application {
+            Ok(ExprRef::new(TypedExpr::Application {
                 type_: function_type.result.clone(),
                 function: function_checked,
                 arguments: arguments_checked
@@ -313,22 +328,24 @@ fn check_expr(scope: &ScopeRef, expr: &Expr) -> CheckResult<ExprRef> {
     }
 }
 
-type ScopeRef = Rc<Scope>;
+pub type ScopeRef = Rc<Scope>;
 
-struct Scope {
+pub struct Scope {
+    // TODO maybe Rc<String> to avoid copying?
     bindings: RefCell<HashMap<String, BindingRef>>,
     outer_scope: Option<ScopeRef>
 }
 
 impl Scope {
-    fn new(outer_scope: Option<ScopeRef>) -> ScopeRef {
+    pub fn new(outer_scope: Option<ScopeRef>) -> ScopeRef {
         Rc::new(Scope {
             bindings: RefCell::new(HashMap::new()),
             outer_scope
         })
     }
 
-    fn bind(&self, name: &str, binding: &BindingRef) -> Result<(), Box<Error>> {
+    pub fn bind(&self, binding: BindingRef) -> Result<(), Box<Error>> {
+        let name = &binding.borrow().name;
         if let &BindingValue::Arg(_) = &binding.borrow().value {
             if self.bindings.borrow().contains_key(name) {
                 return error!("redefinition of parameter {}", name)
@@ -339,13 +356,13 @@ impl Scope {
         Ok(())
     }
 
-    fn resolve(&self, name: &str) -> Result<TypedExpr, Box<Error>> {
+    pub fn resolve(&self, name: &str) -> Result<ExprRef, Box<Error>> {
         self.find(name).ok_or_else(|| From::from(format!("`{}' is undefined", name)))
     }
 
-    fn find(&self, name: &str) -> Option<TypedExpr> {
+    fn find(&self, name: &str) -> Option<ExprRef> {
         self.bindings.borrow().get(name)
-            .map(|binding| TypedExpr::Deref(binding.clone()))
+            .map(|binding| ExprRef::new(TypedExpr::Deref(binding.clone())))
             .or_else(|| self.outer_scope.clone().and_then(|scope| scope.find(name)))
     }
 }
