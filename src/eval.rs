@@ -18,11 +18,11 @@ impl<'a> Evaluator {
         }
     }
 
-    pub fn eval_module(&mut self, code: &[TypedStatement]) -> Result<Evalue, Box<Error>> {
-        let mut result = Evalue::String("doh!".to_string());
+    pub fn eval_module(&mut self, code: &[TypedStatement]) -> Result<Option<Evalue>, Box<Error>> {
+        let mut result = None;
         for statement in code {
             match statement {
-                &TypedStatement::Expr(ref expr) => result = self.eval_expr(expr)?,
+                &TypedStatement::Expr(ref expr) => result = Some(self.eval_expr(expr)?),
                 &TypedStatement::Binding(ref binding) => {
                     let value = match &binding.borrow().value {
                         &BindingValue::Var(ref expr) => self.eval_expr(expr)?,
