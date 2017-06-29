@@ -4,8 +4,6 @@ use num::BigInt;
 
 use dead_bindings::*;
 
-// TODO deal with assignments
-
 pub struct CFP {
     stack: Vec<ExprRef>
 }
