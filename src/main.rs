@@ -20,7 +20,6 @@ use getopts::Options;
 use std::env;
 use std::path::Path;
 use std::error::Error;
-use itertools::Itertools;
 
 use source::*;
 use lexer::Lexer;
@@ -29,6 +28,7 @@ use eval::*;
 use semantics::*;
 use dead_bindings::*;
 use constants::*;
+use utils::*;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -61,17 +61,17 @@ fn process(path: &Path) -> Result<(), Box<Error>> {
     let statements = parser.parse()?;
     let stats = { parser.lexer_stats() };
     println!(">> {}, {} lines, {} lexemes", file_size_pretty(source_code.len()), file.lines.len(), stats.lexeme_count);
-    println!(">> AST:\n{}", statements.iter().by_line());
+    println!(">> AST:\n{}", statements.iter().to_string("\n"));
 
     let statements = check_module(statements.as_slice())?;
-    println!(">> Semantic check:\n{}", statements.iter().by_line());
+    println!(">> Semantic check:\n{}", statements.iter().to_string("\n"));
 
     let statements = remove_dead_bindings(statements, Warnings::On);
-    println!(">> Removed unused bindings:\n{}", statements.iter().by_line());
+    println!(">> Removed unused bindings:\n{}", statements.iter().to_string("\n"));
 
     let mut cfp = CFP::new();
     let statements = cfp.fold_and_propagate_constants(statements);
-    println!(">> CFP:\n{}", statements.iter().by_line());
+    println!(">> CFP:\n{}", statements.iter().to_string("\n"));
 
     let mut evaluator = Evaluator::new();
     let evalue = evaluator.eval_module(statements.as_slice())?;
@@ -79,16 +79,6 @@ fn process(path: &Path) -> Result<(), Box<Error>> {
 
     Ok(())
 }
-
-use std::fmt::Debug;
-pub trait ByLine: Iterator {
-    fn by_line(&mut self) -> String
-        where Self: Sized, Self::Item: Debug {
-        self.map(|x| format!("{:?}", x)).join("\n")
-    }
-}
-
-impl<I> ByLine for I where I: Iterator {}
 
 fn print_usage(program: &str, opts: Options) {
     let brief = format!("Usage: {} FILES [options]", program);

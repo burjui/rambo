@@ -5,6 +5,7 @@ use std::cell::RefCell;
 use num::BigInt;
 use std::collections::HashMap;
 use itertools::Itertools;
+use utils::*;
 
 use parser::*;
 
@@ -79,6 +80,11 @@ pub enum TypedExpr {
     DivInt(ExprRef, ExprRef),
     AddStr(ExprRef, ExprRef),
     Assign(ExprRef, ExprRef),
+    Conditional {
+        condition: ExprRef,
+        positive: Vec<TypedStatement>,
+        negative: Option<Vec<TypedStatement>>
+    }
 }
 
 impl Debug for TypedExpr {
@@ -103,6 +109,13 @@ impl Debug for TypedExpr {
             &TypedExpr::Assign(ref left, ref right) => write!(formatter, "({:?} = {:?})", left, right),
             &TypedExpr::Lambda { ref type_, ref body, .. } => write!(formatter, "(λ {:?} = {:?})", type_, body),
             &TypedExpr::Application { ref function, ref arguments, .. } => write!(formatter, "({:?} @ {:?})", function, arguments),
+            &TypedExpr::Conditional { ref condition, ref positive, ref negative } => {
+                let negative = match negative {
+                    &Some(ref negative) => format!(" else {{{}}})", negative.iter().to_string("; ")),
+                    _ => "".to_string()
+                };
+                write!(formatter, "(if {:?} {{{:?}}}{})", condition, positive, negative)
+            }
         }
     }
 }
@@ -126,6 +139,7 @@ impl TypedExpr {
             &TypedExpr::Assign(ref left, _) => left.type_(),
             &TypedExpr::Lambda { ref type_, .. } => Type::Function(type_.clone()),
             &TypedExpr::Application { ref type_, .. } => type_.clone(),
+            &TypedExpr::Conditional { ref positive, .. } => block_type(positive.iter()).unwrap()
         }
     }
 }
@@ -182,35 +196,45 @@ impl Debug for TypedStatement {
     }
 }
 
+impl TypedStatement {
+    pub fn type_(&self) -> Type {
+        match self {
+            &TypedStatement::Binding(_) => Type::Unit,
+            &TypedStatement::Expr(ref expr) => expr.type_()
+        }
+    }
+}
+
 type CheckResult<T> = Result<T, Box<Error>>;
 
 pub fn check_module(code: &[Statement]) -> CheckResult<Vec<TypedStatement>> {
     let mut typed_module = vec![];
     let scope = Scope::new(None);
-    let mut binding_index = 0;
     for statement in code {
-        let statement_checked = match statement {
-            &Statement::Expr(ref expr) => {
-                let expr = check_expr(&scope, expr)?;
-                TypedStatement::Expr(expr)
-            },
-            &Statement::Binding { ref name, ref value } =>  {
-                let value = check_expr(&scope, value)?;
-                let binding = Rc::new(RefCell::new(Binding {
-                    name: name.text().to_string(),
-                    value: BindingValue::Var(value),
-                    index: binding_index,
-                    assigned: false,
-                    dirty: false
-                }));
-                binding_index += 1;
-                scope.bind(binding.clone())?;
-                TypedStatement::Binding(binding)
-            }
-        };
-        typed_module.push(statement_checked);
+        typed_module.push(check_statement(&scope, &statement)?);
     }
     Ok(typed_module)
+}
+
+fn check_statement(scope: &ScopeRef, statement: &Statement) -> CheckResult<TypedStatement> {
+    match statement {
+        &Statement::Expr(ref expr) => {
+            let expr = check_expr(&scope, expr)?;
+            Ok(TypedStatement::Expr(expr))
+        },
+        &Statement::Binding { ref name, ref value } => {
+            let value = check_expr(&scope, value)?;
+            let binding = Rc::new(RefCell::new(Binding {
+                name: name.text().to_string(),
+                value: BindingValue::Var(value),
+                index: scope.len(),
+                assigned: false,
+                dirty: false
+            }));
+            scope.bind(binding.clone())?;
+            Ok(TypedStatement::Binding(binding))
+        }
+    }
 }
 
 fn check_expr(scope: &ScopeRef, expr: &Expr) -> CheckResult<ExprRef> {
@@ -330,7 +354,56 @@ fn check_expr(scope: &ScopeRef, expr: &Expr) -> CheckResult<ExprRef> {
                 arguments: arguments_checked
             }))
         },
+        &Expr::Conditional { ref condition, ref positive, ref negative } => {
+            let condition = check_expr(scope, condition)?;
+            let condition_type = condition.type_();
+            if condition_type != Type::Int && condition_type != Type::String {
+                return error!("a condition can only be of type `num' or `str': {:?}", condition)
+            }
+
+            let positive = check_block(scope, positive.iter())?;
+            let positive_type = block_type(positive.iter());
+            if positive_type.is_none() {
+                // TODO need to show the piece of actual code or at least it's position (may require introducing a Block variant)
+                return error!("empty positive conditional clause");
+            }
+
+            let negative = match negative {
+                &Some(ref negative) => Some(check_block(scope, negative.iter())?),
+                _ => None
+            };
+            let negative_is_empty = negative.as_ref().map(Vec::is_empty).unwrap_or(true);
+            let negative_type = negative.as_ref().and_then(|negative| block_type(negative.iter()));
+            if !negative_is_empty && negative_type.is_none() {
+                // TODO need to show the piece of actual code or at least it's position (may require introducing a Block variant)
+                return error!("empty negative conditional clause");
+            }
+            if let (&Some(ref positive_type), &Some(ref negative_type)) = (&positive_type, &negative_type) {
+                if positive_type != negative_type {
+                    return error!("types of positive and negative clauses of a conditional don't match: `{:?}' and `{:?}'",
+                        positive_type, negative_type);
+                }
+            }
+
+            Ok(ExprRef::new(TypedExpr::Conditional {
+                condition,
+                positive,
+                negative
+            }))
+        }
     }
+}
+
+fn check_block<'a, BlockIterator>(scope: &ScopeRef, block: BlockIterator) -> CheckResult<Vec<TypedStatement>>
+    where BlockIterator: Iterator<Item = &'a Statement<'a>>
+{
+    block.map(|statement| check_statement(scope, statement)).collect()
+}
+
+fn block_type<'a, BlockIterator>(block: BlockIterator) -> Option<Type>
+    where BlockIterator: Iterator<Item = &'a TypedStatement>
+{
+    block.last().map(|last| last.type_())
 }
 
 pub type ScopeRef = Rc<Scope>;
@@ -355,13 +428,16 @@ impl Scope {
                 return error!("redefinition of parameter {}", name)
             }
         }
-
         self.bindings.borrow_mut().insert(name.to_string(), binding.clone());
         Ok(())
     }
 
     pub fn resolve(&self, name: &str) -> Result<ExprRef, Box<Error>> {
         self.find(name).ok_or_else(|| From::from(format!("`{}' is undefined", name)))
+    }
+
+    pub fn len(&self) -> usize {
+        self.bindings.borrow().len()
     }
 
     fn find(&self, name: &str) -> Option<ExprRef> {

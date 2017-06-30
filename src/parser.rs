@@ -5,6 +5,7 @@ use itertools::Itertools;
 use lexer::*;
 use source::*;
 use semantics::*;
+use utils::*;
 
 #[derive(Clone)]
 pub struct Parameter<'a> {
@@ -65,6 +66,11 @@ pub enum Expr<'a> {
     Application {
         function: Box<Expr<'a>>,
         arguments: Vec<Expr<'a>>
+    },
+    Conditional {
+        condition: Box<Expr<'a>>,
+        positive: Vec<Statement<'a>>,
+        negative: Option<Vec<Statement<'a>>>
     }
 }
 
@@ -80,6 +86,13 @@ impl<'a> Debug for Expr<'a> {
                 write!(formatter, "{} {:?} {}", self.format(left), operation, self.format(right)),
             &Expr::Application { ref function, ref arguments } =>
                 write!(formatter, "{} {}", self.format(function), self.format_exprs(arguments.as_slice())),
+            &Expr::Conditional { ref condition, ref positive, ref negative } => {
+                let negative = match negative {
+                    &Some(ref block) => format!("else {{\n{}\n}}", block.iter().to_string("\n")),
+                    _ => "".to_string()
+                };
+                write!(formatter, "if {:?} {{\n{:?}\n}} {}", condition, positive.iter().to_string("\n"), negative)
+            }
         }
     }
 }
@@ -88,9 +101,10 @@ impl<'a> Expr<'a> {
     fn precedence(&self) -> Precedence {
         match self {
             &Expr::Unit | &Expr::Int(_) | &Expr::String(_) | &Expr::Id(_) => Precedence::Primitive,
-            &Expr::Lambda { .. } => Precedence::Lambda,
+            &Expr::Lambda {..} => Precedence::Lambda,
             &Expr::Binary { ref operation, .. } => operation.precedence(),
-            &Expr::Application { .. } => Precedence::Application,
+            &Expr::Application {..} => Precedence::Application,
+            &Expr::Conditional {..} => Precedence::Primitive
         }
     }
 
@@ -106,6 +120,7 @@ impl<'a> Expr<'a> {
     }
 }
 
+#[derive(Clone)]
 pub enum Statement<'a> {
     Expr(Expr<'a>),
     Binding {
@@ -151,14 +166,7 @@ impl<'a> Parser<'a> {
         self.read_lexeme()?;
         let mut statements = vec![];
         while self.lexeme.token != Token::EOF {
-            statements.push(
-                if self.lexeme.token == Token::Id && self.lexeme.text() == "let" {
-                    self.read_lexeme()?;
-                    self.parse_binding()?
-                } else {
-                    Statement::Expr(self.parse_expr()?)
-                }
-            )
+            statements.push(self.parse_statement()?)
         }
         Ok(statements)
     }
@@ -167,8 +175,70 @@ impl<'a> Parser<'a> {
         self.lexer.stats()
     }
 
-    fn parse_expr(&mut self) -> ParseResult<'a, Expr<'a>> {
-        self.parse_binary(Precedence::Assignment)
+    fn parse_statement(&mut self) -> ParseResult<'a, Statement<'a>> {
+        if self.lexeme.token == Token::Id && self.lexeme.text() == "let" {
+            self.read_lexeme()?;
+            self.parse_binding()
+        } else {
+            Ok(Statement::Expr(self.parse_expression()?))
+        }
+    }
+
+    fn parse_expression(&mut self) -> ParseResult<'a, Expr<'a>> {
+        if self.lexeme.token == Token::Id && self.lexeme.text() == "if" {
+            self.read_lexeme()?;
+            self.parse_conditional()
+        } else {
+            self.parse_binary(Precedence::Assignment)
+        }
+    }
+
+    fn parse_conditional(&mut self) -> ParseResult<'a, Expr<'a>> {
+        let condition_is_parenthesized = self.lexeme.token == Token::LParen;
+        let condition = {
+            if condition_is_parenthesized {
+                self.read_lexeme()?;
+            }
+            let condition = box self.parse_expression()?;
+            if condition_is_parenthesized {
+                self.expect(Token::RParen, ")")?;
+            }
+            condition
+        };
+        let positive = if condition_is_parenthesized {
+            self.parse_block_or_expr()?
+        } else {
+            self.parse_block()?
+        };
+        let negative = if self.lexeme.token == Token::Id && self.lexeme.text() == "else" {
+            self.read_lexeme()?;
+            Some(self.parse_block_or_expr()?)
+        } else {
+            None
+        };
+        Ok(Expr::Conditional {
+            condition,
+            positive,
+            negative
+        })
+    }
+
+    fn parse_block_or_expr(&mut self) -> ParseResult<'a, Vec<Statement<'a>>> {
+        if self.lexeme.token != Token::LBrace {
+            Ok(vec![Statement::Expr(self.parse_expression()?)])
+        } else {
+            self.parse_block()
+        }
+    }
+
+    fn parse_block(&mut self) -> ParseResult<'a, Vec<Statement<'a>>> {
+        let mut statements = vec![];
+        self.expect(Token::LBrace, "{")?;
+        while self.lexeme.token != Token::EOF && self.lexeme.token != Token::RBrace {
+            statements.push(self.parse_statement()?)
+        }
+        self.expect(Token::RBrace, "}")?;
+        Ok(statements)
     }
 
     fn parse_binary(&mut self, precedence: Precedence) -> ParseResult<'a, Expr<'a>> {
@@ -213,7 +283,7 @@ impl<'a> Parser<'a> {
         let first_expr_line_index = self.lexeme_line;
         let first_expr = self.parse_primary()?;
         let mut arguments = vec![];
-        while self.lexeme.token.can_be_expression_start() && self.lexeme_line == first_expr_line_index {
+        while self.lexeme.can_be_expression_start() && self.lexeme_line == first_expr_line_index {
             arguments.push(self.parse_primary()?);
         }
 
@@ -242,7 +312,7 @@ impl<'a> Parser<'a> {
                     self.read_lexeme()?;
                     Ok(Expr::Unit)
                 } else {
-                    let expr = self.parse_expr()?;
+                    let expr = self.parse_expression()?;
                     self.expect(Token::RParen, ")")?;
                     Ok(expr)
                 }
@@ -254,7 +324,7 @@ impl<'a> Parser<'a> {
     fn parse_binding(&mut self) -> ParseResult<'a, Statement<'a>> {
         let name = self.expect(Token::Id, "identifier")?;
         self.expect(Token::Eq, "=")?;
-        let value = self.parse_expr()?;
+        let value = self.parse_expression()?;
         Ok(Statement::Binding {
             name: name.source,
             value: box(value)
@@ -282,7 +352,7 @@ impl<'a> Parser<'a> {
             error!(self, &format!("expected an argument list, found: {}", self.lexeme), &self.lexeme.source)
         } else {
             self.expect(Token::Arrow, "arrow")?;
-            let body = self.parse_expr()?;
+            let body = self.parse_expression()?;
             Ok(Expr::Lambda {
                 parameters,
                 body: box(body)
@@ -402,10 +472,13 @@ impl Token {
             _ => unreachable!()
         }
     }
+}
 
-    fn can_be_expression_start(self) -> bool {
-        match self {
-            Token::Id | Token::Int | Token::String | Token::LParen | Token::Lambda => true,
+impl<'a> Lexeme<'a> {
+    fn can_be_expression_start(&self) -> bool {
+        match self.token {
+            Token::Id => self.text() != "else",
+            Token::Int | Token::String | Token::LParen | Token::Lambda => true,
             _ => false
         }
     }

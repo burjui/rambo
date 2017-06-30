@@ -2,3 +2,4 @@
 let y = "efg"
 let z = \ () -> x + y
 z () + "/test"
+if (0) 2 else 3

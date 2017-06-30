@@ -2,6 +2,7 @@ use std::fmt::{Debug, Formatter, Result as FmtResult};
 use std::error::Error;
 use num::BigInt;
 use std::ops::Deref;
+use num::Zero;
 
 use semantics::*;
 
@@ -18,21 +19,26 @@ impl<'a> Evaluator {
         }
     }
 
-    pub fn eval_module(&mut self, code: &[TypedStatement]) -> Result<Option<Evalue>, Box<Error>> {
-        let mut result = None;
+    pub fn eval_module(&mut self, code: &[TypedStatement]) -> Result<Evalue, Box<Error>> {
+        let mut result = Evalue::Unit;
         for statement in code {
-            match statement {
-                &TypedStatement::Expr(ref expr) => result = Some(self.eval_expr(expr)?),
-                &TypedStatement::Binding(ref binding) => {
-                    let value = match &binding.borrow().value {
-                        &BindingValue::Var(ref expr) => self.eval_expr(expr)?,
-                        &BindingValue::Arg(_) => panic!("{:?}", binding.borrow().value)
-                    };
-                    self.bindings.push(value);
-                }
-            }
+            result = self.eval_statement(statement)?;
         }
         Ok(result)
+    }
+
+    fn eval_statement(&mut self, statement: &TypedStatement) -> Result<Evalue, Box<Error>> {
+        match statement {
+            &TypedStatement::Expr(ref expr) => Ok(self.eval_expr(expr)?),
+            &TypedStatement::Binding(ref binding) => {
+                let value = match &binding.borrow().value {
+                    &BindingValue::Var(ref expr) => self.eval_expr(expr)?,
+                    &BindingValue::Arg(_) => panic!("{:?}", binding.borrow().value)
+                };
+                self.bindings.push(value);
+                Ok(Evalue::Unit)
+            }
+        }
     }
 
     fn eval_expr(&mut self, expr: &TypedExpr) -> Result<Evalue, Box<Error>> {
@@ -113,6 +119,21 @@ impl<'a> Evaluator {
                 result
             },
             &TypedExpr::Lambda { ref body, .. } => Ok(Evalue::Lambda(body.clone())),
+            &TypedExpr::Conditional { ref condition, ref positive, ref negative } => {
+                let condition = match self.eval_expr(condition)? {
+                    Evalue::Int(value) => !value.is_zero(),
+                    Evalue::String(value) => value.len() > 0,
+                    _ => unreachable!()
+                };
+                let clause = if condition {
+                    Some(positive.iter())
+                } else {
+                    negative.as_ref().map(|negative| negative.iter())
+                };
+                clause
+                    .and_then(|clause| clause.map(|statement| self.eval_statement(statement)).last())
+                    .unwrap_or(Ok(Evalue::Unit))
+            }
         }
     }
 
