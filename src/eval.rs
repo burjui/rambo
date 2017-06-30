@@ -37,7 +37,7 @@ impl<'a> Evaluator {
 
     fn eval_expr(&mut self, expr: &TypedExpr) -> Result<Evalue, Box<Error>> {
         match expr {
-            &TypedExpr::Phantom(_) => unreachable!(),
+            &TypedExpr::Phantom => unreachable!(),
             &TypedExpr::Int(ref value) => Ok(Evalue::Int(value.clone())),
             &TypedExpr::String(ref value) => Ok(Evalue::String(value.clone())),
             &TypedExpr::AddInt(ref left, ref right) => {

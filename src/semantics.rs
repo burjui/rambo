@@ -56,7 +56,7 @@ impl Debug for Type {
 pub type ExprRef = Rc<TypedExpr>;
 
 pub enum TypedExpr {
-    Phantom(Type),
+    Phantom,
     Int(BigInt),
     String(String),
     Deref(BindingRef),
@@ -81,7 +81,7 @@ pub enum TypedExpr {
 impl Debug for TypedExpr {
     fn fmt(&self, formatter: &mut Formatter) -> FmtResult {
         match self {
-            &TypedExpr::Phantom(_) => write!(formatter, "@"),
+            &TypedExpr::Phantom => write!(formatter, "@"),
             &TypedExpr::Int(ref value) => write!(formatter, "{}", value),
             &TypedExpr::String(ref value) => write!(formatter, "\"{}\"", value),
             &TypedExpr::Deref(ref binding) => {
@@ -106,7 +106,7 @@ impl Debug for TypedExpr {
 impl TypedExpr {
     pub fn type_(&self) -> Type {
         match self {
-            &TypedExpr::Phantom(ref type_) => type_.clone(),
+            &TypedExpr::Phantom => unreachable!(),
 
             &TypedExpr::Int(_) |
             &TypedExpr::AddInt(_, _) |

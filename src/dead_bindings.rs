@@ -119,7 +119,7 @@ fn process_binding(binding: &Binding, usages: &mut Vec<usize>) {
 
 fn process_expr(expr: &ExprRef, usages: &mut Vec<usize>) {
     match expr.deref() {
-        &TypedExpr::Phantom(_) | &TypedExpr::Int(_) | &TypedExpr::String(_) => {}, // nothing to analyze in either of these
+        &TypedExpr::Phantom | &TypedExpr::Int(_) | &TypedExpr::String(_) => {}, // nothing to analyze in either of these
         &TypedExpr::Deref(ref binding) => {
             let binding = &binding.borrow();
             if let &BindingValue::Var(_) = &binding.value {

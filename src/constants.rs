@@ -87,7 +87,7 @@ impl CFP {
                                 self.stack.push(argument)
                             }
                             let result = self.fold(&scope, body);
-                            self.stack.resize(stack_size, ExprRef::new(TypedExpr::Phantom(Type::Int)));
+                            self.stack.resize(stack_size, ExprRef::new(TypedExpr::Phantom));
                             return result
                         }
                     }
@@ -109,11 +109,10 @@ impl CFP {
             },
             &TypedExpr::Lambda { ref type_, ref body, .. } => {
                 let stack_size = self.stack.len();
-                for parameter in type_.parameters.iter().rev() {
-                    self.stack.push(ExprRef::new(TypedExpr::Phantom(parameter.type_.clone())))
-                }
+                let padding = || ExprRef::new(TypedExpr::Phantom);
+                self.stack.resize(stack_size + type_.parameters.len(), padding());
                 let body = self.fold(&scope, body);
-                self.stack.resize(stack_size, ExprRef::new(TypedExpr::Phantom(Type::Int)));
+                self.stack.resize(stack_size, padding());
                 if is_primitive_constant(&body) {
                     body
                 } else {
