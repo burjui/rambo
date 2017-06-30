@@ -8,7 +8,8 @@ use semantics::*;
 
 #[derive(Clone)]
 pub struct Parameter<'a> {
-    pub name: Source<'a>,
+    pub name: String,
+    pub source: Source<'a>,
     pub type_: Type
 }
 
@@ -48,6 +49,7 @@ impl Debug for BinaryOperation {
 #[derive(Clone)]
 //#[derive(Debug)]
 pub enum Expr<'a> {
+    Unit,
     Int(Source<'a>),
     String(Source<'a>),
     Id(Source<'a>),
@@ -69,6 +71,7 @@ pub enum Expr<'a> {
 impl<'a> Debug for Expr<'a> {
     fn fmt(&self, formatter: &mut Formatter) -> FmtResult {
         match self {
+            &Expr::Unit => write!(formatter, "()"),
             &Expr::String(source) => write!(formatter, "\"{:?}\"", source),
             &Expr::Int(source) | &Expr::Id(source) => write!(formatter, "{:?}", source),
             &Expr::Lambda { ref parameters, ref body } =>
@@ -84,7 +87,7 @@ impl<'a> Debug for Expr<'a> {
 impl<'a> Expr<'a> {
     fn precedence(&self) -> Precedence {
         match self {
-            &Expr::Int(_) | &Expr::String(_) | &Expr::Id(_) => Precedence::Primitive,
+            &Expr::Unit | &Expr::Int(_) | &Expr::String(_) | &Expr::Id(_) => Precedence::Primitive,
             &Expr::Lambda { .. } => Precedence::Lambda,
             &Expr::Binary { ref operation, .. } => operation.precedence(),
             &Expr::Application { .. } => Precedence::Application,
@@ -235,9 +238,14 @@ impl<'a> Parser<'a> {
             Token::String => Ok(Expr::String(primary.source)),
             Token::Lambda => self.parse_lambda(),
             Token::LParen => {
-                let expr = self.parse_expr()?;
-                self.expect(Token::RParen, ")")?;
-                Ok(expr)
+                if self.lexeme.token == Token::RParen {
+                    self.read_lexeme()?;
+                    Ok(Expr::Unit)
+                } else {
+                    let expr = self.parse_expr()?;
+                    self.expect(Token::RParen, ")")?;
+                    Ok(expr)
+                }
             }
             _ => error!(self, &format!("expected an expression, found: {}", primary), &primary.source)
         }
@@ -256,8 +264,19 @@ impl<'a> Parser<'a> {
     fn parse_lambda(&mut self) -> ParseResult<'a, Expr<'a>> {
         let mut parameters = vec![];
         while self.lexeme.token == Token::LParen {
-            let parameter = self.parse_parameter()?;
-            parameters.push(parameter);
+            self.read_lexeme()?;
+            if self.lexeme.token == Token::RParen {
+                self.read_lexeme()?;
+                parameters.push(Parameter {
+                    name: "_".to_string(),
+                    source: self.lexeme.source.file.empty_source(),
+                    type_: Type::Unit
+                });
+                break;
+            } else {
+                let parameter = self.parse_parameter()?;
+                parameters.push(parameter);
+            }
         }
         if parameters.is_empty() {
             error!(self, &format!("expected an argument list, found: {}", self.lexeme), &self.lexeme.source)
@@ -272,13 +291,13 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_parameter(&mut self) -> ParseResult<'a, Parameter<'a>> {
-        self.expect(Token::LParen, "(")?;
-        let Lexeme { source: name, .. } = self.expect(Token::Id, "identifier")?;
+        let Lexeme { source, .. } = self.expect(Token::Id, "identifier")?;
         self.expect(Token::Colon, ":")?;
         let type_ = self.parse_type()?;
         self.expect(Token::RParen, ")")?;
         Ok(Parameter {
-            name,
+            name: source.text().to_string(),
+            source,
             type_
         })
     }

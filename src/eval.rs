@@ -38,6 +38,7 @@ impl<'a> Evaluator {
     fn eval_expr(&mut self, expr: &TypedExpr) -> Result<Evalue, Box<Error>> {
         match expr {
             &TypedExpr::Phantom => unreachable!(),
+            &TypedExpr::Unit => Ok(Evalue::Unit),
             &TypedExpr::Int(ref value) => Ok(Evalue::Int(value.clone())),
             &TypedExpr::String(ref value) => Ok(Evalue::String(value.clone())),
             &TypedExpr::AddInt(ref left, ref right) => {
@@ -129,6 +130,7 @@ impl<'a> Evaluator {
 
 #[derive(Clone)]
 pub enum Evalue {
+    Unit,
     Int(BigInt),
     String(String),
     Lambda(ExprRef)
@@ -137,6 +139,7 @@ pub enum Evalue {
 impl Debug for Evalue {
     fn fmt(&self, formatter: &mut Formatter) -> FmtResult {
         match self {
+            &Evalue::Unit => write!(formatter, "()"),
             &Evalue::Int(ref value) => write!(formatter, "{}", value),
             &Evalue::String(ref value) => write!(formatter, "\"{}\"", value),
             &Evalue::Lambda(ref body) => write!(formatter, "(\\ ... -> {:?})", body),

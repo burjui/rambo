@@ -1,6 +1,4 @@
-﻿let a = 1
-let a = a + 1
-let a = a + 1 + 2 + 3
-a = 1
-a = 3
-"x" + "y"
+﻿let x = "abc"
+let y = "efg"
+let z = \ () -> x + y
+z () + "/test"

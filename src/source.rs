@@ -83,6 +83,16 @@ impl<'a> SourceFile<'a> {
         error!("{:?}: offset {} is out of range", self.path.to_string_lossy(), offset)
     }
 
+    pub fn empty_source(&self) -> Source {
+        Source {
+            file: self,
+            range: Range {
+                start: 0,
+                end: 0
+            }
+        }
+    }
+
     fn skip_byte_order_mark(text: &'a str, path: &Path) -> Result<&'a str, Box<Error>> {
         const UTF8_BOM: [u8; 3] = [0xEF, 0xBB, 0xBF];
         const BOMS: &[(&[u8], &str)] = &[

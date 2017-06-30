@@ -38,6 +38,7 @@ impl Debug for FunctionType {
 // TODO impl Debug with parenthesis
 #[derive(Clone, PartialEq)]
 pub enum Type {
+    Unit,
     Int,
     String,
     Function(FunctionTypeRef),
@@ -46,6 +47,7 @@ pub enum Type {
 impl Debug for Type {
     fn fmt(&self, formatter: &mut Formatter) -> FmtResult {
         match self {
+            &Type::Unit => write!(formatter, "()"),
             &Type::Int => write!(formatter, "num"),
             &Type::String => write!(formatter, "str"),
             &Type::Function(ref type_) => type_.fmt(formatter)
@@ -57,6 +59,7 @@ pub type ExprRef = Rc<TypedExpr>;
 
 pub enum TypedExpr {
     Phantom,
+    Unit,
     Int(BigInt),
     String(String),
     Deref(BindingRef),
@@ -82,6 +85,7 @@ impl Debug for TypedExpr {
     fn fmt(&self, formatter: &mut Formatter) -> FmtResult {
         match self {
             &TypedExpr::Phantom => write!(formatter, "@"),
+            &TypedExpr::Unit => write!(formatter, "()"),
             &TypedExpr::Int(ref value) => write!(formatter, "{}", value),
             &TypedExpr::String(ref value) => write!(formatter, "\"{}\"", value),
             &TypedExpr::Deref(ref binding) => {
@@ -107,6 +111,7 @@ impl TypedExpr {
     pub fn type_(&self) -> Type {
         match self {
             &TypedExpr::Phantom => unreachable!(),
+            &TypedExpr::Unit => Type::Unit,
 
             &TypedExpr::Int(_) |
             &TypedExpr::AddInt(_, _) |
@@ -210,6 +215,7 @@ pub fn check_module(code: &[Statement]) -> CheckResult<Vec<TypedStatement>> {
 
 fn check_expr(scope: &ScopeRef, expr: &Expr) -> CheckResult<ExprRef> {
     match expr {
+        &Expr::Unit => Ok(ExprRef::new(TypedExpr::Unit)),
         &Expr::Int(ref source) => {
             let value = source.text().parse::<BigInt>()?;
             Ok(ExprRef::new(TypedExpr::Int(value)))
@@ -262,9 +268,8 @@ fn check_expr(scope: &ScopeRef, expr: &Expr) -> CheckResult<ExprRef> {
             let lambda_scope = Scope::new(Some(scope.clone()));
             let mut parameter_bindings = vec![];
             for (parameter_index, parameter) in parameters.iter().enumerate() {
-                let parameter_name = parameter.name.text();
                 let binding = Rc::new(RefCell::new(Binding {
-                    name: parameter_name.to_string(),
+                    name: parameter.name.to_string(),
                     value: BindingValue::Arg(parameter.type_.clone()),
                     index: parameter_index,
                     assigned: false,
@@ -276,7 +281,7 @@ fn check_expr(scope: &ScopeRef, expr: &Expr) -> CheckResult<ExprRef> {
             let body = check_expr(&lambda_scope, body)?;
             let parameters = parameters.iter()
                 .map(|parameter| Parameter {
-                    name: parameter.name.text().to_string(),
+                    name: parameter.name.to_string(),
                     type_: parameter.type_.clone()
                 })
                 .collect();
