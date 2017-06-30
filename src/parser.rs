@@ -69,8 +69,8 @@ pub enum Expr<'a> {
 impl<'a> Debug for Expr<'a> {
     fn fmt(&self, formatter: &mut Formatter) -> FmtResult {
         match self {
-            &Expr::Int(source) | &Expr::String(source) | &Expr::Id(source) =>
-                write!(formatter, "{:?}", source),
+            &Expr::String(source) => write!(formatter, "\"{:?}\"", source),
+            &Expr::Int(source) | &Expr::Id(source) => write!(formatter, "{:?}", source),
             &Expr::Lambda { ref parameters, ref body } =>
                 write!(formatter, "λ {} → {}", format_parameters(parameters.as_slice()), self.format(body)),
             &Expr::Binary { ref operation, ref left, ref right } =>

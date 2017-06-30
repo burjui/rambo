@@ -138,7 +138,7 @@ impl Debug for Evalue {
     fn fmt(&self, formatter: &mut Formatter) -> FmtResult {
         match self {
             &Evalue::Int(ref value) => write!(formatter, "{}", value),
-            &Evalue::String(ref value) => write!(formatter, "{}", value),
+            &Evalue::String(ref value) => write!(formatter, "\"{}\"", value),
             &Evalue::Lambda(ref body) => write!(formatter, "(\\ ... -> {:?})", body),
         }
     }

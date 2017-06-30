@@ -124,7 +124,7 @@ impl<'a> Lexer<'a> {
                         break
                     }
                 }
-                Some(self.new_lexeme(Token::Id))
+                Some(self.new_lexeme(Token::Id, None))
             },
             _ => None
         })
@@ -139,7 +139,7 @@ impl<'a> Lexer<'a> {
                         _ => break
                     }
                 }
-                Some(self.new_lexeme(Token::Int))
+                Some(self.new_lexeme(Token::Int, None))
             },
             _ => None
         })
@@ -160,8 +160,12 @@ impl<'a> Lexer<'a> {
 
                 match self.current_character {
                     Some('"') => {
+                        let range = Range {
+                            start: self.lexeme_offset + 1, // skip opening quotation mark
+                            end: self.current_offset
+                        };
                         self.read_char();
-                        Ok(Some(self.new_lexeme(Token::String)))
+                        Ok(Some(self.new_lexeme(Token::String, Some(range))))
                     },
                     _ => {
                         let start_position = self.file.position(self.lexeme_offset)?;
@@ -204,16 +208,16 @@ impl<'a> Lexer<'a> {
             .or_else(|| on!('>', Token::Gt, on!('=', Token::GtEq)))
             .or_else(|| on!('→', Token::Arrow))
             .or_else(|| on!(':', Token::Colon))
-            .map(|token| self.new_lexeme(token)))
+            .map(|token| self.new_lexeme(token, None)))
     }
 
-    fn new_lexeme(&self, token: Token) -> Lexeme<'a> {
+    fn new_lexeme(&self, token: Token, range: Option<Range>) -> Lexeme<'a> {
         let source = Source {
             file: self.file,
-            range: Range {
+            range: range.unwrap_or_else(|| Range {
                 start: self.lexeme_offset,
                 end: self.current_offset
-            }
+            })
         };
         Lexeme { token, source }
     }

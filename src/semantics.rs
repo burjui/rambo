@@ -83,7 +83,7 @@ impl Debug for TypedExpr {
         match self {
             &TypedExpr::Phantom(_) => write!(formatter, "@"),
             &TypedExpr::Int(ref value) => write!(formatter, "{}", value),
-            &TypedExpr::String(ref value) => write!(formatter, "{}", value),
+            &TypedExpr::String(ref value) => write!(formatter, "\"{}\"", value),
             &TypedExpr::Deref(ref binding) => {
                 let suffix = match &binding.borrow().value {
                     &BindingValue::Var(_) => format!("[{}]", binding.borrow().index),
@@ -331,7 +331,6 @@ fn check_expr(scope: &ScopeRef, expr: &Expr) -> CheckResult<ExprRef> {
 pub type ScopeRef = Rc<Scope>;
 
 pub struct Scope {
-    // TODO maybe Rc<String> to avoid copying?
     bindings: RefCell<HashMap<String, BindingRef>>,
     outer_scope: Option<ScopeRef>
 }
