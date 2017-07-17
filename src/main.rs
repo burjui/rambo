@@ -36,9 +36,7 @@ fn main() {
     opts.optflag("h", "help", "print this help menu");
 
     let matches = opts.parse(&args[1..]).unwrap();
-    if matches.opt_present("h") {
-        print_usage(&args[0], opts);
-    } else if matches.free.is_empty() {
+    if matches.opt_present("h") || matches.free.is_empty() {
         print_usage(&args[0], opts);
     } else {
         for path in matches.free {
