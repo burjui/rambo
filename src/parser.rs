@@ -91,7 +91,7 @@ impl<'a> Debug for Expr<'a> {
                     &Some(ref block) => format!("else {{\n{}\n}}", block.iter().to_string("\n")),
                     _ => "".to_string()
                 };
-                write!(formatter, "if {:?} {{\n{:?}\n}} {}", condition, positive.iter().to_string("\n"), negative)
+                write!(formatter, "if {:?} {{\n{}\n}} {}", condition, positive.iter().to_string("\n"), negative)
             }
         }
     }

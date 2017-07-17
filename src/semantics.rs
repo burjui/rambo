@@ -114,7 +114,7 @@ impl Debug for TypedExpr {
                     &Some(ref negative) => format!(" else {{{}}})", negative.iter().to_string("; ")),
                     _ => "".to_string()
                 };
-                write!(formatter, "(if {:?} {{{:?}}}{})", condition, positive, negative)
+                write!(formatter, "(if {:?} {{{}}}{})", condition, positive.iter().to_string("; "), negative)
             }
         }
     }
