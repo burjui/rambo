@@ -160,11 +160,11 @@ impl<'a> Lexer<'a> {
 
                 match self.current_character {
                     Some('"') => {
+                        self.read_char();
                         let range = Range {
-                            start: self.lexeme_offset + 1, // skip opening quotation mark
+                            start: self.lexeme_offset,
                             end: self.current_offset
                         };
-                        self.read_char();
                         Ok(Some(self.new_lexeme(Token::String, Some(range))))
                     },
                     _ => {
