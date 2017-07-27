@@ -245,7 +245,8 @@ fn check_expr(scope: &ScopeRef, expr: &Expr) -> CheckResult<ExprRef> {
             Ok(ExprRef::new(TypedExpr::Int(value)))
         },
         &Expr::String(ref source) => {
-            let value = source.text().to_string();
+            let text = source.text();
+            let value = text[1..text.len() - 1].to_string();
             Ok(ExprRef::new(TypedExpr::String(value)))
         },
         &Expr::Id(ref name) => scope.resolve(name.text()),
