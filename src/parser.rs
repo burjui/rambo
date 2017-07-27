@@ -1,11 +1,9 @@
 use std::fmt::{Debug, Formatter, Write, Result as FmtResult};
 use std::error::Error;
-use itertools::Itertools;
 
 use lexer::*;
 use source::*;
 use semantics::*;
-use utils::*;
 
 #[derive(Clone)]
 pub struct Parameter<'a> {
@@ -25,16 +23,6 @@ pub enum BinaryOperation {
     Assign, Add, Subtract, Multiply, Divide
 }
 
-impl BinaryOperation {
-    fn precedence(&self) -> Precedence {
-        match self {
-            &BinaryOperation::Assign => Precedence::Assignment,
-            &BinaryOperation::Add | &BinaryOperation::Subtract => Precedence::Additive,
-            &BinaryOperation::Multiply | &BinaryOperation::Divide => Precedence::Multiplicative,
-        }
-    }
-}
-
 impl Debug for BinaryOperation {
     fn fmt(&self, formatter: &mut Formatter) -> FmtResult {
         formatter.write_char(match self {
@@ -50,24 +38,28 @@ impl Debug for BinaryOperation {
 #[derive(Clone)]
 //#[derive(Debug)]
 pub enum Expr<'a> {
-    Unit,
+    Unit(Source<'a>),
     Int(Source<'a>),
     String(Source<'a>),
     Id(Source<'a>),
     Lambda {
+        source: Source<'a>,
         parameters: Vec<Parameter<'a>>,
         body: Box<Expr<'a>>
     },
     Binary {
+        source: Source<'a>,
         operation: BinaryOperation,
         left: Box<Expr<'a>>,
         right: Box<Expr<'a>>
     },
     Application {
+        source: Source<'a>,
         function: Box<Expr<'a>>,
         arguments: Vec<Expr<'a>>
     },
     Conditional {
+        source: Source<'a>,
         condition: Box<Expr<'a>>,
         positive: Vec<Statement<'a>>,
         negative: Option<Vec<Statement<'a>>>
@@ -77,46 +69,32 @@ pub enum Expr<'a> {
 impl<'a> Debug for Expr<'a> {
     fn fmt(&self, formatter: &mut Formatter) -> FmtResult {
         match self {
-            &Expr::Unit => write!(formatter, "()"),
-            &Expr::String(source) => write!(formatter, "\"{:?}\"", source),
-            &Expr::Int(source) | &Expr::Id(source) => write!(formatter, "{:?}", source),
-            &Expr::Lambda { ref parameters, ref body } =>
-                write!(formatter, "λ {} → {}", format_parameters(parameters.as_slice()), self.format(body)),
-            &Expr::Binary { ref operation, ref left, ref right } =>
-                write!(formatter, "{} {:?} {}", self.format(left), operation, self.format(right)),
-            &Expr::Application { ref function, ref arguments } =>
-                write!(formatter, "{} {}", self.format(function), self.format_exprs(arguments.as_slice())),
-            &Expr::Conditional { ref condition, ref positive, ref negative } => {
-                let negative = match negative {
-                    &Some(ref block) => format!("else {{\n{}\n}}", block.iter().to_string("\n")),
-                    _ => "".to_string()
-                };
-                write!(formatter, "if {:?} {{\n{}\n}} {}", condition, positive.iter().to_string("\n"), negative)
-            }
+            &Expr::Unit(ref source) |
+            &Expr::String(ref source) |
+            &Expr::Int(ref source) |
+            &Expr::Id(ref source) |
+            &Expr::Lambda { ref source, .. } |
+            &Expr::Binary { ref source, .. } |
+            &Expr::Application { ref source, .. } |
+            &Expr::Conditional { ref source, .. }
+            => write!(formatter, "{:?}", source)
         }
     }
 }
 
 impl<'a> Expr<'a> {
-    fn precedence(&self) -> Precedence {
+    pub fn source(&self) -> &Source {
         match self {
-            &Expr::Unit | &Expr::Int(_) | &Expr::String(_) | &Expr::Id(_) => Precedence::Primitive,
-            &Expr::Lambda {..} => Precedence::Lambda,
-            &Expr::Binary { ref operation, .. } => operation.precedence(),
-            &Expr::Application {..} => Precedence::Application,
-            &Expr::Conditional {..} => Precedence::Primitive
+            &Expr::Unit(ref source) |
+            &Expr::String(ref source) |
+            &Expr::Int(ref source) |
+            &Expr::Id(ref source) |
+            &Expr::Lambda { ref source, .. } |
+            &Expr::Binary { ref source, .. } |
+            &Expr::Application { ref source, .. } |
+            &Expr::Conditional { ref source, .. }
+            => source
         }
-    }
-
-    fn format(&self, subexpr: &Expr) -> String {
-        let need_parenthesis = self.precedence() > subexpr.precedence();
-        let opening_parenthesis = if need_parenthesis { "(" } else { "" };
-        let closing_parenthesis = if need_parenthesis { ")" } else { "" };
-        format!("{}{:?}{}", opening_parenthesis, subexpr, closing_parenthesis)
-    }
-
-    fn format_exprs(&self, list: &[Expr]) -> String {
-        list.iter().map(|x| self.format(x)).join(" ")
     }
 }
 
@@ -124,6 +102,7 @@ impl<'a> Expr<'a> {
 pub enum Statement<'a> {
     Expr(Expr<'a>),
     Binding {
+        // TODO maybe introduce Source for the whole binding
         name: Source<'a>,
         value: Box<Expr<'a>>
     }
@@ -144,7 +123,8 @@ pub struct Parser<'a> {
     lexer: Lexer<'a>,
     lexeme: Lexeme<'a>,
     lexeme_line: usize,
-    previous_lexeme_line: usize
+    previous_lexeme_line: usize,
+    previous_lexeme_end: usize
 }
 
 macro_rules! error {
@@ -158,7 +138,8 @@ impl<'a> Parser<'a> {
             lexer,
             lexeme: eof_lexeme,
             lexeme_line: 0,
-            previous_lexeme_line: 0
+            previous_lexeme_line: 0,
+            previous_lexeme_end: 0,
         }
     }
 
@@ -186,7 +167,6 @@ impl<'a> Parser<'a> {
 
     fn parse_expression(&mut self) -> ParseResult<'a, Expr<'a>> {
         if self.lexeme.token == Token::Id && self.lexeme.text() == "if" {
-            self.read_lexeme()?;
             self.parse_conditional()
         } else {
             self.parse_binary(Precedence::Assignment)
@@ -194,6 +174,8 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_conditional(&mut self) -> ParseResult<'a, Expr<'a>> {
+        let start = self.lexeme.source;
+        self.read_lexeme()?;
         let condition_is_parenthesized = self.lexeme.token == Token::LParen;
         let condition = {
             if condition_is_parenthesized {
@@ -216,7 +198,9 @@ impl<'a> Parser<'a> {
         } else {
             None
         };
+        let source = start.extend(self.previous_lexeme_end);
         Ok(Expr::Conditional {
+            source,
             condition,
             positive,
             negative
@@ -250,6 +234,7 @@ impl<'a> Parser<'a> {
             }
         };
 
+        let mut start = self.lexeme.source;
         let mut result = parse_next(self, precedence.next_binary_precedence())?;
         let first_lexeme_token = self.lexeme.token;
         if self.previous_lexeme_line != self.lexeme_line || !first_lexeme_token.is_binary_operator() {
@@ -269,10 +254,12 @@ impl<'a> Parser<'a> {
                     .and_then(|p| if operator.is_left_associative() { p.next_binary_precedence() } else { Some(p) });
                 let right_operand = parse_next(self, right_precedence)?;
                 result = Expr::Binary {
+                    source: start.extend(self.previous_lexeme_end),
                     operation: operator.binary_operation(),
                     left: box(result),
                     right: box(right_operand)
                 };
+                start = self.lexeme.source;
             }
         }
 
@@ -280,6 +267,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_function_application(&mut self) -> ParseResult<'a, Expr<'a>> {
+        let start = self.lexeme.source;
         let first_expr_line_index = self.lexeme_line;
         let first_expr = self.parse_primary()?;
         let mut arguments = vec![];
@@ -292,6 +280,7 @@ impl<'a> Parser<'a> {
                 first_expr
             } else {
                 Expr::Application {
+                    source: start.extend(self.previous_lexeme_end),
                     function: box(first_expr),
                     arguments: arguments
                 }
@@ -306,11 +295,12 @@ impl<'a> Parser<'a> {
             Token::Id => Ok(Expr::Id(primary.source)),
             Token::Int => Ok(Expr::Int(primary.source)),
             Token::String => Ok(Expr::String(primary.source)),
-            Token::Lambda => self.parse_lambda(),
+            Token::Lambda => self.parse_lambda(&primary.source),
             Token::LParen => {
                 if self.lexeme.token == Token::RParen {
                     self.read_lexeme()?;
-                    Ok(Expr::Unit)
+                    let source = primary.source.extend(self.previous_lexeme_end);
+                    Ok(Expr::Unit(source))
                 } else {
                     let expr = self.parse_expression()?;
                     self.expect(Token::RParen, ")")?;
@@ -331,7 +321,7 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn parse_lambda(&mut self) -> ParseResult<'a, Expr<'a>> {
+    fn parse_lambda(&mut self, start: &Source<'a>) -> ParseResult<'a, Expr<'a>> {
         let mut parameters = vec![];
         while self.lexeme.token == Token::LParen {
             self.read_lexeme()?;
@@ -354,6 +344,7 @@ impl<'a> Parser<'a> {
             self.expect(Token::Arrow, "arrow")?;
             let body = self.parse_expression()?;
             Ok(Expr::Lambda {
+                source: start.extend(self.previous_lexeme_end),
                 parameters,
                 body: box(body)
             })
@@ -397,9 +388,10 @@ impl<'a> Parser<'a> {
     }
 
     fn read_lexeme(&mut self) -> ParseResult<'a, ()> {
+        self.previous_lexeme_line = self.lexeme_line;
+        self.previous_lexeme_end = self.lexeme.source.range.end;
         let (lexeme, line) = self.lexer.read()?;
         self.lexeme = lexeme;
-        self.previous_lexeme_line = self.lexeme_line;
         self.lexeme_line = line;
         Ok(())
     }
@@ -416,11 +408,8 @@ impl<'a> Parser<'a> {
 #[derive(Copy, Clone, PartialOrd, PartialEq, Debug)]
 enum Precedence {
     Assignment,
-    Lambda,
     Additive,
     Multiplicative,
-    Application,
-    Primitive
 }
 
 impl Precedence {
@@ -482,14 +471,6 @@ impl<'a> Lexeme<'a> {
             _ => false
         }
     }
-}
-
-fn format_parameters(list: &[Parameter]) -> String {
-    list.iter().map(|x| format_parameter(x)).join(" ")
-}
-
-fn format_parameter(parameter: &Parameter) -> String {
-    format!("({:?}: {:?})", parameter.name, parameter.type_)
 }
 
 fn article(word: &str) -> &str {

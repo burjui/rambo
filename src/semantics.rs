@@ -239,7 +239,7 @@ fn check_statement(scope: &ScopeRef, statement: &Statement) -> CheckResult<Typed
 
 fn check_expr(scope: &ScopeRef, expr: &Expr) -> CheckResult<ExprRef> {
     match expr {
-        &Expr::Unit => Ok(ExprRef::new(TypedExpr::Unit)),
+        &Expr::Unit(_) => Ok(ExprRef::new(TypedExpr::Unit)),
         &Expr::Int(ref source) => {
             let value = source.text().parse::<BigInt>()?;
             Ok(ExprRef::new(TypedExpr::Int(value)))
@@ -249,7 +249,7 @@ fn check_expr(scope: &ScopeRef, expr: &Expr) -> CheckResult<ExprRef> {
             Ok(ExprRef::new(TypedExpr::String(value)))
         },
         &Expr::Id(ref name) => scope.resolve(name.text()),
-        &Expr::Binary { ref operation, ref left, ref right } => {
+        &Expr::Binary { ref operation, ref left, ref right, .. } => {
             let left_checked = check_expr(scope, left)?;
             let right_checked = check_expr(scope, right)?;
             let left_type = left_checked.type_();
@@ -288,7 +288,7 @@ fn check_expr(scope: &ScopeRef, expr: &Expr) -> CheckResult<ExprRef> {
                 }
             }
         },
-        &Expr::Lambda { ref parameters, ref body } => {
+        &Expr::Lambda { ref parameters, ref body, .. } => {
             let lambda_scope = Scope::new(Some(scope.clone()));
             let mut parameter_bindings = vec![];
             for (parameter_index, parameter) in parameters.iter().enumerate() {
@@ -319,7 +319,7 @@ fn check_expr(scope: &ScopeRef, expr: &Expr) -> CheckResult<ExprRef> {
                 body
             }))
         },
-        &Expr::Application { ref function, ref arguments } => {
+        &Expr::Application { ref function, ref arguments, .. } => {
             let function_checked = check_expr(scope, function)?;
             let function_checked_type = function_checked.type_();
             let function_type;
@@ -354,11 +354,11 @@ fn check_expr(scope: &ScopeRef, expr: &Expr) -> CheckResult<ExprRef> {
                 arguments: arguments_checked
             }))
         },
-        &Expr::Conditional { ref condition, ref positive, ref negative } => {
-            let condition = check_expr(scope, condition)?;
-            let condition_type = condition.type_();
+        &Expr::Conditional { ref condition, ref positive, ref negative, .. } => {
+            let condition_typed = check_expr(scope, condition)?;
+            let condition_type = condition_typed.type_();
             if condition_type != Type::Int && condition_type != Type::String {
-                return error!("a condition can only be of type `num' or `str': {:?}", condition)
+                return error!("a condition can only be of type `num' or `str': {:?}", condition.source())
             }
 
             let positive = check_block(scope, positive.iter())?;
@@ -386,7 +386,7 @@ fn check_expr(scope: &ScopeRef, expr: &Expr) -> CheckResult<ExprRef> {
             }
 
             Ok(ExprRef::new(TypedExpr::Conditional {
-                condition,
+                condition: condition_typed,
                 positive,
                 negative
             }))

@@ -1,4 +1,3 @@
-#![feature(associated_consts)]
 #![feature(box_syntax)]
 #![feature(box_patterns)]
 

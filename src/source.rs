@@ -31,6 +31,18 @@ impl<'a> Source<'a> {
     pub fn text(&self) -> &'a str {
         &self.file.text[self.range.start .. self.range.end]
     }
+
+    pub fn extend(&self, end: usize) -> Source<'a> {
+        assert!(end >= self.range.end);
+        assert!(end <= self.file.text.len());
+        Source {
+            file: self.file,
+            range: Range {
+                start: self.range.start,
+                end
+            }
+        }
+    }
 }
 
 impl<'a> Display for Source<'a> {
