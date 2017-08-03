@@ -376,7 +376,6 @@ fn check_expr(scope: &ScopeRef, expr: &Expr) -> CheckResult<ExprRef> {
                 _ => unreachable!()
             };
             if positive.is_empty() {
-                // TODO need to show the piece of actual code or at least it's position (may require introducing a Block variant)
                 warning!("empty positive conditional clause: {:?}", positive_source);
             }
             let positive = check_block(scope, positive.iter())?;
@@ -392,7 +391,6 @@ fn check_expr(scope: &ScopeRef, expr: &Expr) -> CheckResult<ExprRef> {
             };
             let negative_type = negative.as_ref().map(|expr| expr.type_());
             if negative_statements.is_empty() {
-                // TODO need to show the piece of actual code or at least it's position (may require introducing a Block variant)
                 warning!("empty negative conditional clause: {:?}", negative_source);
             }
             if let Some(negative_type) = negative_type {
