@@ -61,29 +61,23 @@ pub enum Expr<'a> {
     Conditional {
         source: Source<'a>,
         condition: Box<Expr<'a>>,
-        positive: Vec<Statement<'a>>,
-        negative: Option<Vec<Statement<'a>>>
+        positive: Box<Expr<'a>>,
+        negative: Option<Box<Expr<'a>>>
+    },
+    Block {
+        source: Source<'a>,
+        statements: Vec<Statement<'a>>
     }
 }
 
 impl<'a> Debug for Expr<'a> {
     fn fmt(&self, formatter: &mut Formatter) -> FmtResult {
-        match self {
-            &Expr::Unit(ref source) |
-            &Expr::String(ref source) |
-            &Expr::Int(ref source) |
-            &Expr::Id(ref source) |
-            &Expr::Lambda { ref source, .. } |
-            &Expr::Binary { ref source, .. } |
-            &Expr::Application { ref source, .. } |
-            &Expr::Conditional { ref source, .. }
-            => write!(formatter, "{:?}", source)
-        }
+        write!(formatter, "{:?}", self.source())
     }
 }
 
 impl<'a> Expr<'a> {
-    pub fn source(&self) -> &Source {
+    pub fn source(&self) -> &Source<'a> {
         match self {
             &Expr::Unit(ref source) |
             &Expr::String(ref source) |
@@ -92,7 +86,8 @@ impl<'a> Expr<'a> {
             &Expr::Lambda { ref source, .. } |
             &Expr::Binary { ref source, .. } |
             &Expr::Application { ref source, .. } |
-            &Expr::Conditional { ref source, .. }
+            &Expr::Conditional { ref source, .. } |
+            &Expr::Block { ref source, .. }
             => source
         }
     }
@@ -108,6 +103,10 @@ pub enum Statement<'a> {
     }
 }
 
+//impl<'a> Statement<'a> {
+//    fn source()
+//}
+
 impl<'a> Debug for Statement<'a> {
     fn fmt(&self, formatter: &mut Formatter) -> FmtResult {
         match self {
@@ -117,7 +116,7 @@ impl<'a> Debug for Statement<'a> {
     }
 }
 
-type ParseResult<'a, T> = Result<T, Box<Error>>;
+type ParseResult<T> = Result<T, Box<Error>>;
 
 pub struct Parser<'a> {
     lexer: Lexer<'a>,
@@ -143,7 +142,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    pub fn parse(&mut self) -> ParseResult<'a, Vec<Statement<'a>>> {
+    pub fn parse(&mut self) -> ParseResult<Vec<Statement<'a>>> {
         self.read_lexeme()?;
         let mut statements = vec![];
         while self.lexeme.token != Token::EOF {
@@ -156,7 +155,7 @@ impl<'a> Parser<'a> {
         self.lexer.stats()
     }
 
-    fn parse_statement(&mut self) -> ParseResult<'a, Statement<'a>> {
+    fn parse_statement(&mut self) -> ParseResult<Statement<'a>> {
         if self.lexeme.token == Token::Id && self.lexeme.text() == "let" {
             self.read_lexeme()?;
             self.parse_binding()
@@ -165,7 +164,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_expression(&mut self) -> ParseResult<'a, Expr<'a>> {
+    fn parse_expression(&mut self) -> ParseResult<Expr<'a>> {
         if self.lexeme.token == Token::Id && self.lexeme.text() == "if" {
             self.parse_conditional()
         } else {
@@ -173,7 +172,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_conditional(&mut self) -> ParseResult<'a, Expr<'a>> {
+    fn parse_conditional(&mut self) -> ParseResult<Expr<'a>> {
         let start = self.lexeme.source;
         self.read_lexeme()?;
         let condition_is_parenthesized = self.lexeme.token == Token::LParen;
@@ -202,30 +201,44 @@ impl<'a> Parser<'a> {
         Ok(Expr::Conditional {
             source,
             condition,
-            positive,
-            negative
+            positive: box positive,
+            negative: negative.map(Box::new)
         })
     }
 
-    fn parse_block_or_expr(&mut self) -> ParseResult<'a, Vec<Statement<'a>>> {
-        if self.lexeme.token != Token::LBrace {
-            Ok(vec![Statement::Expr(self.parse_expression()?)])
-        } else {
+    fn parse_block_or_expr(&mut self) -> ParseResult<Expr<'a>> {
+        if self.lexeme.token == Token::LBrace {
             self.parse_block()
+        } else {
+            self.parse_expr_as_block()
         }
     }
 
-    fn parse_block(&mut self) -> ParseResult<'a, Vec<Statement<'a>>> {
+    fn parse_expr_as_block(&mut self) -> ParseResult<Expr<'a>> {
+        let expr = self.parse_expression()?;
+        let source = expr.source().clone();
+        let statements = vec![Statement::Expr(expr)];
+        Ok(Expr::Block {
+            source,
+            statements
+        })
+    }
+
+    fn parse_block(&mut self) -> ParseResult<Expr<'a>> {
         let mut statements = vec![];
-        self.expect(Token::LBrace, "{")?;
+        let start = self.expect(Token::LBrace, "{")?.source;
         while self.lexeme.token != Token::EOF && self.lexeme.token != Token::RBrace {
             statements.push(self.parse_statement()?)
         }
-        self.expect(Token::RBrace, "}")?;
-        Ok(statements)
+        let end = self.expect(Token::RBrace, "}")?.source.range.end;
+        let source = start.extend(end);
+        Ok(Expr::Block {
+            source,
+            statements
+        })
     }
 
-    fn parse_binary(&mut self, precedence: Precedence) -> ParseResult<'a, Expr<'a>> {
+    fn parse_binary(&mut self, precedence: Precedence) -> ParseResult<Expr<'a>> {
         let parse_next = |self_: &mut Parser<'a>, precedence: Option<Precedence>| {
             if let Some(precedence) = precedence {
                 self_.parse_binary(precedence)
@@ -266,7 +279,7 @@ impl<'a> Parser<'a> {
         Ok(result)
     }
 
-    fn parse_function_application(&mut self) -> ParseResult<'a, Expr<'a>> {
+    fn parse_function_application(&mut self) -> ParseResult<Expr<'a>> {
         let start = self.lexeme.source;
         let first_expr_line_index = self.lexeme_line;
         let first_expr = self.parse_primary()?;
@@ -288,7 +301,7 @@ impl<'a> Parser<'a> {
         Ok(result)
     }
 
-    fn parse_primary(&mut self) -> ParseResult<'a, Expr<'a>> {
+    fn parse_primary(&mut self) -> ParseResult<Expr<'a>> {
         let primary = self.lexeme;
         self.read_lexeme()?;
         match primary.token {
@@ -311,7 +324,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_binding(&mut self) -> ParseResult<'a, Statement<'a>> {
+    fn parse_binding(&mut self) -> ParseResult<Statement<'a>> {
         let name = self.expect(Token::Id, "identifier")?;
         self.expect(Token::Eq, "=")?;
         let value = self.parse_expression()?;
@@ -321,7 +334,7 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn parse_lambda(&mut self, start: &Source<'a>) -> ParseResult<'a, Expr<'a>> {
+    fn parse_lambda(&mut self, start: &Source<'a>) -> ParseResult<Expr<'a>> {
         let mut parameters = vec![];
         while self.lexeme.token == Token::LParen {
             self.read_lexeme()?;
@@ -351,7 +364,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_parameter(&mut self) -> ParseResult<'a, Parameter<'a>> {
+    fn parse_parameter(&mut self) -> ParseResult<Parameter<'a>> {
         let Lexeme { source, .. } = self.expect(Token::Id, "identifier")?;
         self.expect(Token::Colon, ":")?;
         let type_ = self.parse_type()?;
@@ -363,7 +376,7 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn parse_type(&mut self) -> ParseResult<'a, Type> {
+    fn parse_type(&mut self) -> ParseResult<Type> {
         Ok(self.lexeme)
             .and_then(|type_name| match (type_name.token, type_name.text()) {
                 (Token::Id, "num") => Ok(Type::Int),
@@ -374,7 +387,7 @@ impl<'a> Parser<'a> {
             .and_then(|type_| self.read_lexeme().and(Ok(type_)))
     }
 
-    fn expect(&mut self, token: Token, name: &str) -> ParseResult<'a, Lexeme<'a>> {
+    fn expect(&mut self, token: Token, name: &str) -> ParseResult<Lexeme<'a>> {
         let lexeme = self.lexeme;
         if lexeme.token != token {
             let starts_with_a_letter = name.chars().next().into_iter().all(char::is_alphanumeric);
@@ -387,7 +400,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn read_lexeme(&mut self) -> ParseResult<'a, ()> {
+    fn read_lexeme(&mut self) -> ParseResult<()> {
         self.previous_lexeme_line = self.lexeme_line;
         self.previous_lexeme_end = self.lexeme.source.range.end;
         let (lexeme, line) = self.lexer.read()?;
@@ -396,7 +409,7 @@ impl<'a> Parser<'a> {
         Ok(())
     }
 
-    fn error<T>(&self, line: u32, text: &str, source: &Source) -> ParseResult<'a, T> {
+    fn error<T>(&self, line: u32, text: &str, source: &Source) -> ParseResult<T> {
         Err(self.format_error(line, text, source)).map_err(From::from)
     }
 

@@ -82,9 +82,10 @@ pub enum TypedExpr {
     Assign(ExprRef, ExprRef),
     Conditional {
         condition: ExprRef,
-        positive: Vec<TypedStatement>,
-        negative: Option<Vec<TypedStatement>>
-    }
+        positive: ExprRef,
+        negative: Option<ExprRef>
+    },
+    Block(Vec<TypedStatement>)
 }
 
 impl Debug for TypedExpr {
@@ -111,11 +112,12 @@ impl Debug for TypedExpr {
             &TypedExpr::Application { ref function, ref arguments, .. } => write!(formatter, "({:?} @ {:?})", function, arguments),
             &TypedExpr::Conditional { ref condition, ref positive, ref negative } => {
                 let negative = match negative {
-                    &Some(ref negative) => format!(" else {{{}}})", negative.iter().to_string("; ")),
+                    &Some(ref negative) => format!(" else {:?})", negative),
                     _ => "".to_string()
                 };
-                write!(formatter, "(if {:?} {{{}}}{})", condition, positive.iter().to_string("; "), negative)
-            }
+                write!(formatter, "(if {:?} {:?}{})", condition, positive, negative)
+            },
+            &TypedExpr::Block(ref statements) => write!(formatter, "{{ {} }})", statements.iter().to_string("; "))
         }
     }
 }
@@ -139,7 +141,14 @@ impl TypedExpr {
             &TypedExpr::Assign(ref left, _) => left.type_(),
             &TypedExpr::Lambda { ref type_, .. } => Type::Function(type_.clone()),
             &TypedExpr::Application { ref type_, .. } => type_.clone(),
-            &TypedExpr::Conditional { ref positive, .. } => block_type(positive.iter()).unwrap()
+            &TypedExpr::Conditional { ref positive, ref negative, .. } => {
+                if negative.is_none() {
+                    Type::Unit
+                } else {
+                    positive.type_()
+                }
+            },
+            &TypedExpr::Block(ref statements) => statements.last().map(TypedStatement::type_).unwrap_or_else(|| Type::Unit)
         }
     }
 }
@@ -362,24 +371,31 @@ fn check_expr(scope: &ScopeRef, expr: &Expr) -> CheckResult<ExprRef> {
                 return error!("a condition can only be of type `num' or `str': {:?}", condition.source())
             }
 
-            let positive = check_block(scope, positive.iter())?;
-            let positive_type = block_type(positive.iter());
-            if positive_type.is_none() {
+            let (positive, positive_source) = match positive {
+                &box Expr::Block { ref source, ref statements } => (statements, source),
+                _ => unreachable!()
+            };
+            if positive.is_empty() {
                 // TODO need to show the piece of actual code or at least it's position (may require introducing a Block variant)
-                return error!("empty positive conditional clause");
+                warning!("empty positive conditional clause: {:?}", positive_source);
             }
+            let positive = check_block(scope, positive.iter())?;
+            let positive_type = positive.type_();
 
+            let (negative_source, negative_statements) = match negative {
+                &Some(box Expr::Block { ref source, ref statements }) => (source, statements),
+                _ => unreachable!()
+            };
             let negative = match negative {
-                &Some(ref negative) => Some(check_block(scope, negative.iter())?),
+                &Some(ref negative) => Some(check_block(scope, negative_statements.iter())?),
                 _ => None
             };
-            let negative_is_empty = negative.as_ref().map(Vec::is_empty).unwrap_or(true);
-            let negative_type = negative.as_ref().and_then(|negative| block_type(negative.iter()));
-            if !negative_is_empty && negative_type.is_none() {
+            let negative_type = negative.as_ref().map(|expr| expr.type_());
+            if negative_statements.is_empty() {
                 // TODO need to show the piece of actual code or at least it's position (may require introducing a Block variant)
-                return error!("empty negative conditional clause");
+                warning!("empty negative conditional clause: {:?}", negative_source);
             }
-            if let (&Some(ref positive_type), &Some(ref negative_type)) = (&positive_type, &negative_type) {
+            if let Some(negative_type) = negative_type {
                 if positive_type != negative_type {
                     return error!("types of positive and negative clauses of a conditional don't match: `{:?}' and `{:?}'",
                         positive_type, negative_type);
@@ -391,20 +407,21 @@ fn check_expr(scope: &ScopeRef, expr: &Expr) -> CheckResult<ExprRef> {
                 positive,
                 negative
             }))
+        },
+        &Expr::Block { ref source, ref statements } => {
+            let statements = statements.iter()
+                .map(|statement| check_statement(scope, statement))
+                .collect::<CheckResult<Vec<_>>>()?;
+            Ok(ExprRef::new(TypedExpr::Block(statements)))
         }
     }
 }
 
-fn check_block<'a, BlockIterator>(scope: &ScopeRef, block: BlockIterator) -> CheckResult<Vec<TypedStatement>>
+fn check_block<'a, BlockIterator>(scope: &ScopeRef, block: BlockIterator) -> CheckResult<ExprRef>
     where BlockIterator: Iterator<Item = &'a Statement<'a>>
 {
-    block.map(|statement| check_statement(scope, statement)).collect()
-}
-
-fn block_type<'a, BlockIterator>(block: BlockIterator) -> Option<Type>
-    where BlockIterator: Iterator<Item = &'a TypedStatement>
-{
-    block.last().map(|last| last.type_())
+    let statements: CheckResult<Vec<_>> = block.map(|statement| check_statement(scope, statement)).collect();
+    Ok(Rc::new(TypedExpr::Block(statements?)))
 }
 
 pub type ScopeRef = Rc<Scope>;

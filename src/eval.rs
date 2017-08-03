@@ -126,12 +126,16 @@ impl<'a> Evaluator {
                     _ => unreachable!()
                 };
                 let clause = if condition {
-                    Some(positive.iter())
+                    Some(positive)
                 } else {
-                    negative.as_ref().map(|negative| negative.iter())
+                    negative.as_ref()
                 };
-                clause
-                    .and_then(|clause| clause.map(|statement| self.eval_statement(statement)).last())
+                clause.map(|expr| self.eval_expr(expr)).unwrap_or_else(|| Ok(Evalue::Unit))
+            },
+            &TypedExpr::Block(ref statements) => {
+                statements.iter()
+                    .map(|statement| self.eval_statement(statement))
+                    .last()
                     .unwrap_or(Ok(Evalue::Unit))
             }
         }

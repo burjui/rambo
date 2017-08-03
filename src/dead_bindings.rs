@@ -46,7 +46,7 @@ pub fn remove_dead_bindings(code: Vec<TypedStatement>, warnings: Warnings) -> Ve
         if let Warnings::On = warnings {
             for (binding, usage) in bindings.iter().zip(usages.iter()) {
                 if *usage == 0 {
-                    println!("warning: unused binding: {:?}", binding.borrow());
+                    warning!("unused binding: {:?}", binding.borrow());
                 }
             }
         }
@@ -65,7 +65,7 @@ pub fn remove_dead_bindings(code: Vec<TypedStatement>, warnings: Warnings) -> Ve
                     };
                     if let &TypedExpr::Deref(ref referenced_binding) = value.deref() {
                         if binding.name == referenced_binding.borrow().name {
-                            println!("warning: redundant binding: {:?}", binding);
+                            warning!("redundant binding: {:?}", binding);
                         }
                     }
                 }
@@ -131,7 +131,7 @@ fn process_expr(expr: &ExprRef, usages: &mut Vec<usize>) {
             process_expr(body, usages);
             for binding in parameter_bindings {
                 if Rc::strong_count(binding) < 2 {
-                    println!("warning: unused parameter `{}'", binding.borrow().name);
+                    warning!("unused parameter `{}'", binding.borrow().name);
                 }
             }
         },
@@ -150,6 +150,7 @@ fn process_expr(expr: &ExprRef, usages: &mut Vec<usize>) {
             process_expr(right, usages);
         },
         &TypedExpr::Assign(_, ref right) => process_expr(right, usages),
-        &TypedExpr::Conditional { ref condition, ref positive, ref negative } => unimplemented!()
+        &TypedExpr::Conditional { ref condition, ref positive, ref negative } => unimplemented!(),
+        &TypedExpr::Block(ref statements) => unimplemented!()
     }
 }
