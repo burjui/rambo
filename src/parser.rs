@@ -103,10 +103,6 @@ pub enum Statement<'a> {
     }
 }
 
-//impl<'a> Statement<'a> {
-//    fn source()
-//}
-
 impl<'a> Debug for Statement<'a> {
     fn fmt(&self, formatter: &mut Formatter) -> FmtResult {
         match self {

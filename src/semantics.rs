@@ -265,35 +265,35 @@ fn check_expr(scope: &ScopeRef, expr: &Expr) -> CheckResult<ExprRef> {
             let left_type = left_checked.type_();
             let right_type = right_checked.type_();
             if left_type != right_type {
-                error!("operands of `{:?}' have incompatible types:\n  {:?}: {:?}\n  {:?}: {:?}",
-                operation, left, left_type, right, right_type)
-            } else {
-                match operation {
-                    &BinaryOperation::Assign => {
-                        if let TypedExpr::Deref(_) = *left_checked {
-                            Ok(ExprRef::new(TypedExpr::Assign(left_checked, right_checked)))
-                        } else {
-                            error!("a variable expected at the left side of assignment, but found: {:?}", left_checked)
-                        }
-                    },
-                    &BinaryOperation::Add => match &left_type {
-                        &Type::Int => Ok(ExprRef::new(TypedExpr::AddInt(left_checked, right_checked))),
-                        &Type::String => Ok(ExprRef::new(TypedExpr::AddStr(left_checked, right_checked))),
-                        _ => error!("operation `{:?}' is not implemented for type `{:?}'", operation, left_type)
-                    },
-                    operation => {
-                        if let &Type::Int = &left_type {
-                            let constructor =
-                                match operation {
-                                    &BinaryOperation::Subtract => TypedExpr::SubInt,
-                                    &BinaryOperation::Multiply => TypedExpr::MulInt,
-                                    &BinaryOperation::Divide => TypedExpr::DivInt,
-                                    _ => unreachable!()
-                                };
-                            Ok(ExprRef::new(constructor(left_checked, right_checked)))
-                        } else {
-                            error!("operation `{:?}' is not implemented for type `{:?}'", operation, left_type)
-                        }
+                return error!("operands of `{:?}' have incompatible types:\n  {:?}: {:?}\n  {:?}: {:?}",
+                              operation, left, left_type, right, right_type);
+            }
+
+            match operation {
+                &BinaryOperation::Assign => {
+                    if let TypedExpr::Deref(_) = *left_checked {
+                        Ok(ExprRef::new(TypedExpr::Assign(left_checked, right_checked)))
+                    } else {
+                        error!("a variable expected at the left side of assignment, but found: {:?}", left_checked)
+                    }
+                },
+                &BinaryOperation::Add => match &left_type {
+                    &Type::Int => Ok(ExprRef::new(TypedExpr::AddInt(left_checked, right_checked))),
+                    &Type::String => Ok(ExprRef::new(TypedExpr::AddStr(left_checked, right_checked))),
+                    _ => error!("operation `{:?}' is not implemented for type `{:?}'", operation, left_type)
+                },
+                operation => {
+                    if let &Type::Int = &left_type {
+                        let constructor =
+                            match operation {
+                                &BinaryOperation::Subtract => TypedExpr::SubInt,
+                                &BinaryOperation::Multiply => TypedExpr::MulInt,
+                                &BinaryOperation::Divide => TypedExpr::DivInt,
+                                _ => unreachable!()
+                            };
+                        Ok(ExprRef::new(constructor(left_checked, right_checked)))
+                    } else {
+                        error!("operation `{:?}' is not implemented for type `{:?}'", operation, left_type)
                     }
                 }
             }
@@ -381,18 +381,17 @@ fn check_expr(scope: &ScopeRef, expr: &Expr) -> CheckResult<ExprRef> {
             let positive = check_block(scope, positive.iter())?;
             let positive_type = positive.type_();
 
-            let (negative_source, negative_statements) = match negative {
-                &Some(box Expr::Block { ref source, ref statements }) => (source, statements),
-                _ => unreachable!()
-            };
             let negative = match negative {
-                &Some(ref negative) => Some(check_block(scope, negative_statements.iter())?),
+                &Some(box Expr::Block { ref source, ref statements, .. }) => {
+                    if statements.is_empty() {
+                        warning!("empty negative conditional clause: {:?}", source);
+                    }
+                    Some(check_block(scope, statements.iter())?)
+                },
                 _ => None
             };
             let negative_type = negative.as_ref().map(|expr| expr.type_());
-            if negative_statements.is_empty() {
-                warning!("empty negative conditional clause: {:?}", negative_source);
-            }
+
             if let Some(negative_type) = negative_type {
                 if positive_type != negative_type {
                     return error!("types of positive and negative clauses of a conditional don't match: `{:?}' and `{:?}'",
