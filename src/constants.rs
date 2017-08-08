@@ -1,8 +1,11 @@
 use semantics::*;
 use std::ops::Deref;
 use num::BigInt;
+use std::ops::{Add, Sub, Mul, Div};
 
 use dead_bindings::*;
+
+// TODO implement operation-specific optimizations, such as "x*1 = x", "x+0 = x" and so on
 
 pub struct CFP {
     stack: Vec<ExprRef>
@@ -53,14 +56,10 @@ impl CFP {
                     &BindingValue::Arg(_) => self.stack[self.stack.len() - 1 - &binding.borrow().index].clone()
                 }
             }
-            &TypedExpr::AddInt(ref left, ref right) => self.fold_numeric(
-                scope, left, right, TypedExpr::AddInt, |left, right| left + right),
-            &TypedExpr::SubInt(ref left, ref right) => self.fold_numeric(
-                scope, left, right, TypedExpr::SubInt, |left, right| left - right),
-            &TypedExpr::MulInt(ref left, ref right) => self.fold_numeric(
-                scope, left, right, TypedExpr::MulInt, |left, right| left * right),
-            &TypedExpr::DivInt(ref left, ref right) => self.fold_numeric(
-                scope, left, right, TypedExpr::DivInt, |left, right| left / right),
+            &TypedExpr::AddInt(ref left, ref right) => self.try_fold_numeric(scope, expr, left, right, Add::add),
+            &TypedExpr::SubInt(ref left, ref right) => self.try_fold_numeric(scope, expr, left, right, Sub::sub),
+            &TypedExpr::MulInt(ref left, ref right) => self.try_fold_numeric(scope, expr, left, right, Mul::mul),
+            &TypedExpr::DivInt(ref left, ref right) => self.try_fold_numeric(scope, expr, left, right, Div::div),
             &TypedExpr::AddStr(ref left, ref right) => {
                 match (self.fold(&scope, left).deref(), self.fold(&scope, right).deref()) {
                     (&TypedExpr::String(ref left), &TypedExpr::String(ref right)) =>
@@ -123,17 +122,17 @@ impl CFP {
         }
     }
 
-    fn fold_numeric<Constructor, FoldFn>(&mut self,
-        scope: &ScopeRef, left: &ExprRef, right: &ExprRef,
-        constructor: Constructor, fold_impl: FoldFn) -> ExprRef
-        where
-            Constructor: FnOnce(ExprRef, ExprRef) -> TypedExpr,
-            FoldFn: FnOnce(&BigInt, &BigInt) -> BigInt {
-
+    fn try_fold_numeric<FoldFn>(&mut self,
+                                scope: &ScopeRef, original_expr: &ExprRef, left: &ExprRef, right: &ExprRef, fold_impl: FoldFn) -> ExprRef
+        where FoldFn: FnOnce(BigInt, BigInt) -> BigInt
+    {
         let (left, right) = (self.fold(&scope, left), self.fold(&scope, right));
         match (left.deref(), right.deref()) {
-            (&TypedExpr::Int(ref left), &TypedExpr::Int(ref right)) => ExprRef::new(TypedExpr::Int(fold_impl(left, right))),
-            _ => ExprRef::new(constructor(left.clone(), right.clone()))
+            (&TypedExpr::Int(ref left), &TypedExpr::Int(ref right)) => {
+                let result = fold_impl(left.clone(), right.clone());
+                ExprRef::new(TypedExpr::Int(result))
+            },
+            _ => original_expr.clone()
         }
     }
 }
