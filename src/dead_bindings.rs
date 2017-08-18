@@ -150,7 +150,13 @@ fn process_expr(expr: &ExprRef, usages: &mut Vec<usize>) {
             process_expr(right, usages);
         },
         &TypedExpr::Assign(_, ref right) => process_expr(right, usages),
-        &TypedExpr::Conditional { ref condition, ref positive, ref negative } => unimplemented!(),
-        &TypedExpr::Block(ref statements) => unimplemented!()
+        &TypedExpr::Conditional { ref condition, ref positive, ref negative } => {
+            process_expr(condition, usages);
+            process_expr(positive, usages);
+            negative.as_ref().map(|expr| process_expr(expr, usages));
+        },
+        &TypedExpr::Block(ref statements) => {
+
+        }
     }
 }

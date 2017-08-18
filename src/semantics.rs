@@ -218,35 +218,35 @@ type CheckResult<T> = Result<T, Box<Error>>;
 
 pub fn check_module(code: &[Statement]) -> CheckResult<Vec<TypedStatement>> {
     let mut typed_module = vec![];
-    let scope = Scope::new(None);
+    let mut env = Environment::new();
     for statement in code {
-        typed_module.push(check_statement(&scope, &statement)?);
+        typed_module.push(check_statement(&mut env, &statement)?);
     }
     Ok(typed_module)
 }
 
-fn check_statement(scope: &ScopeRef, statement: &Statement) -> CheckResult<TypedStatement> {
+fn check_statement(env: &mut Environment, statement: &Statement) -> CheckResult<TypedStatement> {
     match statement {
         &Statement::Expr(ref expr) => {
-            let expr = check_expr(&scope, expr)?;
+            let expr = check_expr(env, expr)?;
             Ok(TypedStatement::Expr(expr))
         },
         &Statement::Binding { ref name, ref value } => {
-            let value = check_expr(&scope, value)?;
+            let value = check_expr(env, value)?;
             let binding = Rc::new(RefCell::new(Binding {
                 name: name.text().to_string(),
                 value: BindingValue::Var(value),
-                index: scope.len(),
+                index: env.current_scope_len(),
                 assigned: false,
                 dirty: false
             }));
-            scope.bind(binding.clone())?;
+            env.bind(binding.clone())?;
             Ok(TypedStatement::Binding(binding))
         }
     }
 }
 
-fn check_expr(scope: &ScopeRef, expr: &Expr) -> CheckResult<ExprRef> {
+fn check_expr(env: &mut Environment, expr: &Expr) -> CheckResult<ExprRef> {
     match expr {
         &Expr::Unit(_) => Ok(ExprRef::new(TypedExpr::Unit)),
         &Expr::Int(ref source) => {
@@ -258,10 +258,10 @@ fn check_expr(scope: &ScopeRef, expr: &Expr) -> CheckResult<ExprRef> {
             let value = text[1..text.len() - 1].to_string();
             Ok(ExprRef::new(TypedExpr::String(value)))
         },
-        &Expr::Id(ref name) => scope.resolve(name.text()),
+        &Expr::Id(ref name) => env.resolve(name.text()),
         &Expr::Binary { ref operation, ref left, ref right, .. } => {
-            let left_checked = check_expr(scope, left)?;
-            let right_checked = check_expr(scope, right)?;
+            let left_checked = check_expr(env, left)?;
+            let right_checked = check_expr(env, right)?;
             let left_type = left_checked.type_();
             let right_type = right_checked.type_();
             if left_type != right_type {
@@ -299,7 +299,7 @@ fn check_expr(scope: &ScopeRef, expr: &Expr) -> CheckResult<ExprRef> {
             }
         },
         &Expr::Lambda { ref parameters, ref body, .. } => {
-            let lambda_scope = Scope::new(Some(scope.clone()));
+            env.push();
             let mut parameter_bindings = vec![];
             for (parameter_index, parameter) in parameters.iter().enumerate() {
                 let binding = Rc::new(RefCell::new(Binding {
@@ -310,9 +310,10 @@ fn check_expr(scope: &ScopeRef, expr: &Expr) -> CheckResult<ExprRef> {
                     dirty: false
                 }));
                 parameter_bindings.push(binding.clone());
-                lambda_scope.bind(binding)?;
+                env.bind(binding)?;
             }
-            let body = check_expr(&lambda_scope, body)?;
+            let body = check_expr(env, body)?;
+            env.pop();
             let parameters = parameters.iter()
                 .map(|parameter| Parameter {
                     name: parameter.name.to_string(),
@@ -330,7 +331,7 @@ fn check_expr(scope: &ScopeRef, expr: &Expr) -> CheckResult<ExprRef> {
             }))
         },
         &Expr::Application { ref function, ref arguments, .. } => {
-            let function_checked = check_expr(scope, function)?;
+            let function_checked = check_expr(env, function)?;
             let function_checked_type = function_checked.type_();
             let function_type;
             if let &Type::Function(ref type_) = &function_checked_type {
@@ -349,7 +350,7 @@ fn check_expr(scope: &ScopeRef, expr: &Expr) -> CheckResult<ExprRef> {
 
             let mut arguments_checked = vec![];
             for (parameter, argument) in function_parameters.iter().zip(arguments.iter()) {
-                let argument_checked = check_expr(scope, argument)?;
+                let argument_checked = check_expr(env, argument)?;
                 let argument_type = argument_checked.type_();
                 if &argument_type != &parameter.type_ {
                     return error!("argument type mismatch for {}: expected `{:?}', found `{:?}'\n  {:?}",
@@ -365,7 +366,7 @@ fn check_expr(scope: &ScopeRef, expr: &Expr) -> CheckResult<ExprRef> {
             }))
         },
         &Expr::Conditional { ref condition, ref positive, ref negative, .. } => {
-            let condition_typed = check_expr(scope, condition)?;
+            let condition_typed = check_expr(env, condition)?;
             let condition_type = condition_typed.type_();
             if condition_type != Type::Int && condition_type != Type::String {
                 return error!("a condition can only be of type `num' or `str': {:?}", condition.source())
@@ -378,7 +379,7 @@ fn check_expr(scope: &ScopeRef, expr: &Expr) -> CheckResult<ExprRef> {
             if positive.is_empty() {
                 warning!("empty positive conditional clause: {:?}", positive_source);
             }
-            let positive = check_block(scope, positive.iter())?;
+            let positive = check_block(env, positive.iter())?;
             let positive_type = positive.type_();
 
             let negative = match negative {
@@ -386,7 +387,7 @@ fn check_expr(scope: &ScopeRef, expr: &Expr) -> CheckResult<ExprRef> {
                     if statements.is_empty() {
                         warning!("empty negative conditional clause: {:?}", source);
                     }
-                    Some(check_block(scope, statements.iter())?)
+                    Some(check_block(env, statements.iter())?)
                 },
                 _ => None
             };
@@ -407,57 +408,67 @@ fn check_expr(scope: &ScopeRef, expr: &Expr) -> CheckResult<ExprRef> {
         },
         &Expr::Block { ref source, ref statements } => {
             let statements = statements.iter()
-                .map(|statement| check_statement(scope, statement))
+                .map(|statement| check_statement(env, statement))
                 .collect::<CheckResult<Vec<_>>>()?;
             Ok(ExprRef::new(TypedExpr::Block(statements)))
         }
     }
 }
 
-fn check_block<'a, BlockIterator>(scope: &ScopeRef, block: BlockIterator) -> CheckResult<ExprRef>
+fn check_block<'a, BlockIterator>(env: &mut Environment, block: BlockIterator) -> CheckResult<ExprRef>
     where BlockIterator: Iterator<Item = &'a Statement<'a>>
 {
-    let statements: CheckResult<Vec<_>> = block.map(|statement| check_statement(scope, statement)).collect();
+    let statements: CheckResult<Vec<_>> = block.map(|statement| check_statement(env, statement)).collect();
     Ok(Rc::new(TypedExpr::Block(statements?)))
 }
 
-pub type ScopeRef = Rc<Scope>;
-
-pub struct Scope {
-    bindings: RefCell<HashMap<String, BindingRef>>,
-    outer_scope: Option<ScopeRef>
+pub struct Environment {
+    scopes: Vec<RefCell<HashMap<String, BindingRef>>>
 }
 
-impl Scope {
-    pub fn new(outer_scope: Option<ScopeRef>) -> ScopeRef {
-        Rc::new(Scope {
-            bindings: RefCell::new(HashMap::new()),
-            outer_scope
-        })
+impl Environment {
+    pub fn new() -> Environment {
+        Environment {
+            scopes: vec![RefCell::new(HashMap::new())]
+        }
     }
 
     pub fn bind(&self, binding: BindingRef) -> Result<(), Box<Error>> {
         let name = &binding.borrow().name;
         if let &BindingValue::Arg(_) = &binding.borrow().value {
-            if self.bindings.borrow().contains_key(name) {
+            if self.last().borrow().contains_key(name) {
                 return error!("redefinition of parameter {}", name)
             }
         }
-        self.bindings.borrow_mut().insert(name.to_string(), binding.clone());
+        self.last().borrow_mut().insert(name.to_string(), binding.clone());
         Ok(())
     }
 
     pub fn resolve(&self, name: &str) -> Result<ExprRef, Box<Error>> {
-        self.find(name).ok_or_else(|| From::from(format!("`{}' is undefined", name)))
+        for scope in self.scopes.iter().rev() {
+            if let Some(binding) = scope.borrow().get(name) {
+                return Ok(ExprRef::new(TypedExpr::Deref(binding.clone())));
+            }
+        }
+        Err(From::from(format!("`{}' is undefined", name)))
     }
 
-    pub fn len(&self) -> usize {
-        self.bindings.borrow().len()
+    pub fn current_scope_len(&self) -> usize {
+        self.last().borrow().len()
     }
 
-    fn find(&self, name: &str) -> Option<ExprRef> {
-        self.bindings.borrow().get(name)
-            .map(|binding| ExprRef::new(TypedExpr::Deref(binding.clone())))
-            .or_else(|| self.outer_scope.clone().and_then(|scope| scope.find(name)))
+    fn push(&mut self) {
+        self.scopes.push(RefCell::new(HashMap::new()))
+    }
+
+    fn pop(&mut self) {
+        if self.scopes.len() == 1 {
+            panic!("Dropping the base scope")
+        }
+        self.scopes.pop();
+    }
+
+    fn last(&self) -> &RefCell<HashMap<String, BindingRef>> {
+        self.scopes.last().unwrap()
     }
 }
