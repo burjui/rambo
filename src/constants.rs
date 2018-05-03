@@ -114,7 +114,6 @@ impl CFP {
                 }
             },
             &TypedExpr::Conditional { ref condition, ref positive, ref negative } => {
-                // TODO fold conditionals
                 if let &TypedExpr::Int(ref n) = &self.fold(condition) as &TypedExpr {
                     return if n == &BigInt::zero() {
                         negative.as_ref().map(|clause| self.fold(clause)).unwrap_or_else(|| ExprRef::new(TypedExpr::Unit))
