@@ -1,8 +1,9 @@
 ﻿let x = "abc"
 let y = "efg"
-let z = \ () -> x + y
-z () + "/test"
+let z = \ (a:str) (b:str) -> a + b
 if 0 {
+    "false"
 }
 else {
+    z (z x y) "/test"
 }

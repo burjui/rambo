@@ -1,6 +1,6 @@
 use semantics::*;
 use std::ops::Deref;
-use num::BigInt;
+use num::{BigInt, Zero};
 use std::ops::{Add, Sub, Mul, Div};
 
 use dead_bindings::*;
@@ -28,6 +28,7 @@ impl CFP {
         remove_dead_bindings(code, Warnings::Off)
     }
 
+    #[must_use]
     fn fold(&mut self, expr: &ExprRef) -> ExprRef {
         match expr.deref() {
             &TypedExpr::Deref(ref binding) => {
@@ -93,7 +94,6 @@ impl CFP {
                 }
             },
             &TypedExpr::Assign(ref left, ref right) => {
-                self.fold(left);
                 let binding = match left.deref() {
                     &TypedExpr::Deref(ref binding) => binding,
                     _ => unreachable!()
@@ -113,7 +113,17 @@ impl CFP {
                     expr.clone()
                 }
             },
-            // TODO fold conditionals
+            &TypedExpr::Conditional { ref condition, ref positive, ref negative } => {
+                // TODO fold conditionals
+                if let &TypedExpr::Int(ref n) = &self.fold(condition) as &TypedExpr {
+                    return if n == &BigInt::zero() {
+                        negative.as_ref().map(|clause| self.fold(clause)).unwrap_or_else(|| ExprRef::new(TypedExpr::Unit))
+                    } else {
+                        self.fold(positive)
+                    }
+                }
+                expr.clone()
+            },
             _ => expr.clone()
         }
     }
