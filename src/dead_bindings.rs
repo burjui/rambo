@@ -3,60 +3,56 @@ use std::ops::Deref;
 use std::usize;
 
 use semantics::*;
+use std::collections::HashMap;
+use std::cell::RefCell;
 
-// TODO use Position and the source code instead of TypedStatement::Debug for warnings
+// TODO use Position and the source code instead of {:?} for warnings
 // TODO a better way of reporting warnings than mere println!()
 
 pub enum Warnings { On, Off }
 
+type BindingCell = RefCell<Binding>;
+type BindingPtr = *const BindingCell;
+
+trait Ptr<T> {
+    fn ptr(self) -> *const T;
+}
+
+impl<'a> Ptr<BindingCell> for &'a BindingRef {
+    fn ptr(self) -> *const BindingCell {
+        self as &BindingCell as *const BindingCell
+    }
+}
+
+type BindingUsageMap = HashMap<BindingPtr, usize>;
+
 pub fn remove_dead_bindings(code: Vec<TypedStatement>, warnings: Warnings) -> Vec<TypedStatement> {
     let usages = {
+        let mut usages: BindingUsageMap = HashMap::new();
         let mut bindings = vec![];
         for statement in code.iter() {
             if let &TypedStatement::Binding(ref binding) = statement {
+                usages.insert(binding.ptr(), 1);
                 bindings.push(binding);
             }
         }
 
-        let binding_count = bindings.len();
-        let mut usages: Vec<usize> = Vec::with_capacity(binding_count);
-        usages.resize(binding_count, 0);
-        for (binding, usage) in bindings.iter().zip(usages.iter_mut()) {
-            *usage = Rc::strong_count(binding) - 1;
-        }
-
         for binding in bindings.iter() {
-            process_binding(&binding.borrow(), &mut usages);
-        }
-
-        for statement in code.iter() {
-            if let &TypedStatement::Expr(ref expr) = statement {
-                if let &TypedExpr::Assign(ref left, _) = expr.deref() {
-                    let binding = match left.deref() {
-                        &TypedExpr::Deref(ref binding) => binding.borrow(),
-                        _ => unreachable!()
-                    };
-                    if let &BindingValue::Var(_) = &binding.value {
-                        usages[binding.index] -= 1;
-                    }
-                }
-            }
+            process_binding(&binding, &mut usages);
         }
 
         if let Warnings::On = warnings {
-            for (binding, usage) in bindings.iter().zip(usages.iter()) {
-                if *usage == 0 {
+            for binding in bindings.iter() {
+                let usage = *usages.get(&binding.ptr()).unwrap();
+                if usage == 0 {
                     warning!("unused binding: {:?}", binding.borrow());
                 }
             }
         }
 
-        let mut new_binding_index = 0;
-        for (index, binding) in bindings.iter().enumerate() {
-            if usages[index] > 0 {
-                binding.borrow_mut().index = new_binding_index;
-                new_binding_index += 1;
-
+        for binding in bindings.iter() {
+            let usage = *usages.get(&binding.ptr()).unwrap_or(&0);
+            if usage > 0 {
                 if let Warnings::On = warnings {
                     let binding = binding.borrow();
                     let value = match &binding.value {
@@ -70,23 +66,20 @@ pub fn remove_dead_bindings(code: Vec<TypedStatement>, warnings: Warnings) -> Ve
                     }
                 }
             } else {
-                binding.borrow_mut().index = usize::MAX;
+                *usages.get_mut(&binding.ptr()).unwrap() = 0;
             }
-        }
-
-        let used_binding_count = new_binding_index;
-        for index in 0..binding_count {
-            usages[index] = if index < used_binding_count { 1 } else { 0 };
         }
 
         usages
     };
 
+    let mut index: usize = 0;
     code.into_iter()
         .filter_map(|statement| match &statement {
             &TypedStatement::Binding(ref binding) => {
-                let binding_index = binding.borrow().index;
-                if binding_index != usize::MAX && usages[binding_index] > 0 {
+                if *usages.get(&binding.ptr()).unwrap() > 0 {
+                    binding.borrow_mut().index = index;
+                    index += 1;
                     Some(statement.clone())
                 } else {
                     None
@@ -95,10 +88,10 @@ pub fn remove_dead_bindings(code: Vec<TypedStatement>, warnings: Warnings) -> Ve
             &TypedStatement::Expr(ref expr) => {
                 if let &TypedExpr::Assign(ref left, _) = expr.deref() {
                     let binding = match left.deref() {
-                        &TypedExpr::Deref(ref binding) => binding.borrow(),
+                        &TypedExpr::Deref(ref binding) => binding,
                         _ => unreachable!()
                     };
-                    if binding.index == usize::MAX {
+                    if *usages.get(&binding.ptr()).unwrap() == 0 {
                         return None
                     }
                 }
@@ -109,21 +102,22 @@ pub fn remove_dead_bindings(code: Vec<TypedStatement>, warnings: Warnings) -> Ve
         .collect::<Vec<TypedStatement>>()
 }
 
-fn process_binding(binding: &Binding, usages: &mut Vec<usize>) {
-    if usages[binding.index] == 0 {
-        if let &BindingValue::Var(ref expr) = &binding.value {
+fn process_binding(binding: &BindingRef, usages: &mut BindingUsageMap) {
+    if usages.contains_key(&binding.ptr()) {
+        if let &BindingValue::Var(ref expr) = &binding.borrow().value {
             process_expr(expr, usages);
         }
     }
 }
 
-fn process_expr(expr: &ExprRef, usages: &mut Vec<usize>) {
+fn process_expr(expr: &ExprRef, usages: &mut BindingUsageMap) {
     match expr.deref() {
         &TypedExpr::Phantom | &TypedExpr::Unit | &TypedExpr::Int(_) | &TypedExpr::String(_) => {}, // nothing to analyze in either of these
         &TypedExpr::Deref(ref binding) => {
-            let binding = &binding.borrow();
-            if let &BindingValue::Var(_) = &binding.value {
-                usages[binding.index] -= 1;
+            if let &BindingValue::Var(_) = &binding.borrow().value {
+                if let Some(usage) = usages.get_mut(&binding.ptr()) {
+                    *usage -= 1;
+                }
                 process_binding(binding, usages);
             }
         },
