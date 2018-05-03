@@ -3,7 +3,9 @@ macro_rules! error {
 }
 
 macro_rules! warning {
-    ($format_string: expr $(, $argument: expr)*) => {{ print!("warning: "); println!($format_string $(, $argument)*) }};
+    ($format_string: expr $(, $argument: expr)*) => {{
+        print!("warning: "); println!($format_string $(, $argument)*)
+    }};
 }
 
 use std::fmt::Debug;

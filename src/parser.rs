@@ -377,7 +377,7 @@ impl<'a> Parser<'a> {
             .and_then(|type_name| match (type_name.token, type_name.text()) {
                 (Token::Id, "num") => Ok(Type::Int),
                 (Token::Id, "str") => Ok(Type::String),
-                _ => Err((type_name))
+                _ => Err(type_name)
             })
             .or_else(|type_name| error!(self, &format!("expected a type, found: {}", type_name), &type_name.source))
             .and_then(|type_| self.read_lexeme().and(Ok(type_)))

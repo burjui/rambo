@@ -155,8 +155,7 @@ fn process_expr(expr: &ExprRef, usages: &mut Vec<usize>) {
             process_expr(positive, usages);
             negative.as_ref().map(|expr| process_expr(expr, usages));
         },
-        &TypedExpr::Block(ref statements) => {
-
+        &TypedExpr::Block(_) => {
         }
     }
 }

@@ -406,7 +406,7 @@ fn check_expr(env: &mut Environment, expr: &Expr) -> CheckResult<ExprRef> {
                 negative
             }))
         },
-        &Expr::Block { ref source, ref statements } => {
+        &Expr::Block { ref statements, .. } => {
             let statements = statements.iter()
                 .map(|statement| check_statement(env, statement))
                 .collect::<CheckResult<Vec<_>>>()?;
