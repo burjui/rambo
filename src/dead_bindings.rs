@@ -1,4 +1,3 @@
-use std::rc::Rc;
 use std::ops::Deref;
 use std::usize;
 
@@ -26,7 +25,7 @@ impl<'a> Ptr<BindingCell> for &'a BindingRef {
 
 type BindingUsageMap = HashMap<BindingPtr, usize>;
 
-pub fn remove_dead_bindings(code: Vec<TypedStatement>, warnings: Warnings) -> Vec<TypedStatement> {
+pub fn remove_dead_bindings(code: &Vec<TypedStatement>, warnings: Warnings) -> Vec<TypedStatement> {
     let usages = {
         let mut usages: BindingUsageMap = HashMap::new();
         let mut bindings = vec![];
@@ -73,13 +72,10 @@ pub fn remove_dead_bindings(code: Vec<TypedStatement>, warnings: Warnings) -> Ve
         usages
     };
 
-    let mut index: usize = 0;
     code.into_iter()
         .filter_map(|statement| match &statement {
             &TypedStatement::Binding(ref binding) => {
                 if *usages.get(&binding.ptr()).unwrap() > 0 {
-                    binding.borrow_mut().index = index;
-                    index += 1;
                     Some(statement.clone())
                 } else {
                     None
@@ -121,10 +117,13 @@ fn process_expr(expr: &ExprRef, usages: &mut BindingUsageMap) {
                 process_binding(binding, usages);
             }
         },
-        &TypedExpr::Lambda { ref body, ref parameter_bindings, .. } => {
-            process_expr(body, usages);
-            for binding in parameter_bindings {
-                if Rc::strong_count(binding) < 2 {
+        &TypedExpr::Lambda(Lambda { ref body, ref parameters, .. }) => {
+            for binding in parameters {
+                usages.insert(binding.ptr(), 1);
+            }
+            process_expr(&body, usages);
+            for binding in parameters {
+                if *usages.get(&binding.ptr()).unwrap() == 0 {
                     warning!("unused parameter `{}'", binding.borrow().name);
                 }
             }

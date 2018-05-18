@@ -11,7 +11,7 @@ macro_rules! warning {
 use std::fmt::Debug;
 use itertools::Itertools;
 pub trait ByLine: Iterator {
-    fn to_string(&mut self, separator: &str) -> String
+    fn join_as_strings(&mut self, separator: &str) -> String
         where Self: Sized, Self::Item: Debug
     {
         self.map(|x| format!("{:?}", x)).join(separator)

@@ -1,7 +1,7 @@
 use std::fmt::{Display, Debug, Formatter, Result as FmtResult};
-use std::path::Path;
 use std::error::Error;
 use std::iter::once;
+use std::rc::Rc;
 
 #[derive(Copy, Clone)]
 pub struct Position {
@@ -21,22 +21,22 @@ pub struct Range {
     pub end: usize
 }
 
-#[derive(Copy, Clone)]
-pub struct Source<'a> {
-    pub file: &'a SourceFile<'a>,
+#[derive(Clone)]
+pub struct Source {
+    pub file: Rc<SourceFile>,
     pub range: Range
 }
 
-impl<'a> Source<'a> {
-    pub fn text(&self) -> &'a str {
+impl Source {
+    pub fn text(&self) -> &str {
         &self.file.text[self.range.start .. self.range.end]
     }
 
-    pub fn extend(&self, end: usize) -> Source<'a> {
+    pub fn extend(&self, end: usize) -> Source {
         assert!(end >= self.range.end);
         assert!(end <= self.file.text.len());
         Source {
-            file: self.file,
+            file: self.file.clone(),
             range: Range {
                 start: self.range.start,
                 end
@@ -45,26 +45,27 @@ impl<'a> Source<'a> {
     }
 }
 
-impl<'a> Display for Source<'a> {
+impl Display for Source {
     fn fmt(&self, formatter: &mut Formatter) -> FmtResult {
-        write!(formatter, "{:?}({:?})", self.file.path.to_string_lossy(), self.file.position(self.range.start).unwrap())
+        write!(formatter, "{:?}({:?})", self.file.path, self.file.position(self.range.start).unwrap())
     }
 }
 
-impl<'a> Debug for Source<'a> {
+impl Debug for Source {
     fn fmt(&self, formatter: &mut Formatter) -> FmtResult {
         formatter.write_str(self.text())
     }
 }
 
-pub struct SourceFile<'a> {
-    pub path: &'a Path,
-    pub text: &'a str,
+pub struct SourceFile {
+    pub path: String,
+    pub text: String,
+    pub bom_length: usize,
     pub lines: Vec<Range>,
 }
 
-impl<'a> SourceFile<'a> {
-    pub fn read(path: &Path) -> Result<String, Box<Error>> {
+impl<'a> SourceFile {
+    pub fn read(path: &str) -> Result<String, Box<Error>> {
         use std::fs::File;
         use std::io::Read;
         let mut file = File::open(path)?;
@@ -73,12 +74,13 @@ impl<'a> SourceFile<'a> {
         Ok(text)
     }
 
-    pub fn new(text: &'a str, path: &'a Path) -> Result<SourceFile<'a>, Box<Error>> {
-        let text = Self::skip_byte_order_mark(text, path)?;
-        let lines = Self::collect_lines(text);
+    pub fn new(text: String, path: String) -> Result<SourceFile, Box<Error>> {
+        let bom_length = Self::skip_byte_order_mark(&text, &path)?;
+        let lines = Self::collect_lines(&text, bom_length);
         Ok(SourceFile {
-            text,
             path,
+            text,
+            bom_length,
             lines
         })
     }
@@ -92,20 +94,10 @@ impl<'a> SourceFile<'a> {
                 })
             }
         }
-        error!("{:?}: offset {} is out of range", self.path.to_string_lossy(), offset)
+        error!("{:?}: offset {} is out of range", self.path, offset)
     }
 
-    pub fn empty_source(&self) -> Source {
-        Source {
-            file: self,
-            range: Range {
-                start: 0,
-                end: 0
-            }
-        }
-    }
-
-    fn skip_byte_order_mark(text: &'a str, path: &Path) -> Result<&'a str, Box<Error>> {
+    fn skip_byte_order_mark(text: &'a str, path: &str) -> Result<usize, Box<Error>> {
         const UTF8_BOM: [u8; 3] = [0xEF, 0xBB, 0xBF];
         const BOMS: &[(&[u8], &str)] = &[
             (&[0x00, 0x00, 0xFE, 0xFF], "UTF-32BE"),
@@ -125,12 +117,12 @@ impl<'a> SourceFile<'a> {
                                 but only UTF-8 encoding is supported", path, bom_name))
                 }
             )?;
-        Ok(&text[bom_length..])
+        Ok(bom_length)
     }
 
-    fn collect_lines(text: &str) -> Vec<Range> {
+    fn collect_lines(text: &str, start_offset: usize) -> Vec<Range> {
         let mut lines = vec![];
-        let mut line_start = 0;
+        let mut line_start = start_offset;
         let eof = (text.len(), '\n');
         for (offset, character) in text.char_indices().chain(once(eof)) {
             if character == '\n' {

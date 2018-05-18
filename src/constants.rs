@@ -2,19 +2,34 @@ use semantics::*;
 use std::ops::Deref;
 use num::{BigInt, Zero};
 use std::ops::{Add, Sub, Mul, Div};
+use std::cell::RefCell;
 
 use dead_bindings::*;
+use env::Environment;
 
 // TODO implement operation-specific optimizations, such as "x*1 = x", "x+0 = x" and so on
 
+type BindingCell = RefCell<Binding>;
+type BindingPtr = *const BindingCell;
+
+trait Ptr<T> {
+    fn ptr(self) -> *const T;
+}
+
+impl<'a> Ptr<BindingCell> for &'a BindingRef {
+    fn ptr(self) -> *const BindingCell {
+        self as &BindingCell as *const BindingCell
+    }
+}
+
 pub struct CFP {
-    stack: Vec<ExprRef>
+    env: Environment<BindingPtr, ExprRef>
 }
 
 impl CFP {
     pub fn new() -> CFP {
         CFP {
-            stack: vec![]
+            env: Environment::new()
         }
     }
 
@@ -25,7 +40,7 @@ impl CFP {
                 TypedStatement::Expr(expr) => TypedStatement::Expr(self.fold(&expr))
             })
             .collect::<Vec<_>>();
-        remove_dead_bindings(code, Warnings::Off)
+        remove_dead_bindings(&code, Warnings::Off)
     }
 
     #[must_use]
@@ -49,7 +64,7 @@ impl CFP {
                         }
                         ExprRef::new(TypedExpr::Deref(binding.clone()))
                     },
-                    &BindingValue::Arg(_) => self.stack[self.stack.len() - 1 - &binding.borrow().index].clone()
+                    &BindingValue::Arg(_) => self.env.resolve(&binding.ptr()).unwrap().clone()
                 }
             }
             &TypedExpr::AddInt(ref left, ref right) => self.try_fold_numeric(expr, left, right, Add::add),
@@ -63,8 +78,9 @@ impl CFP {
                     _ => expr.clone()
                 }
             },
-            &TypedExpr::Application { ref type_, ref function, ref arguments } => {
-                let mut function = self.fold(function);
+            &TypedExpr::Application { ref function, ref arguments, .. } => {
+                let original_function = function;
+                let mut function = self.fold(original_function);
                 if is_primitive_constant(&function) {
                     function
                 } else {
@@ -76,21 +92,17 @@ impl CFP {
                                 _ => unreachable!()
                             };
                         }
-                        if let &TypedExpr::Lambda { ref body, .. } = function.deref() {
-                            let stack_size = self.stack.len();
-                            for argument in arguments.into_iter().rev() {
-                                self.stack.push(argument)
+                        if let &TypedExpr::Lambda(Lambda { ref body, ref parameters, .. }) = function.deref() {
+                            self.env.push();
+                            for (parameter, argument) in parameters.into_iter().zip(arguments.into_iter()) {
+                                self.env.bind(parameter.ptr(), &argument).unwrap();
                             }
                             let result = self.fold(body);
-                            self.stack.resize(stack_size, ExprRef::new(TypedExpr::Phantom));
+                            self.env.pop();
                             return result
                         }
                     }
-                    ExprRef::new(TypedExpr::Application {
-                        type_: type_.clone(),
-                        function,
-                        arguments
-                    })
+                    expr.clone()
                 }
             },
             &TypedExpr::Assign(ref left, ref right) => {
@@ -101,18 +113,7 @@ impl CFP {
                 binding.borrow_mut().assigned = true;
                 ExprRef::new(TypedExpr::Assign(left.clone(), self.fold(right)))
             },
-            &TypedExpr::Lambda { ref type_, ref body, .. } => {
-                let stack_size = self.stack.len();
-                let padding = || ExprRef::new(TypedExpr::Phantom);
-                self.stack.resize(stack_size + type_.parameters.len(), padding());
-                let body = self.fold(body);
-                self.stack.resize(stack_size, padding());
-                if is_primitive_constant(&body) {
-                    body
-                } else {
-                    expr.clone()
-                }
-            },
+            &TypedExpr::Lambda(ref lambda) => self.fold_function(lambda),
             &TypedExpr::Conditional { ref condition, ref positive, ref negative } => {
                 if let &TypedExpr::Int(ref n) = &self.fold(condition) as &TypedExpr {
                     return if n == &BigInt::zero() {
@@ -127,6 +128,22 @@ impl CFP {
         }
     }
 
+    #[must_use]
+    fn fold_function(&mut self, lambda: &Lambda) -> ExprRef {
+        self.env.push();
+        for parameter in &lambda.parameters {
+            self.env.bind(parameter.ptr(), &ExprRef::new(TypedExpr::Phantom)).unwrap();
+        }
+        let body = self.fold(&lambda.body);
+        self.env.pop();
+        if is_primitive_constant(&body) {
+            body
+        } else {
+            ExprRef::new(TypedExpr::Lambda(lambda.clone()))
+        }
+    }
+
+    #[must_use]
     fn try_fold_numeric<FoldFn>(&mut self, original_expr: &ExprRef, left: &ExprRef, right: &ExprRef, fold_impl: FoldFn) -> ExprRef
         where FoldFn: FnOnce(BigInt, BigInt) -> BigInt
     {

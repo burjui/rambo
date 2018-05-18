@@ -3,19 +3,36 @@ use std::error::Error;
 use num::BigInt;
 use std::ops::Deref;
 use num::Zero;
+use std::cell::RefCell;
+use std::collections::HashMap;
 
 use semantics::*;
 
 pub struct Evaluator {
-    stack: Vec<Evalue>,
-    bindings: Vec<Evalue>,
+    stack: Vec<BindingMap>,
+    bindings: BindingMap,
 }
+
+type BindingCell = RefCell<Binding>;
+type BindingPtr = *const BindingCell;
+
+trait Ptr<T> {
+    fn ptr(self) -> *const T;
+}
+
+impl<'a> Ptr<BindingCell> for &'a BindingRef {
+    fn ptr(self) -> *const BindingCell {
+        self as &BindingCell as *const BindingCell
+    }
+}
+
+type BindingMap = HashMap<BindingPtr, Evalue>;
 
 impl<'a> Evaluator {
     pub fn new() -> Evaluator {
         Evaluator {
             stack: vec![],
-            bindings: vec![]
+            bindings: HashMap::new()
         }
     }
 
@@ -35,7 +52,7 @@ impl<'a> Evaluator {
                     &BindingValue::Var(ref expr) => self.eval_expr(expr)?,
                     &BindingValue::Arg(_) => panic!("{:?}", binding.borrow().value)
                 };
-                self.bindings.push(value);
+                self.bindings.insert(binding.ptr(), value);
                 Ok(Evalue::Unit)
             }
         }
@@ -84,17 +101,17 @@ impl<'a> Evaluator {
                     unreachable!()
                 };
                 let value = self.eval_expr(right)?;
-                self.bindings[left_binding.borrow().index] = value.clone();
+                *self.bindings.get_mut(&left_binding.ptr()).unwrap() = value.clone();
                 Ok(value)
             },
             &TypedExpr::Deref(ref binding) => {
                 match &binding.borrow().value {
                     &BindingValue::Var(_) => {
-                        let value = self.bindings[binding.borrow().index].clone();
+                        let value = self.bindings.get(&binding.ptr()).unwrap().clone();
                         Ok(value)
                     },
                     &BindingValue::Arg(_) => {
-                        let value = self.stack[self.stack.len() - 1 - binding.borrow().index].clone();
+                        let value = self.stack.last().unwrap().get(&binding.ptr()).unwrap().clone();
                         Ok(value)
                     }
                 }
@@ -103,22 +120,35 @@ impl<'a> Evaluator {
                 let arguments: Result<Vec<Evalue>, Box<Error>> = arguments.iter().rev()
                     .map(|argument| self.eval_expr(argument)).collect();
                 let arguments = arguments?;
-                for argument in arguments.as_slice() {
-                    self.stack.push(argument.clone())
-                }
-                let function = self.eval_expr(function)?;
-                let function_body;
-                if let &Evalue::Lambda(ref body) = &function {
-                    function_body = body
-                } else {
-                    unreachable!()
-                };
-                let result = self.eval_expr(function_body);
                 let stack_size = self.stack.len();
-                self.stack.resize(stack_size - arguments.len(), Evalue::Int(From::from(0)));
+                self.stack.push(HashMap::new());
+                    {
+                        let parameters = match self.eval_expr(function).unwrap() {
+                            Evalue::Lambda(ref lambda) => match lambda as &TypedExpr {
+                                &TypedExpr::Lambda(Lambda { ref parameters, .. }) => parameters.clone(),
+                                _ => {
+                                    unreachable!()
+                                }
+                            } ,
+                            _ => unreachable!()
+                        };
+                        let map = self.stack.last_mut().unwrap();
+                        for (parameter, argument) in parameters.into_iter().zip(arguments.into_iter()) {
+                            map.insert(parameter.ptr(), argument.clone());
+                        }
+                    }
+                    let function = self.eval_expr(function)?;
+                    let function_body;
+                    if let &Evalue::Lambda(ref body) = &function {
+                        function_body = body
+                    } else {
+                        unreachable!()
+                    };
+                    let result = self.eval_expr(function_body);
+                self.stack.resize(stack_size, HashMap::new());
                 result
             },
-            &TypedExpr::Lambda { ref body, .. } => Ok(Evalue::Lambda(body.clone())),
+            &TypedExpr::Lambda(Lambda { ref body, .. }) => Ok(Evalue::Lambda(body.clone())),
             &TypedExpr::Conditional { ref condition, ref positive, ref negative } => {
                 let condition = match self.eval_expr(condition)? {
                     Evalue::Int(value) => !value.is_zero(),

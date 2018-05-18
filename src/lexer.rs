@@ -3,32 +3,33 @@ use std::fmt::{Display, Debug, Formatter, Result as FmtResult};
 use std::error::Error;
 use std::iter::once;
 use itertools::Itertools;
+use std::rc::Rc;
 
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub enum Token {
     EOF, Id, Int, String, LParen, RParen, LBrace, RBrace, Eq, EqEq, Lt, LtEq, Gt, GtEq, Lambda, Minus, Arrow, Plus, Star, Slash, Colon
 }
 
-#[derive(Copy, Clone)]
-pub struct Lexeme<'a> {
+#[derive(Clone)]
+pub struct Lexeme {
     pub token: Token,
-    pub source: Source<'a>
+    pub source: Source
 }
 
-impl<'a> Lexeme<'a> {
-    pub fn text(&self) -> &'a str {
+impl Lexeme {
+    pub fn text(&self) -> &str {
         self.source.text()
     }
 }
 
-impl<'a> Debug for Lexeme<'a> {
+impl Debug for Lexeme {
     fn fmt(&self, formatter: &mut Formatter) -> FmtResult {
         formatter.write_str(&format!("{} | {:?} | {:?}",
              self.text(), self.token, self.source.file.position(self.source.range.start).unwrap()))
     }
 }
 
-impl<'a> Display for Lexeme<'a> {
+impl Display for Lexeme {
     fn fmt(&self, formatter: &mut Formatter) -> FmtResult {
         formatter.write_str(if self.token == Token::EOF { "end of file" } else { self.text() })
     }
@@ -39,58 +40,58 @@ pub struct LexerStats {
     pub lexeme_count: usize,
 }
 
-pub struct Lexer<'a> {
-    pub eof_lexeme: Lexeme<'a>,
-    file: &'a SourceFile<'a>,
-    source_iterator: Box<Iterator<Item = ((usize, char), (usize, char))> + 'a>,
+pub struct Lexer {
+    pub eof_lexeme: Lexeme,
+    eof_offset: usize,
+    file: Rc<SourceFile>,
     lexeme_offset: usize,
     lexeme_line: usize,
     current_offset: usize,
     current_line: usize,
     current_character: Option<char>,
+    next_character_offset: usize,
     next_character: Option<char>,
     stats: LexerStats
 }
 
-pub type LexerResult<'a, T> = Result<T, Box<Error>>;
+pub type LexerResult<T> = Result<T, Box<Error>>;
 
-impl<'a> Lexer<'a> {
-    pub fn new(file: &'a SourceFile<'a>) -> Lexer<'a> {
+impl Lexer {
+    pub fn new(file: SourceFile) -> Lexer {
         let eof_offset = file.text.len();
+        let file = Rc::new(file);
         let eof_lexeme = Lexeme {
             token: Token::EOF,
             source: Source {
-                file,
+                file: file.clone(),
                 range: Range {
                     start: eof_offset,
                     end: eof_offset
                 }
             }
         };
-        let source_iterator = box(file.text
-            .char_indices()
-            .chain(once((eof_offset, '\0')))
-            .tuple_windows::<(_, _)>());
+        let initial_offset = file.bom_length;
         let mut lexer = Lexer {
-            file,
-            source_iterator,
-            lexeme_offset: 0,
+            eof_lexeme,
+            eof_offset,
+            file: file.clone(),
+            lexeme_offset: initial_offset,
             lexeme_line: 0,
-            current_offset: 0,
+            current_offset: initial_offset,
             current_line: 0,
             current_character: None,
+            next_character_offset: initial_offset,
             next_character: None,
             stats: LexerStats {
                 lexeme_count: 0
             },
-            eof_lexeme
         };
         lexer.read_char();
         lexer
     }
 
     /// Returns (Lexeme, line) pair
-    pub fn read(&mut self) -> LexerResult<'a, (Lexeme<'a>, usize)> {
+    pub fn read(&mut self) -> LexerResult<(Lexeme, usize)> {
         self.skip_whitepace()?;
         self.lexeme_offset = self.current_offset;
         self.lexeme_line = self.current_line;
@@ -102,10 +103,10 @@ impl<'a> Lexer<'a> {
                         return Ok((lexeme, self.lexeme_line))
                     }
                 }
-                error!("{:?}({:?}): unexpected character: {}",
-                    self.file.path.to_string_lossy(), self.file.position(self.current_offset)?, c)
+                error!("{:?}({:?}): unexpected character: {} ({})",
+                    self.file.path, self.file.position(self.current_offset)?, c, c as u32)
             },
-            None => Ok((self.eof_lexeme, self.file.lines.len()))
+            None => Ok((self.eof_lexeme.clone(), self.file.lines.len()))
         }
     }
 
@@ -113,7 +114,7 @@ impl<'a> Lexer<'a> {
         &self.stats
     }
 
-    fn read_id(&mut self) -> LexerResult<'a, Option<Lexeme<'a>>> {
+    fn read_id(&mut self) -> LexerResult<Option<Lexeme>> {
         Ok(match self.current_character {
             Some(c) if c.is_alphabetic() => {
                 self.read_char();
@@ -130,7 +131,7 @@ impl<'a> Lexer<'a> {
         })
     }
 
-    fn read_int(&mut self) -> LexerResult<'a, Option<Lexeme<'a>>> {
+    fn read_int(&mut self) -> LexerResult<Option<Lexeme>> {
         Ok(match self.current_character {
             Some(c) if c.is_numeric() => {
                 loop {
@@ -145,7 +146,7 @@ impl<'a> Lexer<'a> {
         })
     }
 
-    fn read_string(&mut self) -> LexerResult<'a, Option<Lexeme<'a>>> {
+    fn read_string(&mut self) -> LexerResult<Option<Lexeme>> {
         match self.current_character {
             Some('"') => {
                 self.read_char();
@@ -171,7 +172,7 @@ impl<'a> Lexer<'a> {
                         let start_position = self.file.position(self.lexeme_offset)?;
                         let end_position = self.file.position(self.current_offset)?;
                         error!("{:?}({:?}): unclosed string starting at {:?}",
-                            self.file.path.to_string_lossy(), end_position, start_position)
+                            self.file.path, end_position, start_position)
                     }
                 }
             },
@@ -179,7 +180,7 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    fn read_operator(&mut self) -> LexerResult<'a, Option<Lexeme<'a>>> {
+    fn read_operator(&mut self) -> LexerResult<Option<Lexeme>> {
         macro_rules! on {
             ($char: tt, $token: expr, $handler: expr) => (
                 match self.current_character {
@@ -213,9 +214,9 @@ impl<'a> Lexer<'a> {
             .map(|token| self.new_lexeme(token, None)))
     }
 
-    fn new_lexeme(&self, token: Token, range: Option<Range>) -> Lexeme<'a> {
+    fn new_lexeme(&self, token: Token, range: Option<Range>) -> Lexeme {
         let source = Source {
-            file: self.file,
+            file: self.file.clone(),
             range: range.unwrap_or_else(|| Range {
                 start: self.lexeme_offset,
                 end: self.current_offset
@@ -267,7 +268,7 @@ impl<'a> Lexer<'a> {
             self.read_char();
         } else {
             return error!("{}({:?}): unterminated comment starting at {:?}",
-            self.file.path.to_string_lossy(),
+            self.file.path,
             self.file.position(self.current_offset)?,
             self.file.position(comment_start)?);
         }
@@ -279,25 +280,29 @@ impl<'a> Lexer<'a> {
     }
 
     fn read_char(&mut self) {
-        if let Some(((offset, character), (_, next_character))) = self.source_iterator.next() {
-            self.current_offset = offset;
-            if offset >= self.file.lines[self.current_line].end {
+        self.current_offset = self.next_character_offset;
+        let mut source_iterator = (&self.file.text[self.current_offset..])
+            .char_indices()
+            .chain(once((self.eof_offset - self.current_offset, '\0')))
+            .tuple_windows::<(_, _)>();
+        if let Some(((_, character), (next_offset, next_character))) = source_iterator.next() {
+            self.next_character_offset += next_offset;
+            if self.current_offset >= self.file.lines[self.current_line].end {
                 self.current_line += 1;
             }
             self.current_character = Some(character);
             self.next_character = Some(next_character);
         } else {
-            self.current_offset = self.file.text.len();
+            self.current_offset = self.eof_offset;
             self.current_character = None;
             self.next_character = None;
         }
     }
 }
 
-impl<'a> Debug for Lexer<'a> {
+impl Debug for Lexer {
     fn fmt(&self, formatter: &mut Formatter) -> FmtResult {
         formatter.write_str(
-            &format!("Lexer {{ {}({:?}) }}",
-                     self.file.path.to_string_lossy(), self.file.position(self.current_offset).unwrap()))
+            &format!("Lexer {{ {}({:?}) }}", self.file.path, self.file.position(self.current_offset).unwrap()))
     }
 }

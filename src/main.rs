@@ -14,10 +14,10 @@ mod eval;
 mod semantics;
 mod dead_bindings;
 mod constants;
+mod env;
 
 use getopts::Options;
-use std::env;
-use std::path::Path;
+use std::env::{args as program_args};
 use std::error::Error;
 
 use source::*;
@@ -30,7 +30,7 @@ use constants::*;
 use utils::*;
 
 fn main() {
-    let args: Vec<String> = env::args().collect();
+    let args: Vec<String> = program_args().collect();
     let mut opts = Options::new();
     opts.optflag("h", "help", "print this help menu");
 
@@ -39,7 +39,7 @@ fn main() {
         print_usage(&args[0], opts);
     } else {
         for path in matches.free {
-            match process(Path::new(&path)) {
+            match process(path) {
                 Ok(_) => {},
                 Err(error) => println!("error: {}", error.description())
             }
@@ -47,28 +47,30 @@ fn main() {
     }
 }
 
-fn process(path: &Path) -> Result<(), Box<Error>> {
-    println!(">> Processing {}...", path.to_string_lossy());
-    let source_code = SourceFile::read(path)?;
-    let file = SourceFile::new(&source_code, path)?;
-    let lexer = Lexer::new(&file);
+fn process(path: String) -> Result<(), Box<Error>> {
+    println!(">> Processing {}...", path);
+    let source_code = SourceFile::read(&path)?;
+    let source_code_length = source_code.len();
+    let file = SourceFile::new(source_code, path)?;
+    let line_count = file.lines.len();
+    let lexer = Lexer::new(file);
     println!("{:?}", lexer);
 
     let mut parser = Parser::new(lexer);
     let statements = parser.parse()?;
     let stats = { parser.lexer_stats() };
-    println!(">> {}, {} lines, {} lexemes", file_size_pretty(source_code.len()), file.lines.len(), stats.lexeme_count);
-    println!(">> AST:\n{}", statements.iter().to_string("\n"));
+    println!(">> {}, {} lines, {} lexemes", file_size_pretty(source_code_length), line_count, stats.lexeme_count);
+    println!(">> AST:\n{}", statements.iter().join_as_strings("\n"));
 
     let statements = check_module(statements.as_slice())?;
-    println!(">> Semantic check:\n{}", statements.iter().to_string("\n"));
+    println!(">> Semantic check:\n{}", statements.iter().join_as_strings("\n"));
 
-    let statements = remove_dead_bindings(statements, Warnings::On);
-    println!(">> Removed unused bindings:\n{}", statements.iter().to_string("\n"));
+    let statements = remove_dead_bindings(&statements, Warnings::On);
+    println!(">> Removed unused bindings:\n{}", statements.iter().join_as_strings("\n"));
 
     let mut cfp = CFP::new();
     let statements = cfp.fold_and_propagate_constants(statements);
-    println!(">> CFP:\n{}", statements.iter().to_string("\n"));
+    println!(">> CFP:\n{}", statements.iter().join_as_strings("\n"));
 
     let mut evaluator = Evaluator::new();
     let evalue = evaluator.eval_module(statements.as_slice())?;

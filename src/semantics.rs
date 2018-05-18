@@ -58,17 +58,26 @@ impl Debug for Type {
 
 pub type ExprRef = Rc<TypedExpr>;
 
+#[derive(Clone)]
+pub struct Lambda {
+    pub type_: FunctionTypeRef,
+    pub parameters: Vec<BindingRef>,
+    pub body: ExprRef
+}
+
+impl Debug for Lambda {
+    fn fmt(&self, formatter: &mut Formatter) -> FmtResult {
+        write!(formatter, "(λ {:?} = {:?})", self.type_, self.body)
+    }
+}
+
 pub enum TypedExpr {
     Phantom,
     Unit,
     Int(BigInt),
     String(String),
     Deref(BindingRef),
-    Lambda {
-        type_: FunctionTypeRef,
-        parameter_bindings: Vec<BindingRef>,
-        body: ExprRef
-    },
+    Lambda(Lambda),
     Application {
         type_: Type,
         function: ExprRef,
@@ -97,7 +106,7 @@ impl Debug for TypedExpr {
             &TypedExpr::String(ref value) => write!(formatter, "\"{}\"", value),
             &TypedExpr::Deref(ref binding) => {
                 let suffix = match &binding.borrow().value {
-                    &BindingValue::Var(_) => format!("[{}]", binding.borrow().index),
+                    &BindingValue::Var(_) => format!("[{:?}]", &*binding.borrow() as *const Binding),
                     _ => "".to_string()
                 };
                 write!(formatter, "(*{}{})", binding.borrow().name, suffix)
@@ -108,7 +117,7 @@ impl Debug for TypedExpr {
             &TypedExpr::DivInt(ref left, ref right) => write!(formatter, "({:?} / {:?})", left, right),
             &TypedExpr::AddStr(ref left, ref right) => write!(formatter, "({:?} + {:?})", left, right),
             &TypedExpr::Assign(ref left, ref right) => write!(formatter, "({:?} = {:?})", left, right),
-            &TypedExpr::Lambda { ref type_, ref body, .. } => write!(formatter, "(λ {:?} = {:?})", type_, body),
+            &TypedExpr::Lambda(ref lambda) => lambda.fmt(formatter),
             &TypedExpr::Application { ref function, ref arguments, .. } => write!(formatter, "({:?} @ {:?})", function, arguments),
             &TypedExpr::Conditional { ref condition, ref positive, ref negative } => {
                 let negative = match negative {
@@ -117,7 +126,7 @@ impl Debug for TypedExpr {
                 };
                 write!(formatter, "(if {:?} {:?}{})", condition, positive, negative)
             },
-            &TypedExpr::Block(ref statements) => write!(formatter, "{{ {} }})", statements.iter().to_string("; "))
+            &TypedExpr::Block(ref statements) => write!(formatter, "{{ {} }})", statements.iter().join_as_strings("; "))
         }
     }
 }
@@ -139,7 +148,7 @@ impl TypedExpr {
 
             &TypedExpr::Deref(ref binding) => binding.borrow().type_(),
             &TypedExpr::Assign(ref left, _) => left.type_(),
-            &TypedExpr::Lambda { ref type_, .. } => Type::Function(type_.clone()),
+            &TypedExpr::Lambda(Lambda { ref type_, .. }) => Type::Function(type_.clone()),
             &TypedExpr::Application { ref type_, .. } => type_.clone(),
             &TypedExpr::Conditional { ref positive, ref negative, .. } => {
                 if negative.is_none() {
@@ -173,7 +182,6 @@ pub type BindingRef = Rc<RefCell<Binding>>;
 pub struct Binding {
     pub name: String,
     pub value: BindingValue,
-    pub index: usize,
     pub assigned: bool,
     pub dirty: bool
 }
@@ -186,7 +194,7 @@ impl Binding {
 
 impl Debug for Binding {
     fn fmt(&self, formatter: &mut Formatter) -> FmtResult {
-        write!(formatter, "let {}[{}] = {:?}", self.name, self.index, self.value)
+        write!(formatter, "let {}[{:?}] = {:?}", self.name, self as *const Self, self.value)
     }
 }
 
@@ -232,11 +240,10 @@ fn check_statement(env: &mut Environment, statement: &Statement) -> CheckResult<
             Ok(TypedStatement::Expr(expr))
         },
         &Statement::Binding { ref name, ref value } => {
-            let value = check_expr(env, value)?;
+            let value = check_expr(env, &value)?;
             let binding = Rc::new(RefCell::new(Binding {
                 name: name.text().to_string(),
                 value: BindingValue::Var(value),
-                index: env.current_scope_len(),
                 assigned: false,
                 dirty: false
             }));
@@ -298,70 +305,42 @@ fn check_expr(env: &mut Environment, expr: &Expr) -> CheckResult<ExprRef> {
                 }
             }
         },
-        &Expr::Lambda { ref parameters, ref body, .. } => {
-            env.push();
-            let mut parameter_bindings = vec![];
-            for (parameter_index, parameter) in parameters.iter().enumerate() {
-                let binding = Rc::new(RefCell::new(Binding {
-                    name: parameter.name.to_string(),
-                    value: BindingValue::Arg(parameter.type_.clone()),
-                    index: parameter_index,
-                    assigned: false,
-                    dirty: false
-                }));
-                parameter_bindings.push(binding.clone());
-                env.bind(binding)?;
-            }
-            let body = check_expr(env, body)?;
-            env.pop();
-            let parameters = parameters.iter()
-                .map(|parameter| Parameter {
-                    name: parameter.name.to_string(),
-                    type_: parameter.type_.clone()
-                })
-                .collect();
-            let function_type = Rc::new(FunctionType {
-                parameters,
-                result: body.type_()
-            });
-            Ok(ExprRef::new(TypedExpr::Lambda{
-                type_: function_type,
-                parameter_bindings,
-                body
-            }))
-        },
+        lambda @ &Expr::Lambda {..} => Ok(ExprRef::new(TypedExpr::Lambda(check_function(env, lambda)?))),
         &Expr::Application { ref function, ref arguments, .. } => {
-            let function_checked = check_expr(env, function)?;
-            let function_checked_type = function_checked.type_();
-            let function_type;
-            if let &Type::Function(ref type_) = &function_checked_type {
-                function_type = type_.clone()
-            } else {
-                return error!("expected a function, found `{:?}' of type `{:?}'", function, function_checked_type);
+            let function = check_expr(env, &function)?;
+            let function_type = function.type_();
+            let function_type_result: CheckResult<FunctionTypeRef> = match &function_type {
+                &Type::Function(ref type_) => Ok(type_.clone()),
+                _ => error!("2 expected a function, found `{:?}' of type `{:?}'", expr, function_type)
             };
+            let function_type = function_type_result?;
 
-            let function_parameters = &function_type.parameters;
-            let parameter_count = function_parameters.len();
-            let argument_count = arguments.len();
-            if argument_count != parameter_count {
-                return error!("invalid number of arguments: expected {}, found {}:\n  {:?}",
-                    parameter_count, argument_count, expr);
-            }
-
-            let mut arguments_checked = vec![];
-            for (parameter, argument) in function_parameters.iter().zip(arguments.iter()) {
-                let argument_checked = check_expr(env, argument)?;
-                let argument_type = argument_checked.type_();
-                if &argument_type != &parameter.type_ {
-                    return error!("argument type mismatch for {}: expected `{:?}', found `{:?}'\n  {:?}",
-                        parameter.name, parameter.type_, argument_type, argument);
+            let arguments_checked = {
+                let function_parameters = &function_type.parameters;
+                let parameter_count = function_parameters.len();
+                let argument_count = arguments.len();
+                if argument_count != parameter_count {
+                    return error!("invalid number of arguments: expected {}, found {}:\n  {:?}",
+                        parameter_count, argument_count, expr);
                 }
-                arguments_checked.push(argument_checked);
-            }
+
+                let mut arguments_checked = vec![];
+                for (parameter, argument) in function_parameters.iter().zip(arguments.iter()) {
+                    let argument_checked = check_expr(env, argument)?;
+                    let argument_type = argument_checked.type_();
+                    if &argument_type != &parameter.type_ {
+                        return error!("argument type mismatch for {}: expected `{:?}', found `{:?}'\n  {:?}",
+                            parameter.name, parameter.type_, argument_type, argument);
+                    }
+                    arguments_checked.push(argument_checked);
+                }
+
+                arguments_checked
+            };
 
             Ok(ExprRef::new(TypedExpr::Application {
                 type_: function_type.result.clone(),
-                function: function_checked,
+                function,
                 arguments: arguments_checked
             }))
         },
@@ -415,8 +394,45 @@ fn check_expr(env: &mut Environment, expr: &Expr) -> CheckResult<ExprRef> {
     }
 }
 
+fn check_function(env: &mut Environment, expr: &Expr) -> CheckResult<Lambda> {
+    match &expr {
+        &Expr::Lambda { ref parameters, ref body, .. } => {
+            env.push();
+            let mut parameter_bindings = vec![];
+            for parameter in parameters.iter() {
+                let binding = Rc::new(RefCell::new(Binding {
+                    name: parameter.name.to_string(),
+                    value: BindingValue::Arg(parameter.type_.clone()),
+                    assigned: false,
+                    dirty: false
+                }));
+                parameter_bindings.push(binding.clone());
+                env.bind(binding)?;
+            }
+            let body = check_expr(env, body)?;
+            env.pop();
+            let parameters = parameters.iter()
+                .map(|parameter| Parameter {
+                    name: parameter.name.to_string(),
+                    type_: parameter.type_.clone()
+                })
+                .collect();
+            let function_type = Rc::new(FunctionType {
+                parameters,
+                result: body.type_()
+            });
+            Ok(Lambda{
+                type_: function_type,
+                parameters: parameter_bindings,
+                body
+            })
+        },
+        _ => error!("3 expected a function, found `{:?}'", expr)
+    }
+}
+
 fn check_block<'a, BlockIterator>(env: &mut Environment, block: BlockIterator) -> CheckResult<ExprRef>
-    where BlockIterator: Iterator<Item = &'a Statement<'a>>
+    where BlockIterator: Iterator<Item = &'a Statement>
 {
     let statements: CheckResult<Vec<_>> = block.map(|statement| check_statement(env, statement)).collect();
     Ok(Rc::new(TypedExpr::Block(statements?)))
@@ -451,10 +467,6 @@ impl Environment {
             }
         }
         Err(From::from(format!("`{}' is undefined", name)))
-    }
-
-    pub fn current_scope_len(&self) -> usize {
-        self.last().borrow().len()
     }
 
     fn push(&mut self) {
