@@ -2,36 +2,22 @@ use std::ops::Deref;
 use std::usize;
 
 use semantics::*;
-use std::collections::HashMap;
-use std::cell::RefCell;
+use env::Environment;
 
 // TODO use Position and the source code instead of {:?} for warnings
 // TODO a better way of reporting warnings than mere println!()
 
 pub enum Warnings { On, Off }
 
-type BindingCell = RefCell<Binding>;
-type BindingPtr = *const BindingCell;
-
-trait Ptr<T> {
-    fn ptr(self) -> *const T;
-}
-
-impl<'a> Ptr<BindingCell> for &'a BindingRef {
-    fn ptr(self) -> *const BindingCell {
-        self as &BindingCell as *const BindingCell
-    }
-}
-
-type BindingUsageMap = HashMap<BindingPtr, usize>;
+type BindingUsage = Environment<BindingPtr, usize>;
 
 pub fn remove_dead_bindings(code: &Vec<TypedStatement>, warnings: Warnings) -> Vec<TypedStatement> {
     let usages = {
-        let mut usages: BindingUsageMap = HashMap::new();
+        let mut usages: BindingUsage = BindingUsage::new();
         let mut bindings = vec![];
         for statement in code.iter() {
             if let &TypedStatement::Binding(ref binding) = statement {
-                usages.insert(binding.ptr(), 1);
+                usages.bind(binding.ptr(), 1).unwrap();
                 bindings.push(binding);
             }
         }
@@ -42,7 +28,7 @@ pub fn remove_dead_bindings(code: &Vec<TypedStatement>, warnings: Warnings) -> V
 
         if let Warnings::On = warnings {
             for binding in bindings.iter() {
-                let usage = *usages.get(&binding.ptr()).unwrap();
+                let usage = usages.resolve(&binding.ptr()).unwrap();
                 if usage == 0 {
                     warning!("unused binding: {:?}", binding.borrow());
                 }
@@ -50,7 +36,7 @@ pub fn remove_dead_bindings(code: &Vec<TypedStatement>, warnings: Warnings) -> V
         }
 
         for binding in bindings.iter() {
-            let usage = *usages.get(&binding.ptr()).unwrap_or(&0);
+            let usage = usages.resolve(&binding.ptr()).unwrap_or(0);
             if usage > 0 {
                 if let Warnings::On = warnings {
                     let binding = binding.borrow();
@@ -65,7 +51,7 @@ pub fn remove_dead_bindings(code: &Vec<TypedStatement>, warnings: Warnings) -> V
                     }
                 }
             } else {
-                *usages.get_mut(&binding.ptr()).unwrap() = 0;
+                usages.bind_force(binding.ptr(), 0);
             }
         }
 
@@ -75,7 +61,7 @@ pub fn remove_dead_bindings(code: &Vec<TypedStatement>, warnings: Warnings) -> V
     code.into_iter()
         .filter_map(|statement| match &statement {
             &TypedStatement::Binding(ref binding) => {
-                if *usages.get(&binding.ptr()).unwrap() > 0 {
+                if usages.resolve(&binding.ptr()).unwrap() > 0 {
                     Some(statement.clone())
                 } else {
                     None
@@ -87,7 +73,7 @@ pub fn remove_dead_bindings(code: &Vec<TypedStatement>, warnings: Warnings) -> V
                         &TypedExpr::Deref(ref binding) => binding,
                         _ => unreachable!()
                     };
-                    if *usages.get(&binding.ptr()).unwrap() == 0 {
+                    if usages.resolve(&binding.ptr()).unwrap() == 0 {
                         return None
                     }
                 }
@@ -98,35 +84,37 @@ pub fn remove_dead_bindings(code: &Vec<TypedStatement>, warnings: Warnings) -> V
         .collect::<Vec<TypedStatement>>()
 }
 
-fn process_binding(binding: &BindingRef, usages: &mut BindingUsageMap) {
-    if usages.contains_key(&binding.ptr()) {
+fn process_binding(binding: &BindingRef, usages: &mut BindingUsage) {
+    if usages.resolve(&binding.ptr()).is_ok() {
         if let &BindingValue::Var(ref expr) = &binding.borrow().value {
             process_expr(expr, usages);
         }
     }
 }
 
-fn process_expr(expr: &ExprRef, usages: &mut BindingUsageMap) {
+fn process_expr(expr: &ExprRef, usages: &mut BindingUsage) {
     match expr.deref() {
         &TypedExpr::Phantom | &TypedExpr::Unit | &TypedExpr::Int(_) | &TypedExpr::String(_) => {}, // nothing to analyze in either of these
         &TypedExpr::Deref(ref binding) => {
             if let &BindingValue::Var(_) = &binding.borrow().value {
-                if let Some(usage) = usages.get_mut(&binding.ptr()) {
-                    *usage -= 1;
+                if let Ok(usage) = usages.resolve(&binding.ptr()) {
+                    usages.bind_force(binding.ptr(), usage - 1);
                 }
                 process_binding(binding, usages);
             }
         },
         &TypedExpr::Lambda(Lambda { ref body, ref parameters, .. }) => {
+            usages.push();
             for binding in parameters {
-                usages.insert(binding.ptr(), 1);
+                usages.bind(binding.ptr(), 1).unwrap();
             }
             process_expr(&body, usages);
             for binding in parameters {
-                if *usages.get(&binding.ptr()).unwrap() == 0 {
+                if usages.resolve(&binding.ptr()).unwrap() == 0 {
                     warning!("unused parameter `{}'", binding.borrow().name);
                 }
             }
+            usages.pop();
         },
         &TypedExpr::Application { ref function, ref arguments, .. } => {
             process_expr(function, usages);

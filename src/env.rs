@@ -17,13 +17,18 @@ where Key: Eq + Debug + Hash, Value: Clone {
         }
     }
 
-    pub fn bind(&self, key: Key, value: &Value) -> Result<(), Box<Error>> {
+    // TODO: Value instead of &Value
+    pub fn bind(&self, key: Key, value: Value) -> Result<(), Box<Error>> {
         if self.last().borrow().contains_key(&key) {
             error!("redefinition of key {:?}", key)
         } else {
-            self.last().borrow_mut().insert(key, value.clone());
+            self.last().borrow_mut().insert(key, value);
             Ok(())
         }
+    }
+
+    pub fn bind_force(&self, key: Key, value: Value) {
+        self.last().borrow_mut().insert(key, value);
     }
 
     pub fn resolve(&self, key: &Key) -> Result<Value, Box<Error>> {

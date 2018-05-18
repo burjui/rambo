@@ -177,7 +177,8 @@ impl BindingValue {
     }
 }
 
-pub type BindingRef = Rc<RefCell<Binding>>;
+type BindingCell = RefCell<Binding>;
+pub type BindingRef = Rc<BindingCell>;
 
 pub struct Binding {
     pub name: String,
@@ -195,6 +196,18 @@ impl Binding {
 impl Debug for Binding {
     fn fmt(&self, formatter: &mut Formatter) -> FmtResult {
         write!(formatter, "let {}[{:?}] = {:?}", self.name, self as *const Self, self.value)
+    }
+}
+
+pub type BindingPtr = *const BindingCell;
+
+pub trait Ptr<T> {
+    fn ptr(self) -> *const T;
+}
+
+impl<'a> Ptr<BindingCell> for &'a BindingRef {
+    fn ptr(self) -> *const BindingCell {
+        self as &BindingCell as *const BindingCell
     }
 }
 

@@ -2,25 +2,11 @@ use semantics::*;
 use std::ops::Deref;
 use num::{BigInt, Zero};
 use std::ops::{Add, Sub, Mul, Div};
-use std::cell::RefCell;
 
 use dead_bindings::*;
 use env::Environment;
 
 // TODO implement operation-specific optimizations, such as "x*1 = x", "x+0 = x" and so on
-
-type BindingCell = RefCell<Binding>;
-type BindingPtr = *const BindingCell;
-
-trait Ptr<T> {
-    fn ptr(self) -> *const T;
-}
-
-impl<'a> Ptr<BindingCell> for &'a BindingRef {
-    fn ptr(self) -> *const BindingCell {
-        self as &BindingCell as *const BindingCell
-    }
-}
 
 pub struct CFP {
     env: Environment<BindingPtr, ExprRef>
@@ -95,7 +81,7 @@ impl CFP {
                         if let &TypedExpr::Lambda(Lambda { ref body, ref parameters, .. }) = function.deref() {
                             self.env.push();
                             for (parameter, argument) in parameters.into_iter().zip(arguments.into_iter()) {
-                                self.env.bind(parameter.ptr(), &argument).unwrap();
+                                self.env.bind(parameter.ptr(), argument).unwrap();
                             }
                             let result = self.fold(body);
                             self.env.pop();
@@ -132,7 +118,7 @@ impl CFP {
     fn fold_function(&mut self, lambda: &Lambda) -> ExprRef {
         self.env.push();
         for parameter in &lambda.parameters {
-            self.env.bind(parameter.ptr(), &ExprRef::new(TypedExpr::Phantom)).unwrap();
+            self.env.bind(parameter.ptr(), ExprRef::new(TypedExpr::Phantom)).unwrap();
         }
         let body = self.fold(&lambda.body);
         self.env.pop();
