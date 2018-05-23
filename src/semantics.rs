@@ -77,7 +77,7 @@ pub enum TypedExpr {
     Int(BigInt),
     String(String),
     Deref(BindingRef),
-    Lambda(Lambda),
+    Lambda(Rc<Lambda>),
     Application {
         type_: Type,
         function: ExprRef,
@@ -148,7 +148,7 @@ impl TypedExpr {
 
             &TypedExpr::Deref(ref binding) => binding.borrow().type_(),
             &TypedExpr::Assign(ref left, _) => left.type_(),
-            &TypedExpr::Lambda(Lambda { ref type_, .. }) => Type::Function(type_.clone()),
+            &TypedExpr::Lambda(ref lambda) => Type::Function(lambda.type_.clone()),
             &TypedExpr::Application { ref type_, .. } => type_.clone(),
             &TypedExpr::Conditional { ref positive, ref negative, .. } => {
                 if negative.is_none() {
@@ -318,7 +318,7 @@ fn check_expr(env: &mut Environment, expr: &Expr) -> CheckResult<ExprRef> {
                 }
             }
         },
-        lambda @ &Expr::Lambda {..} => Ok(ExprRef::new(TypedExpr::Lambda(check_function(env, lambda)?))),
+        lambda @ &Expr::Lambda {..} => Ok(ExprRef::new(TypedExpr::Lambda(Rc::new(check_function(env, lambda)?)))),
         &Expr::Application { ref function, ref arguments, .. } => {
             let function = check_expr(env, &function)?;
             let function_type = function.type_();

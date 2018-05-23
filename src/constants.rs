@@ -1,6 +1,7 @@
 use semantics::*;
 use num::{BigInt, Zero};
 use std::ops::{Add, Sub, Mul, Div};
+use std::rc::Rc;
 
 use dead_bindings::*;
 use env::Environment;
@@ -77,12 +78,12 @@ impl CFP {
                                 _ => unreachable!()
                             };
                         }
-                        if let &TypedExpr::Lambda(Lambda { ref body, ref parameters, .. }) = &function as &TypedExpr {
+                        if let &TypedExpr::Lambda(ref lambda) = &function as &TypedExpr {
                             self.env.push();
-                            for (parameter, argument) in parameters.into_iter().zip(arguments.into_iter()) {
+                            for (parameter, argument) in lambda.parameters.iter().zip(arguments.into_iter()) {
                                 self.env.bind(parameter.ptr(), argument).unwrap();
                             }
-                            let result = self.fold(body);
+                            let result = self.fold(&lambda.body);
                             self.env.pop();
                             return result
                         }
@@ -114,7 +115,7 @@ impl CFP {
     }
 
     #[must_use]
-    fn fold_function(&mut self, lambda: &Lambda) -> ExprRef {
+    fn fold_function(&mut self, lambda: &Rc<Lambda>) -> ExprRef {
         self.env.push();
         for parameter in &lambda.parameters {
             self.env.bind(parameter.ptr(), ExprRef::new(TypedExpr::Phantom)).unwrap();

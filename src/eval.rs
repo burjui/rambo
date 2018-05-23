@@ -2,6 +2,7 @@ use std::fmt::{Debug, Formatter, Result as FmtResult};
 use std::error::Error;
 use num::BigInt;
 use num::Zero;
+use std::rc::Rc;
 
 use semantics::*;
 use env::Environment;
@@ -89,36 +90,22 @@ impl<'a> Evaluator {
             },
             &TypedExpr::Deref(ref binding) => Ok(self.env.resolve(&binding.ptr()).unwrap()),
             &TypedExpr::Application { ref function, ref arguments, .. } => {
-                let arguments: Result<Vec<Evalue>, Box<Error>> = arguments.iter().rev()
+                let arguments: Result<Vec<Evalue>, Box<Error>> = arguments.iter()
                     .map(|argument| self.eval_expr(argument)).collect();
                 let arguments = arguments?;
+                let lambda = match self.eval_expr(function).unwrap() {
+                    Evalue::Lambda(ref lambda) => lambda.clone(),
+                    _ => unreachable!()
+                };
                 self.env.push();
-                    {
-                        let parameters = match self.eval_expr(function).unwrap() {
-                            Evalue::Lambda(ref lambda) => match lambda as &TypedExpr {
-                                &TypedExpr::Lambda(Lambda { ref parameters, .. }) => parameters.clone(),
-                                _ => {
-                                    unreachable!()
-                                }
-                            } ,
-                            _ => unreachable!()
-                        };
-                        for (parameter, argument) in parameters.into_iter().zip(arguments.into_iter()) {
-                            self.env.bind(parameter.ptr(), argument).unwrap();
-                        }
-                    }
-                    let function = self.eval_expr(function)?;
-                    let function_body;
-                    if let &Evalue::Lambda(ref body) = &function {
-                        function_body = body
-                    } else {
-                        unreachable!()
-                    };
-                    let result = self.eval_expr(function_body);
+                for (parameter, argument) in lambda.parameters.iter().zip(arguments.into_iter()) {
+                    self.env.bind(parameter.ptr(), argument).unwrap();
+                }
+                let result = self.eval_expr(&lambda.body);
                 self.env.pop();
                 result
             },
-            &TypedExpr::Lambda(Lambda { ref body, .. }) => Ok(Evalue::Lambda(body.clone())),
+            &TypedExpr::Lambda(ref lambda) => Ok(Evalue::Lambda(lambda.clone())),
             &TypedExpr::Conditional { ref condition, ref positive, ref negative } => {
                 let condition = match self.eval_expr(condition)? {
                     Evalue::Int(value) => !value.is_zero(),
@@ -158,7 +145,7 @@ pub enum Evalue {
     Unit,
     Int(BigInt),
     String(String),
-    Lambda(ExprRef)
+    Lambda(Rc<Lambda>)
 }
 
 impl Debug for Evalue {

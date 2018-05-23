@@ -102,13 +102,13 @@ fn process_expr(expr: &ExprRef, usages: &mut BindingUsage) {
                 process_binding(binding, usages);
             }
         },
-        &TypedExpr::Lambda(Lambda { ref body, ref parameters, .. }) => {
+        &TypedExpr::Lambda(ref lambda) => {
             usages.push();
-            for binding in parameters {
+            for binding in &lambda.parameters {
                 usages.bind(binding.ptr(), 1).unwrap();
             }
-            process_expr(&body, usages);
-            for binding in parameters {
+            process_expr(&lambda.body, usages);
+            for binding in &lambda.parameters {
                 if usages.resolve(&binding.ptr()).unwrap() == 0 {
                     warning!("unused parameter `{}'", binding.borrow().name);
                 }
