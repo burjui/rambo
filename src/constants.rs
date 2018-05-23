@@ -1,5 +1,4 @@
 use semantics::*;
-use std::ops::Deref;
 use num::{BigInt, Zero};
 use std::ops::{Add, Sub, Mul, Div};
 
@@ -31,7 +30,7 @@ impl CFP {
 
     #[must_use]
     fn fold(&mut self, expr: &ExprRef) -> ExprRef {
-        match expr.deref() {
+        match &expr as &TypedExpr {
             &TypedExpr::Deref(ref binding) => {
                 let value = binding.borrow().value.clone();
                 match &value {
@@ -58,7 +57,7 @@ impl CFP {
             &TypedExpr::MulInt(ref left, ref right) => self.try_fold_numeric(expr, left, right, Mul::mul),
             &TypedExpr::DivInt(ref left, ref right) => self.try_fold_numeric(expr, left, right, Div::div),
             &TypedExpr::AddStr(ref left, ref right) => {
-                match (self.fold(left).deref(), self.fold(right).deref()) {
+                match (&self.fold(left) as &TypedExpr, &self.fold(right) as &TypedExpr) {
                     (&TypedExpr::String(ref left), &TypedExpr::String(ref right)) =>
                         ExprRef::new(TypedExpr::String(left.to_string() + right)),
                     _ => expr.clone()
@@ -72,13 +71,13 @@ impl CFP {
                 } else {
                     let arguments = arguments.iter().map(|argument| self.fold(argument)).collect::<Vec<_>>();
                     if arguments.iter().all(is_constant) {
-                        while let &TypedExpr::Deref(ref binding) = function.clone().deref() {
+                        while let &TypedExpr::Deref(ref binding) = &function.clone() as &TypedExpr {
                             function = match &binding.borrow().value {
                                 &BindingValue::Var(ref value) => value.clone(),
                                 _ => unreachable!()
                             };
                         }
-                        if let &TypedExpr::Lambda(Lambda { ref body, ref parameters, .. }) = function.deref() {
+                        if let &TypedExpr::Lambda(Lambda { ref body, ref parameters, .. }) = &function as &TypedExpr {
                             self.env.push();
                             for (parameter, argument) in parameters.into_iter().zip(arguments.into_iter()) {
                                 self.env.bind(parameter.ptr(), argument).unwrap();
@@ -92,7 +91,7 @@ impl CFP {
                 }
             },
             &TypedExpr::Assign(ref left, ref right) => {
-                let binding = match left.deref() {
+                let binding = match &left as &TypedExpr {
                     &TypedExpr::Deref(ref binding) => binding,
                     _ => unreachable!()
                 };
@@ -134,7 +133,7 @@ impl CFP {
         where FoldFn: FnOnce(BigInt, BigInt) -> BigInt
     {
         let (left, right) = (self.fold(left), self.fold(right));
-        match (left.deref(), right.deref()) {
+        match (&left as &TypedExpr, &right as &TypedExpr) {
             (&TypedExpr::Int(ref left), &TypedExpr::Int(ref right)) => {
                 let result = fold_impl(left.clone(), right.clone());
                 ExprRef::new(TypedExpr::Int(result))

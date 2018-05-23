@@ -1,7 +1,6 @@
 use std::fmt::{Debug, Formatter, Result as FmtResult};
 use std::error::Error;
 use num::BigInt;
-use std::ops::Deref;
 use num::Zero;
 
 use semantics::*;
@@ -79,7 +78,7 @@ impl<'a> Evaluator {
             },
             &TypedExpr::Assign(ref left, ref right) => {
                 let left_binding;
-                if let &TypedExpr::Deref(ref binding) = left.deref() {
+                if let &TypedExpr::Deref(ref binding) = &left as &TypedExpr {
                     left_binding = binding
                 } else {
                     unreachable!()

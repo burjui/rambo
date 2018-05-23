@@ -1,4 +1,3 @@
-use std::ops::Deref;
 use std::usize;
 
 use semantics::*;
@@ -44,7 +43,7 @@ pub fn remove_dead_bindings(code: &Vec<TypedStatement>, warnings: Warnings) -> V
                         &BindingValue::Var(ref expr) => expr,
                         _ => unreachable!()
                     };
-                    if let &TypedExpr::Deref(ref referenced_binding) = value.deref() {
+                    if let &TypedExpr::Deref(ref referenced_binding) = &value as &TypedExpr {
                         if binding.name == referenced_binding.borrow().name {
                             warning!("redundant binding: {:?}", binding);
                         }
@@ -68,8 +67,8 @@ pub fn remove_dead_bindings(code: &Vec<TypedStatement>, warnings: Warnings) -> V
                 }
             },
             &TypedStatement::Expr(ref expr) => {
-                if let &TypedExpr::Assign(ref left, _) = expr.deref() {
-                    let binding = match left.deref() {
+                if let &TypedExpr::Assign(ref left, _) = &expr as &TypedExpr {
+                    let binding = match &left as &TypedExpr {
                         &TypedExpr::Deref(ref binding) => binding,
                         _ => unreachable!()
                     };
@@ -93,7 +92,7 @@ fn process_binding(binding: &BindingRef, usages: &mut BindingUsage) {
 }
 
 fn process_expr(expr: &ExprRef, usages: &mut BindingUsage) {
-    match expr.deref() {
+    match &expr as &TypedExpr {
         &TypedExpr::Phantom | &TypedExpr::Unit | &TypedExpr::Int(_) | &TypedExpr::String(_) => {}, // nothing to analyze in either of these
         &TypedExpr::Deref(ref binding) => {
             if let &BindingValue::Var(_) = &binding.borrow().value {
