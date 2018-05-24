@@ -18,39 +18,32 @@ pub fn remove_dead_bindings(code: &Vec<TypedStatement>, warnings: Warnings) -> V
             if let &TypedStatement::Binding(ref binding) = statement {
                 usages.bind(binding.ptr(), 1).unwrap();
                 bindings.push(binding);
-            }
-        }
+                process_binding(&binding, &mut usages);
 
-        for binding in bindings.iter() {
-            process_binding(&binding, &mut usages);
-        }
-
-        if let Warnings::On = warnings {
-            for binding in bindings.iter() {
-                let usage = usages.resolve(&binding.ptr()).unwrap();
-                if usage == 0 {
-                    warning!("unused binding: {:?}", binding.borrow());
-                }
-            }
-        }
-
-        for binding in bindings.iter() {
-            let usage = usages.resolve(&binding.ptr()).unwrap_or(0);
-            if usage > 0 {
                 if let Warnings::On = warnings {
-                    let binding = binding.borrow();
-                    let value = match &binding.value {
-                        &BindingValue::Var(ref expr) => expr,
-                        _ => unreachable!()
-                    };
-                    if let &TypedExpr::Deref(ref referenced_binding) = &value as &TypedExpr {
-                        if binding.name == referenced_binding.borrow().name {
-                            warning!("redundant binding: {:?}", binding);
-                        }
+                    let usage = usages.resolve(&binding.ptr()).unwrap();
+                    if usage == 0 {
+                        warning!("unused binding: {:?}", binding.borrow());
                     }
                 }
-            } else {
-                usages.bind_force(binding.ptr(), 0);
+
+                let usage = usages.resolve(&binding.ptr()).unwrap_or(0);
+                if usage > 0 {
+                    if let Warnings::On = warnings {
+                        let binding = binding.borrow();
+                        let value = match &binding.value {
+                            &BindingValue::Var(ref expr) => expr,
+                            _ => unreachable!()
+                        };
+                        if let &TypedExpr::Deref(ref referenced_binding) = &value as &TypedExpr {
+                            if binding.name == referenced_binding.borrow().name {
+                                warning!("redundant binding: {:?}", binding);
+                            }
+                        }
+                    }
+                } else {
+                    usages.bind_force(binding.ptr(), 0);
+                }
             }
         }
 
