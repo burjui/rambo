@@ -47,7 +47,7 @@ impl Source {
 
 impl Display for Source {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> FmtResult {
-        write!(formatter, "{:?}({:?})", self.file.path, self.file.position(self.range.start).unwrap())
+        write!(formatter, "{}({:?})", self.file.path, self.file.position(self.range.start).unwrap())
     }
 }
 
