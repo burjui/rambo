@@ -31,13 +31,18 @@ fn main() {
     let args: Vec<String> = program_args().collect();
     let mut opts = Options::new();
     opts.optflag("h", "help", "print this help menu");
+    const DUMP_OPTION: &str = "d";
+    opts.optflag(DUMP_OPTION, "dump", "dump intermediate compilation results, e.g. AST");
 
     let matches = opts.parse(&args[1..]).unwrap();
     if matches.opt_present("h") || matches.free.is_empty() {
         print_usage(&args[0], opts);
     } else {
-        for path in matches.free {
-            match process(path) {
+        for path in &matches.free {
+            let options = &ProcessOptions {
+                dump: matches.opt_present(DUMP_OPTION)
+            };
+            match process(path, &options) {
                 Ok(_) => {},
                 Err(error) => println!("error: {}", error.description())
             }
@@ -45,7 +50,11 @@ fn main() {
     }
 }
 
-fn process(path: String) -> Result<(), Box<dyn Error>> {
+struct ProcessOptions {
+    dump: bool // dump intermediate compilation results
+}
+
+fn process(path: &str, options: &ProcessOptions) -> Result<(), Box<dyn Error>> {
     println!(">> Processing {}...", path);
     let source_code = SourceFile::read(&path)?;
     let source_code_length = source_code.len();
@@ -58,17 +67,25 @@ fn process(path: String) -> Result<(), Box<dyn Error>> {
     let statements = parser.parse()?;
     let stats = { parser.lexer_stats() };
     println!(">> {}, {} lines, {} lexemes", file_size_pretty(source_code_length), line_count, stats.lexeme_count);
-    println!(">> AST:\n{}", statements.iter().join_as_strings("\n"));
+    if options.dump {
+        println!(">> AST:\n{}", statements.iter().join_as_strings("\n"));
+    }
 
     let statements = check_module(statements.as_slice())?;
-    println!(">> Semantic check:\n{}", statements.iter().join_as_strings("\n"));
+    if options.dump {
+        println!(">> Semantic check:\n{}", statements.iter().join_as_strings("\n"));
+    }
 
     let statements = remove_dead_bindings(&statements, Warnings::On);
-    println!(">> Removed unused bindings:\n{}", statements.iter().join_as_strings("\n"));
+    if options.dump {
+        println!(">> Removed unused bindings:\n{}", statements.iter().join_as_strings("\n"));
+    }
 
     let mut cfp = CFP::new();
     let statements = cfp.fold_and_propagate_constants(statements);
-    println!(">> CFP:\n{}", statements.iter().join_as_strings("\n"));
+    if options.dump {
+        println!(">> CFP:\n{}", statements.iter().join_as_strings("\n"));
+    }
 
     let mut evaluator = Evaluator::new();
     let evalue = evaluator.eval_module(statements.as_slice())?;
