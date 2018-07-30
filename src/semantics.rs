@@ -8,28 +8,28 @@ use itertools::Itertools;
 use crate::utils::*;
 use crate::parser::*;
 
-pub type FunctionTypeRef = Rc<FunctionType>;
+crate type FunctionTypeRef = Rc<FunctionType>;
 
 #[derive(Clone, PartialEq)]
-pub struct Parameter {
-    pub name: String,
-    pub type_: Type
+crate struct Parameter {
+    crate name: String,
+    crate type_: Type
 }
 
 impl Debug for Parameter {
-    fn fmt(&self, formatter: &mut Formatter) -> FmtResult {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> FmtResult {
         write!(formatter, "({}: {:?})", self.name, self.type_)
     }
 }
 
 #[derive(Clone, PartialEq)]
-pub struct FunctionType {
-    pub parameters: Vec<Parameter>,
-    pub result: Type
+crate struct FunctionType {
+    crate parameters: Vec<Parameter>,
+    crate result: Type
 }
 
 impl Debug for FunctionType {
-    fn fmt(&self, formatter: &mut Formatter) -> FmtResult {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> FmtResult {
         let parameter_list = self.parameters.iter().map(|x| format!("{:?}", x)).join(" ");
         write!(formatter, "({} -> {:?})", parameter_list, self.result)
     }
@@ -37,7 +37,7 @@ impl Debug for FunctionType {
 
 // TODO impl Debug with parenthesis
 #[derive(Clone, PartialEq)]
-pub enum Type {
+crate enum Type {
     Unit,
     Int,
     String,
@@ -45,7 +45,7 @@ pub enum Type {
 }
 
 impl Debug for Type {
-    fn fmt(&self, formatter: &mut Formatter) -> FmtResult {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> FmtResult {
         match self {
             &Type::Unit => write!(formatter, "()"),
             &Type::Int => write!(formatter, "num"),
@@ -55,22 +55,22 @@ impl Debug for Type {
     }
 }
 
-pub type ExprRef = Rc<TypedExpr>;
+crate type ExprRef = Rc<TypedExpr>;
 
 #[derive(Clone)]
-pub struct Lambda {
-    pub type_: FunctionTypeRef,
-    pub parameters: Vec<BindingRef>,
-    pub body: ExprRef
+crate struct Lambda {
+    crate type_: FunctionTypeRef,
+    crate parameters: Vec<BindingRef>,
+    crate body: ExprRef
 }
 
 impl Debug for Lambda {
-    fn fmt(&self, formatter: &mut Formatter) -> FmtResult {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> FmtResult {
         write!(formatter, "(λ {:?} = {:?})", self.type_, self.body)
     }
 }
 
-pub enum TypedExpr {
+crate enum TypedExpr {
     Phantom,
     Unit,
     Int(BigInt),
@@ -97,7 +97,7 @@ pub enum TypedExpr {
 }
 
 impl Debug for TypedExpr {
-    fn fmt(&self, formatter: &mut Formatter) -> FmtResult {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> FmtResult {
         match self {
             &TypedExpr::Phantom => write!(formatter, "@"),
             &TypedExpr::Unit => write!(formatter, "()"),
@@ -131,7 +131,7 @@ impl Debug for TypedExpr {
 }
 
 impl TypedExpr {
-    pub fn type_(&self) -> Type {
+    crate fn type_(&self) -> Type {
         match self {
             &TypedExpr::Phantom => unreachable!(),
             &TypedExpr::Unit => Type::Unit,
@@ -162,13 +162,13 @@ impl TypedExpr {
 }
 
 #[derive(Debug, Clone)]
-pub enum BindingValue {
+crate enum BindingValue {
     Var(ExprRef),
     Arg(Type)
 }
 
 impl BindingValue {
-    pub fn type_(&self) -> Type {
+    crate fn type_(&self) -> Type {
         match self {
             &BindingValue::Var(ref expr) => expr.type_(),
             &BindingValue::Arg(ref type_) => type_.clone()
@@ -177,30 +177,30 @@ impl BindingValue {
 }
 
 type BindingCell = RefCell<Binding>;
-pub type BindingRef = Rc<BindingCell>;
+crate type BindingRef = Rc<BindingCell>;
 
-pub struct Binding {
-    pub name: String,
-    pub value: BindingValue,
-    pub assigned: bool,
-    pub dirty: bool
+crate struct Binding {
+    crate name: String,
+    crate value: BindingValue,
+    crate assigned: bool,
+    crate dirty: bool
 }
 
 impl Binding {
-    pub fn type_(&self) -> Type {
+    crate fn type_(&self) -> Type {
         self.value.type_()
     }
 }
 
 impl Debug for Binding {
-    fn fmt(&self, formatter: &mut Formatter) -> FmtResult {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> FmtResult {
         write!(formatter, "let {}[{:?}] = {:?}", self.name, self as *const Self, self.value)
     }
 }
 
-pub type BindingPtr = *const BindingCell;
+crate type BindingPtr = *const BindingCell;
 
-pub trait Ptr<T> {
+crate trait Ptr<T> {
     fn ptr(self) -> *const T;
 }
 
@@ -211,13 +211,13 @@ impl<'a> Ptr<BindingCell> for &'a BindingRef {
 }
 
 #[derive(Clone)]
-pub enum TypedStatement {
+crate enum TypedStatement {
     Expr(ExprRef),
     Binding(BindingRef)
 }
 
 impl Debug for TypedStatement {
-    fn fmt(&self, formatter: &mut Formatter) -> FmtResult {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> FmtResult {
         match self {
             &TypedStatement::Expr(ref expr) => expr.fmt(formatter),
             &TypedStatement::Binding(ref binding) => binding.borrow().fmt(formatter)
@@ -226,7 +226,7 @@ impl Debug for TypedStatement {
 }
 
 impl TypedStatement {
-    pub fn type_(&self) -> Type {
+    crate fn type_(&self) -> Type {
         match self {
             &TypedStatement::Binding(_) => Type::Unit,
             &TypedStatement::Expr(ref expr) => expr.type_()
@@ -234,9 +234,9 @@ impl TypedStatement {
     }
 }
 
-type CheckResult<T> = Result<T, Box<Error>>;
+type CheckResult<T> = Result<T, Box<dyn Error>>;
 
-pub fn check_module(code: &[Statement]) -> CheckResult<Vec<TypedStatement>> {
+crate fn check_module(code: &[Statement]) -> CheckResult<Vec<TypedStatement>> {
     let mut typed_module = vec![];
     let mut env = Environment::new();
     for statement in code {
@@ -450,18 +450,18 @@ fn check_block<'a, BlockIterator>(env: &mut Environment, block: BlockIterator) -
     Ok(Rc::new(TypedExpr::Block(statements?)))
 }
 
-pub struct Environment {
+crate struct Environment {
     scopes: Vec<RefCell<HashMap<String, BindingRef>>>
 }
 
 impl Environment {
-    pub fn new() -> Environment {
+    crate fn new() -> Environment {
         Environment {
             scopes: vec![RefCell::new(HashMap::new())]
         }
     }
 
-    pub fn bind(&self, binding: BindingRef) -> Result<(), Box<Error>> {
+    crate fn bind(&self, binding: BindingRef) -> Result<(), Box<dyn Error>> {
         let name = &binding.borrow().name;
         if let &BindingValue::Arg(_) = &binding.borrow().value {
             if self.last().borrow().contains_key(name) {
@@ -472,7 +472,7 @@ impl Environment {
         Ok(())
     }
 
-    pub fn resolve(&self, name: &str) -> Result<ExprRef, Box<Error>> {
+    crate fn resolve(&self, name: &str) -> Result<ExprRef, Box<dyn Error>> {
         for scope in self.scopes.iter().rev() {
             if let Some(binding) = scope.borrow().get(name) {
                 return Ok(ExprRef::new(TypedExpr::Deref(binding.clone())));

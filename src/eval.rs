@@ -9,18 +9,18 @@ use crate::env::Environment;
 
 type Env = Environment<BindingPtr, Evalue>;
 
-pub struct Evaluator {
+crate struct Evaluator {
     env: Env,
 }
 
 impl<'a> Evaluator {
-    pub fn new() -> Evaluator {
+    crate fn new() -> Evaluator {
         Evaluator {
             env: Env::new()
         }
     }
 
-    pub fn eval_module(&mut self, code: &[TypedStatement]) -> Result<Evalue, Box<Error>> {
+    crate fn eval_module(&mut self, code: &[TypedStatement]) -> Result<Evalue, Box<dyn Error>> {
         let mut result = Evalue::Unit;
         for statement in code {
             result = self.eval_statement(statement)?;
@@ -28,7 +28,7 @@ impl<'a> Evaluator {
         Ok(result)
     }
 
-    fn eval_statement(&mut self, statement: &TypedStatement) -> Result<Evalue, Box<Error>> {
+    fn eval_statement(&mut self, statement: &TypedStatement) -> Result<Evalue, Box<dyn Error>> {
         match statement {
             &TypedStatement::Expr(ref expr) => Ok(self.eval_expr(expr)?),
             &TypedStatement::Binding(ref binding) => {
@@ -42,7 +42,7 @@ impl<'a> Evaluator {
         }
     }
 
-    fn eval_expr(&mut self, expr: &TypedExpr) -> Result<Evalue, Box<Error>> {
+    fn eval_expr(&mut self, expr: &TypedExpr) -> Result<Evalue, Box<dyn Error>> {
         match expr {
             &TypedExpr::Phantom => unreachable!(),
             &TypedExpr::Unit => Ok(Evalue::Unit),
@@ -90,7 +90,7 @@ impl<'a> Evaluator {
             },
             &TypedExpr::Deref(ref binding) => Ok(self.env.resolve(&binding.ptr()).unwrap()),
             &TypedExpr::Application { ref function, ref arguments, .. } => {
-                let arguments: Result<Vec<Evalue>, Box<Error>> = arguments.iter()
+                let arguments: Result<Vec<Evalue>, Box<dyn Error>> = arguments.iter()
                     .map(|argument| self.eval_expr(argument)).collect();
                 let arguments = arguments?;
                 let lambda = match self.eval_expr(function).unwrap() {
@@ -129,7 +129,7 @@ impl<'a> Evaluator {
     }
 
     fn numeric_binary_operation<Eval>(left: &Evalue, right: &Evalue, operation_name: &str, eval: Eval)
-                                      -> Result<Evalue, Box<Error>>
+                                      -> Result<Evalue, Box<dyn Error>>
         where Eval: FnOnce(&BigInt, &BigInt) -> BigInt
     {
         if let (&Evalue::Int(ref left), &Evalue::Int(ref right)) = (left, right) {
@@ -141,7 +141,7 @@ impl<'a> Evaluator {
 }
 
 #[derive(Clone)]
-pub enum Evalue {
+crate enum Evalue {
     Unit,
     Int(BigInt),
     String(String),
@@ -149,7 +149,7 @@ pub enum Evalue {
 }
 
 impl Debug for Evalue {
-    fn fmt(&self, formatter: &mut Formatter) -> FmtResult {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> FmtResult {
         match self {
             &Evalue::Unit => write!(formatter, "()"),
             &Evalue::Int(ref value) => write!(formatter, "{}", value),

@@ -6,11 +6,11 @@ use crate::env::Environment;
 // TODO use Position and the source code instead of {:?} for warnings
 // TODO a better way of reporting warnings than mere println!()
 
-pub enum Warnings { On, Off }
+crate enum Warnings { On, Off }
 
 type BindingUsage = Environment<BindingPtr, usize>;
 
-pub fn remove_dead_bindings(code: &Vec<TypedStatement>, warnings: Warnings) -> Vec<TypedStatement> {
+crate fn remove_dead_bindings(code: &Vec<TypedStatement>, warnings: Warnings) -> Vec<TypedStatement> {
     let usages = {
         let mut usages: BindingUsage = BindingUsage::new();
         let mut bindings = vec![];

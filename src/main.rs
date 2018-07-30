@@ -45,7 +45,7 @@ fn main() {
     }
 }
 
-fn process(path: String) -> Result<(), Box<Error>> {
+fn process(path: String) -> Result<(), Box<dyn Error>> {
     println!(">> Processing {}...", path);
     let source_code = SourceFile::read(&path)?;
     let source_code_length = source_code.len();

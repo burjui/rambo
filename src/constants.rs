@@ -8,18 +8,18 @@ use crate::env::Environment;
 
 // TODO implement operation-specific optimizations, such as "x*1 = x", "x+0 = x" and so on
 
-pub struct CFP {
+crate struct CFP {
     env: Environment<BindingPtr, ExprRef>
 }
 
 impl CFP {
-    pub fn new() -> CFP {
+    crate fn new() -> CFP {
         CFP {
             env: Environment::new()
         }
     }
 
-    pub fn fold_and_propagate_constants(&mut self, code: Vec<TypedStatement>) -> Vec<TypedStatement> {
+    crate fn fold_and_propagate_constants(&mut self, code: Vec<TypedStatement>) -> Vec<TypedStatement> {
         let code = code.into_iter()
             .map(|statement| match statement {
                 TypedStatement::Binding(_) => statement,

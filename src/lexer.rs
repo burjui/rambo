@@ -6,42 +6,42 @@ use itertools::Itertools;
 use std::rc::Rc;
 
 #[derive(Debug, PartialEq, Copy, Clone)]
-pub enum Token {
+crate enum Token {
     EOF, Id, Int, String, LParen, RParen, LBrace, RBrace, Eq, EqEq, Lt, LtEq, Gt, GtEq, Lambda, Minus, Arrow, Plus, Star, Slash, Colon
 }
 
 #[derive(Clone)]
-pub struct Lexeme {
-    pub token: Token,
-    pub source: Source
+crate struct Lexeme {
+    crate token: Token,
+    crate source: Source
 }
 
 impl Lexeme {
-    pub fn text(&self) -> &str {
+    crate fn text(&self) -> &str {
         self.source.text()
     }
 }
 
 impl Debug for Lexeme {
-    fn fmt(&self, formatter: &mut Formatter) -> FmtResult {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> FmtResult {
         formatter.write_str(&format!("{} | {:?} | {:?}",
              self.text(), self.token, self.source.file.position(self.source.range.start).unwrap()))
     }
 }
 
 impl Display for Lexeme {
-    fn fmt(&self, formatter: &mut Formatter) -> FmtResult {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> FmtResult {
         formatter.write_str(if self.token == Token::EOF { "end of file" } else { self.text() })
     }
 }
 
 #[derive(Copy, Clone)]
-pub struct LexerStats {
-    pub lexeme_count: usize,
+crate struct LexerStats {
+    crate lexeme_count: usize,
 }
 
-pub struct Lexer {
-    pub eof_lexeme: Lexeme,
+crate struct Lexer {
+    crate eof_lexeme: Lexeme,
     eof_offset: usize,
     file: Rc<SourceFile>,
     lexeme_offset: usize,
@@ -54,10 +54,10 @@ pub struct Lexer {
     stats: LexerStats
 }
 
-pub type LexerResult<T> = Result<T, Box<Error>>;
+crate type LexerResult<T> = Result<T, Box<dyn Error>>;
 
 impl Lexer {
-    pub fn new(file: SourceFile) -> Lexer {
+    crate fn new(file: SourceFile) -> Lexer {
         let eof_offset = file.text.len();
         let file = Rc::new(file);
         let eof_lexeme = Lexeme {
@@ -91,7 +91,7 @@ impl Lexer {
     }
 
     /// Returns (Lexeme, line) pair
-    pub fn read(&mut self) -> LexerResult<(Lexeme, usize)> {
+    crate fn read(&mut self) -> LexerResult<(Lexeme, usize)> {
         self.skip_whitepace()?;
         self.lexeme_offset = self.current_offset;
         self.lexeme_line = self.current_line;
@@ -110,7 +110,7 @@ impl Lexer {
         }
     }
 
-    pub fn stats(&self) -> &LexerStats {
+    crate fn stats(&self) -> &LexerStats {
         &self.stats
     }
 
@@ -301,7 +301,7 @@ impl Lexer {
 }
 
 impl Debug for Lexer {
-    fn fmt(&self, formatter: &mut Formatter) -> FmtResult {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> FmtResult {
         formatter.write_str(
             &format!("Lexer {{ {}({:?}) }}", self.file.path, self.file.position(self.current_offset).unwrap()))
     }

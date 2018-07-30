@@ -4,35 +4,35 @@ use std::iter::once;
 use std::rc::Rc;
 
 #[derive(Copy, Clone)]
-pub struct Position {
-    pub line: usize,
-    pub column: usize
+crate struct Position {
+    crate line: usize,
+    crate column: usize
 }
 
 impl Debug for Position {
-    fn fmt(&self, formatter: &mut Formatter) -> FmtResult {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> FmtResult {
         formatter.write_str(&format!("{}:{}", self.line + 1, self.column + 1))
     }
 }
 
 #[derive(Copy, Clone)]
-pub struct Range {
-    pub start: usize,
-    pub end: usize
+crate struct Range {
+    crate start: usize,
+    crate end: usize
 }
 
 #[derive(Clone)]
-pub struct Source {
-    pub file: Rc<SourceFile>,
-    pub range: Range
+crate struct Source {
+    crate file: Rc<SourceFile>,
+    crate range: Range
 }
 
 impl Source {
-    pub fn text(&self) -> &str {
+    crate fn text(&self) -> &str {
         &self.file.text[self.range.start .. self.range.end]
     }
 
-    pub fn extend(&self, end: usize) -> Source {
+    crate fn extend(&self, end: usize) -> Source {
         assert!(end >= self.range.end);
         assert!(end <= self.file.text.len());
         Source {
@@ -46,26 +46,26 @@ impl Source {
 }
 
 impl Display for Source {
-    fn fmt(&self, formatter: &mut Formatter) -> FmtResult {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> FmtResult {
         write!(formatter, "{:?}({:?})", self.file.path, self.file.position(self.range.start).unwrap())
     }
 }
 
 impl Debug for Source {
-    fn fmt(&self, formatter: &mut Formatter) -> FmtResult {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> FmtResult {
         formatter.write_str(self.text())
     }
 }
 
-pub struct SourceFile {
-    pub path: String,
-    pub text: String,
-    pub bom_length: usize,
-    pub lines: Vec<Range>,
+crate struct SourceFile {
+    crate path: String,
+    crate text: String,
+    crate bom_length: usize,
+    crate lines: Vec<Range>,
 }
 
 impl<'a> SourceFile {
-    pub fn read(path: &str) -> Result<String, Box<Error>> {
+    crate fn read(path: &str) -> Result<String, Box<dyn Error>> {
         use std::fs::File;
         use std::io::Read;
         let mut file = File::open(path)?;
@@ -74,7 +74,7 @@ impl<'a> SourceFile {
         Ok(text)
     }
 
-    pub fn new(text: String, path: String) -> Result<SourceFile, Box<Error>> {
+    crate fn new(text: String, path: String) -> Result<SourceFile, Box<dyn Error>> {
         let bom_length = Self::skip_byte_order_mark(&text, &path)?;
         let lines = Self::collect_lines(&text, bom_length);
         Ok(SourceFile {
@@ -85,7 +85,7 @@ impl<'a> SourceFile {
         })
     }
 
-    pub fn position(&self, offset: usize) -> Result<Position, Box<Error>> {
+    crate fn position(&self, offset: usize) -> Result<Position, Box<dyn Error>> {
         for (index, line) in self.lines.iter().enumerate() {
             if offset <= line.end {
                 return Ok(Position {
@@ -97,7 +97,7 @@ impl<'a> SourceFile {
         error!("{:?}: offset {} is out of range", self.path, offset)
     }
 
-    fn skip_byte_order_mark(text: &'a str, path: &str) -> Result<usize, Box<Error>> {
+    fn skip_byte_order_mark(text: &'a str, path: &str) -> Result<usize, Box<dyn Error>> {
         const UTF8_BOM: [u8; 3] = [0xEF, 0xBB, 0xBF];
         const BOMS: &[(&[u8], &str)] = &[
             (&[0x00, 0x00, 0xFE, 0xFF], "UTF-32BE"),

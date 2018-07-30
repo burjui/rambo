@@ -10,7 +10,7 @@ macro_rules! warning {
 
 use std::fmt::Debug;
 use itertools::Itertools;
-pub trait ByLine: Iterator {
+crate trait ByLine: Iterator {
     fn join_as_strings(&mut self, separator: &str) -> String
         where Self: Sized, Self::Item: Debug
     {

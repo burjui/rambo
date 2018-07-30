@@ -6,25 +6,25 @@ use crate::source::*;
 use crate::semantics::*;
 
 #[derive(Clone)]
-pub struct Parameter {
-    pub name: String,
-    pub source: Source,
-    pub type_: Type
+crate struct Parameter {
+    crate name: String,
+    crate source: Source,
+    crate type_: Type
 }
 
 impl Debug for Parameter {
-    fn fmt(&self, formatter: &mut Formatter) -> FmtResult {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> FmtResult {
         write!(formatter, "({:?}: {:?})", self.name, self.type_)
     }
 }
 
 #[derive(Copy, Clone)]
-pub enum BinaryOperation {
+crate enum BinaryOperation {
     Assign, Add, Subtract, Multiply, Divide
 }
 
 impl Debug for BinaryOperation {
-    fn fmt(&self, formatter: &mut Formatter) -> FmtResult {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> FmtResult {
         formatter.write_char(match self {
             &BinaryOperation::Assign => '=',
             &BinaryOperation::Add => '+',
@@ -37,7 +37,7 @@ impl Debug for BinaryOperation {
 
 #[derive(Clone)]
 //#[derive(Debug)]
-pub enum Expr {
+crate enum Expr {
     Unit(Source),
     Int(Source),
     String(Source),
@@ -71,13 +71,13 @@ pub enum Expr {
 }
 
 impl Debug for Expr {
-    fn fmt(&self, formatter: &mut Formatter) -> FmtResult {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> FmtResult {
         write!(formatter, "{:?}", self.source())
     }
 }
 
 impl Expr {
-    pub fn source(&self) -> &Source {
+    crate fn source(&self) -> &Source {
         match self {
             &Expr::Unit(ref source) |
             &Expr::String(ref source) |
@@ -94,7 +94,7 @@ impl Expr {
 }
 
 #[derive(Clone)]
-pub enum Statement {
+crate enum Statement {
     Expr(Expr),
     Binding {
         // TODO maybe introduce Source for the whole binding
@@ -104,7 +104,7 @@ pub enum Statement {
 }
 
 impl Debug for Statement {
-    fn fmt(&self, formatter: &mut Formatter) -> FmtResult {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> FmtResult {
         match self {
             &Statement::Expr(ref expr) => expr.fmt(formatter),
             &Statement::Binding { ref name, ref value } => write!(formatter, "let {:?} = {:?}", name, value)
@@ -112,9 +112,9 @@ impl Debug for Statement {
     }
 }
 
-type ParseResult<T> = Result<T, Box<Error>>;
+type ParseResult<T> = Result<T, Box<dyn Error>>;
 
-pub struct Parser {
+crate struct Parser {
     lexer: Lexer,
     lexeme: Lexeme,
     lexeme_line: usize,
@@ -127,7 +127,7 @@ macro_rules! error {
 }
 
 impl Parser {
-    pub fn new(lexer: Lexer) -> Parser {
+    crate fn new(lexer: Lexer) -> Parser {
         let eof_lexeme = lexer.eof_lexeme.clone();
         Parser {
             lexer,
@@ -138,7 +138,7 @@ impl Parser {
         }
     }
 
-    pub fn parse(&mut self) -> ParseResult<Vec<Statement>> {
+    crate fn parse(&mut self) -> ParseResult<Vec<Statement>> {
         self.read_lexeme()?;
         let mut statements = vec![];
         while self.lexeme.token != Token::EOF {
@@ -147,7 +147,7 @@ impl Parser {
         Ok(statements)
     }
 
-    pub fn lexer_stats(&self) -> &LexerStats {
+    crate fn lexer_stats(&self) -> &LexerStats {
         self.lexer.stats()
     }
 

@@ -5,20 +5,20 @@ use std::error::Error;
 use std::cmp::Eq;
 use std::hash::Hash;
 
-pub struct Environment<Key, Value> {
+crate struct Environment<Key, Value> {
     scopes: Vec<RefCell<HashMap<Key, Value>>>
 }
 
 impl<Key, Value> Environment<Key, Value>
 where Key: Eq + Debug + Hash, Value: Clone {
-    pub fn new() -> Environment<Key, Value> {
+    crate fn new() -> Environment<Key, Value> {
         Environment {
             scopes: vec![RefCell::new(HashMap::new())]
         }
     }
 
     // TODO: Value instead of &Value
-    pub fn bind(&self, key: Key, value: Value) -> Result<(), Box<Error>> {
+    crate fn bind(&self, key: Key, value: Value) -> Result<(), Box<dyn Error>> {
         if self.last().borrow().contains_key(&key) {
             error!("redefinition of key {:?}", key)
         } else {
@@ -27,11 +27,11 @@ where Key: Eq + Debug + Hash, Value: Clone {
         }
     }
 
-    pub fn bind_force(&self, key: Key, value: Value) {
+    crate fn bind_force(&self, key: Key, value: Value) {
         self.last().borrow_mut().insert(key, value);
     }
 
-    pub fn resolve(&self, key: &Key) -> Result<Value, Box<Error>> {
+    crate fn resolve(&self, key: &Key) -> Result<Value, Box<dyn Error>> {
         for scope in self.scopes.iter().rev() {
             if let Some(value) = scope.borrow().get(key) {
                 return Ok(value.clone());
@@ -40,11 +40,11 @@ where Key: Eq + Debug + Hash, Value: Clone {
         Err(From::from(format!("`{:?}' is undefined", key)))
     }
 
-    pub fn push(&mut self) {
+    crate fn push(&mut self) {
         self.scopes.push(RefCell::new(HashMap::new()))
     }
 
-    pub fn pop(&mut self) {
+    crate fn pop(&mut self) {
         if self.scopes.len() == 1 {
             panic!("Dropping the base scope")
         }
