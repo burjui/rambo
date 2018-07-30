@@ -74,11 +74,11 @@ impl<'a> SourceFile {
         Ok(text)
     }
 
-    crate fn new(text: String, path: String) -> Result<SourceFile, Box<dyn Error>> {
+    crate fn new(text: String, path: &str) -> Result<SourceFile, Box<dyn Error>> {
         let bom_length = Self::skip_byte_order_mark(&text, &path)?;
         let lines = Self::collect_lines(&text, bom_length);
         Ok(SourceFile {
-            path,
+            path: path.to_string(),
             text,
             bom_length,
             lines

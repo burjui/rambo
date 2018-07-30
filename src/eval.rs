@@ -30,11 +30,11 @@ impl<'a> Evaluator {
 
     fn eval_statement(&mut self, statement: &TypedStatement) -> Result<Evalue, Box<dyn Error>> {
         match statement {
-            &TypedStatement::Expr(ref expr) => Ok(self.eval_expr(expr)?),
-            &TypedStatement::Binding(ref binding) => {
+            TypedStatement::Expr(expr) => Ok(self.eval_expr(expr)?),
+            TypedStatement::Binding(binding) => {
                 let value = match &binding.borrow().value {
-                    &BindingValue::Var(ref expr) => self.eval_expr(expr)?,
-                    &BindingValue::Arg(_) => panic!("{:?}", binding.borrow().value)
+                    BindingValue::Var(expr) => self.eval_expr(expr)?,
+                    BindingValue::Arg(_) => panic!("{:?}", binding.borrow().value)
                 };
                 self.env.bind(binding.ptr(), value).unwrap();
                 Ok(Evalue::Unit)
@@ -44,42 +44,42 @@ impl<'a> Evaluator {
 
     fn eval_expr(&mut self, expr: &TypedExpr) -> Result<Evalue, Box<dyn Error>> {
         match expr {
-            &TypedExpr::Phantom => unreachable!(),
-            &TypedExpr::Unit => Ok(Evalue::Unit),
-            &TypedExpr::Int(ref value) => Ok(Evalue::Int(value.clone())),
-            &TypedExpr::String(ref value) => Ok(Evalue::String(value.clone())),
-            &TypedExpr::AddInt(ref left, ref right) => {
+            TypedExpr::Phantom => unreachable!(),
+            TypedExpr::Unit => Ok(Evalue::Unit),
+            TypedExpr::Int(value) => Ok(Evalue::Int(value.clone())),
+            TypedExpr::String(value) => Ok(Evalue::String(value.clone())),
+            TypedExpr::AddInt(left, right) => {
                 let left = self.eval_expr(left)?;
                 let right = self.eval_expr(right)?;
                 Self::numeric_binary_operation(&left, &right, "+", |a, b| a + b)
             },
-            &TypedExpr::SubInt(ref left, ref right) => {
+            TypedExpr::SubInt(left, right) => {
                 let left = self.eval_expr(left)?;
                 let right = self.eval_expr(right)?;
                 Self::numeric_binary_operation(&left, &right, "-", |a, b| a - b)
             },
-            &TypedExpr::MulInt(ref left, ref right) => {
+            TypedExpr::MulInt(left, right) => {
                 let left = self.eval_expr(left)?;
                 let right = self.eval_expr(right)?;
                 Self::numeric_binary_operation(&left, &right, "*", |a, b| a * b)
             },
-            &TypedExpr::DivInt(ref left, ref right) => {
+            TypedExpr::DivInt(left, right) => {
                 let left = self.eval_expr(left)?;
                 let right = self.eval_expr(right)?;
                 Self::numeric_binary_operation(&left, &right, "/", |a, b| a / b)
             },
-            &TypedExpr::AddStr(ref left, ref right) => {
+            TypedExpr::AddStr(left, right) => {
                 let left = self.eval_expr(left)?;
                 let right = self.eval_expr(right)?;
-                if let (&Evalue::String(ref left), &Evalue::String(ref right)) = (&left, &right) {
-                    Ok(Evalue::String(left.to_string() + right))
+                if let (Evalue::String(left), Evalue::String(right)) = (left, right) {
+                    Ok(Evalue::String(left.to_string() + &right))
                 } else {
                     unreachable!()
                 }
             },
-            &TypedExpr::Assign(ref left, ref right) => {
+            TypedExpr::Assign(left, right) => {
                 let left_binding;
-                if let &TypedExpr::Deref(ref binding) = &left as &TypedExpr {
+                if let TypedExpr::Deref(binding) = &left as &TypedExpr {
                     left_binding = binding
                 } else {
                     unreachable!()
@@ -88,13 +88,13 @@ impl<'a> Evaluator {
                 self.env.bind_force(left_binding.ptr(), value.clone());
                 Ok(value)
             },
-            &TypedExpr::Deref(ref binding) => Ok(self.env.resolve(&binding.ptr()).unwrap()),
-            &TypedExpr::Application { ref function, ref arguments, .. } => {
+            TypedExpr::Deref(binding) => Ok(self.env.resolve(&binding.ptr()).unwrap()),
+            TypedExpr::Application { function, arguments, .. } => {
                 let arguments: Result<Vec<Evalue>, Box<dyn Error>> = arguments.iter()
                     .map(|argument| self.eval_expr(argument)).collect();
                 let arguments = arguments?;
                 let lambda = match self.eval_expr(function).unwrap() {
-                    Evalue::Lambda(ref lambda) => lambda.clone(),
+                    Evalue::Lambda(lambda) => lambda.clone(),
                     _ => unreachable!()
                 };
                 self.env.push();
@@ -105,8 +105,8 @@ impl<'a> Evaluator {
                 self.env.pop();
                 result
             },
-            &TypedExpr::Lambda(ref lambda) => Ok(Evalue::Lambda(lambda.clone())),
-            &TypedExpr::Conditional { ref condition, ref positive, ref negative } => {
+            TypedExpr::Lambda(lambda) => Ok(Evalue::Lambda(lambda.clone())),
+            TypedExpr::Conditional { condition, positive, negative } => {
                 let condition = match self.eval_expr(condition)? {
                     Evalue::Int(value) => !value.is_zero(),
                     Evalue::String(value) => value.len() > 0,
@@ -119,7 +119,7 @@ impl<'a> Evaluator {
                 };
                 clause.map(|expr| self.eval_expr(expr)).unwrap_or_else(|| Ok(Evalue::Unit))
             },
-            &TypedExpr::Block(ref statements) => {
+            TypedExpr::Block(statements) => {
                 statements.iter()
                     .map(|statement| self.eval_statement(statement))
                     .last()
@@ -132,7 +132,7 @@ impl<'a> Evaluator {
                                       -> Result<Evalue, Box<dyn Error>>
         where Eval: FnOnce(&BigInt, &BigInt) -> BigInt
     {
-        if let (&Evalue::Int(ref left), &Evalue::Int(ref right)) = (left, right) {
+        if let (Evalue::Int(left), Evalue::Int(right)) = (left, right) {
             Ok(Evalue::Int(eval(left, right)))
         } else {
             error!("invalid operands for `{}': `{:?}' and `{:?}'", operation_name, left, right)
@@ -151,10 +151,10 @@ crate enum Evalue {
 impl Debug for Evalue {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> FmtResult {
         match self {
-            &Evalue::Unit => write!(formatter, "()"),
-            &Evalue::Int(ref value) => write!(formatter, "{}", value),
-            &Evalue::String(ref value) => write!(formatter, "\"{}\"", value),
-            &Evalue::Lambda(ref body) => write!(formatter, "(\\ ... -> {:?})", body),
+            Evalue::Unit => write!(formatter, "()"),
+            Evalue::Int(value) => write!(formatter, "{}", value),
+            Evalue::String(value) => write!(formatter, "\"{}\"", value),
+            Evalue::Lambda(body) => write!(formatter, "(\\ ... -> {:?})", body),
         }
     }
 }

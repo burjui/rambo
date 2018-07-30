@@ -26,11 +26,11 @@ crate enum BinaryOperation {
 impl Debug for BinaryOperation {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> FmtResult {
         formatter.write_char(match self {
-            &BinaryOperation::Assign => '=',
-            &BinaryOperation::Add => '+',
-            &BinaryOperation::Subtract => '-',
-            &BinaryOperation::Multiply => '*',
-            &BinaryOperation::Divide => '/',
+            BinaryOperation::Assign => '=',
+            BinaryOperation::Add => '+',
+            BinaryOperation::Subtract => '-',
+            BinaryOperation::Multiply => '*',
+            BinaryOperation::Divide => '/',
         })
     }
 }
@@ -79,15 +79,15 @@ impl Debug for Expr {
 impl Expr {
     crate fn source(&self) -> &Source {
         match self {
-            &Expr::Unit(ref source) |
-            &Expr::String(ref source) |
-            &Expr::Int(ref source) |
-            &Expr::Id(ref source) |
-            &Expr::Lambda { ref source, .. } |
-            &Expr::Binary { ref source, .. } |
-            &Expr::Application { ref source, .. } |
-            &Expr::Conditional { ref source, .. } |
-            &Expr::Block { ref source, .. }
+            Expr::Unit(source) |
+            Expr::String(source) |
+            Expr::Int(source) |
+            Expr::Id(source) |
+            Expr::Lambda { source, .. } |
+            Expr::Binary { source, .. } |
+            Expr::Application { source, .. } |
+            Expr::Conditional { source, .. } |
+            Expr::Block { source, .. }
             => source
         }
     }
@@ -106,8 +106,8 @@ crate enum Statement {
 impl Debug for Statement {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> FmtResult {
         match self {
-            &Statement::Expr(ref expr) => expr.fmt(formatter),
-            &Statement::Binding { ref name, ref value } => write!(formatter, "let {:?} = {:?}", name, value)
+            Statement::Expr(expr) => expr.fmt(formatter),
+            Statement::Binding { name, value } => write!(formatter, "let {:?} = {:?}", name, value)
         }
     }
 }

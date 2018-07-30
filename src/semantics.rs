@@ -47,10 +47,10 @@ crate enum Type {
 impl Debug for Type {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> FmtResult {
         match self {
-            &Type::Unit => write!(formatter, "()"),
-            &Type::Int => write!(formatter, "num"),
-            &Type::String => write!(formatter, "str"),
-            &Type::Function(ref type_) => type_.fmt(formatter)
+            Type::Unit => write!(formatter, "()"),
+            Type::Int => write!(formatter, "num"),
+            Type::String => write!(formatter, "str"),
+            Type::Function(type_) => type_.fmt(formatter)
         }
     }
 }
@@ -99,33 +99,33 @@ crate enum TypedExpr {
 impl Debug for TypedExpr {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> FmtResult {
         match self {
-            &TypedExpr::Phantom => write!(formatter, "@"),
-            &TypedExpr::Unit => write!(formatter, "()"),
-            &TypedExpr::Int(ref value) => write!(formatter, "{}", value),
-            &TypedExpr::String(ref value) => write!(formatter, "\"{}\"", value),
-            &TypedExpr::Deref(ref binding) => {
+            TypedExpr::Phantom => write!(formatter, "@"),
+            TypedExpr::Unit => write!(formatter, "()"),
+            TypedExpr::Int(value) => write!(formatter, "{}", value),
+            TypedExpr::String(value) => write!(formatter, "\"{}\"", value),
+            TypedExpr::Deref(binding) => {
                 let suffix = match &binding.borrow().value {
-                    &BindingValue::Var(_) => format!("[{:?}]", &*binding.borrow() as *const Binding),
+                    BindingValue::Var(_) => format!("[{:?}]", &*binding.borrow() as *const Binding),
                     _ => "".to_string()
                 };
                 write!(formatter, "(*{}{})", binding.borrow().name, suffix)
             },
-            &TypedExpr::AddInt(ref left, ref right) => write!(formatter, "({:?} + {:?})", left, right),
-            &TypedExpr::SubInt(ref left, ref right) => write!(formatter, "({:?} - {:?})", left, right),
-            &TypedExpr::MulInt(ref left, ref right) => write!(formatter, "({:?} * {:?})", left, right),
-            &TypedExpr::DivInt(ref left, ref right) => write!(formatter, "({:?} / {:?})", left, right),
-            &TypedExpr::AddStr(ref left, ref right) => write!(formatter, "({:?} + {:?})", left, right),
-            &TypedExpr::Assign(ref left, ref right) => write!(formatter, "({:?} = {:?})", left, right),
-            &TypedExpr::Lambda(ref lambda) => lambda.fmt(formatter),
-            &TypedExpr::Application { ref function, ref arguments, .. } => write!(formatter, "({:?} @ {:?})", function, arguments),
-            &TypedExpr::Conditional { ref condition, ref positive, ref negative } => {
+            TypedExpr::AddInt(left, right) => write!(formatter, "({:?} + {:?})", left, right),
+            TypedExpr::SubInt(left, right) => write!(formatter, "({:?} - {:?})", left, right),
+            TypedExpr::MulInt(left, right) => write!(formatter, "({:?} * {:?})", left, right),
+            TypedExpr::DivInt(left, right) => write!(formatter, "({:?} / {:?})", left, right),
+            TypedExpr::AddStr(left, right) => write!(formatter, "({:?} + {:?})", left, right),
+            TypedExpr::Assign(left, right) => write!(formatter, "({:?} = {:?})", left, right),
+            TypedExpr::Lambda(lambda) => lambda.fmt(formatter),
+            TypedExpr::Application { function, arguments, .. } => write!(formatter, "({:?} @ {:?})", function, arguments),
+            TypedExpr::Conditional { condition, positive, negative } => {
                 let negative = match negative {
-                    &Some(ref negative) => format!(" else {:?})", negative),
+                    Some(negative) => format!(" else {:?})", negative),
                     _ => "".to_string()
                 };
                 write!(formatter, "(if {:?} {:?}{})", condition, positive, negative)
             },
-            &TypedExpr::Block(ref statements) => write!(formatter, "{{ {} }})", statements.iter().join_as_strings("; "))
+            TypedExpr::Block(statements) => write!(formatter, "{{ {} }})", statements.iter().join_as_strings("; "))
         }
     }
 }
@@ -133,30 +133,30 @@ impl Debug for TypedExpr {
 impl TypedExpr {
     crate fn type_(&self) -> Type {
         match self {
-            &TypedExpr::Phantom => unreachable!(),
-            &TypedExpr::Unit => Type::Unit,
+            TypedExpr::Phantom => unreachable!(),
+            TypedExpr::Unit => Type::Unit,
 
-            &TypedExpr::Int(_) |
-            &TypedExpr::AddInt(_, _) |
-            &TypedExpr::SubInt(_, _) |
-            &TypedExpr::MulInt(_, _) |
-            &TypedExpr::DivInt(_, _) => Type::Int,
+            TypedExpr::Int(_) |
+            TypedExpr::AddInt(_, _) |
+            TypedExpr::SubInt(_, _) |
+            TypedExpr::MulInt(_, _) |
+            TypedExpr::DivInt(_, _) => Type::Int,
 
-            &TypedExpr::String(_) |
-            &TypedExpr::AddStr(_, _) => Type::String,
+            TypedExpr::String(_) |
+            TypedExpr::AddStr(_, _) => Type::String,
 
-            &TypedExpr::Deref(ref binding) => binding.borrow().type_(),
-            &TypedExpr::Assign(ref left, _) => left.type_(),
-            &TypedExpr::Lambda(ref lambda) => Type::Function(lambda.type_.clone()),
-            &TypedExpr::Application { ref type_, .. } => type_.clone(),
-            &TypedExpr::Conditional { ref positive, ref negative, .. } => {
+            TypedExpr::Deref(binding) => binding.borrow().type_(),
+            TypedExpr::Assign(left, _) => left.type_(),
+            TypedExpr::Lambda(lambda) => Type::Function(lambda.type_.clone()),
+            TypedExpr::Application { type_, .. } => type_.clone(),
+            TypedExpr::Conditional { positive, negative, .. } => {
                 if negative.is_none() {
                     Type::Unit
                 } else {
                     positive.type_()
                 }
             },
-            &TypedExpr::Block(ref statements) => statements.last().map(TypedStatement::type_).unwrap_or_else(|| Type::Unit)
+            TypedExpr::Block(statements) => statements.last().map(TypedStatement::type_).unwrap_or_else(|| Type::Unit)
         }
     }
 }
@@ -170,8 +170,8 @@ crate enum BindingValue {
 impl BindingValue {
     crate fn type_(&self) -> Type {
         match self {
-            &BindingValue::Var(ref expr) => expr.type_(),
-            &BindingValue::Arg(ref type_) => type_.clone()
+            BindingValue::Var(expr) => expr.type_(),
+            BindingValue::Arg(type_) => type_.clone()
         }
     }
 }
@@ -219,8 +219,8 @@ crate enum TypedStatement {
 impl Debug for TypedStatement {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> FmtResult {
         match self {
-            &TypedStatement::Expr(ref expr) => expr.fmt(formatter),
-            &TypedStatement::Binding(ref binding) => binding.borrow().fmt(formatter)
+            TypedStatement::Expr(expr) => expr.fmt(formatter),
+            TypedStatement::Binding(binding) => binding.borrow().fmt(formatter)
         }
     }
 }
@@ -228,8 +228,8 @@ impl Debug for TypedStatement {
 impl TypedStatement {
     crate fn type_(&self) -> Type {
         match self {
-            &TypedStatement::Binding(_) => Type::Unit,
-            &TypedStatement::Expr(ref expr) => expr.type_()
+            TypedStatement::Binding(_) => Type::Unit,
+            TypedStatement::Expr(expr) => expr.type_()
         }
     }
 }
@@ -247,11 +247,11 @@ crate fn check_module(code: &[Statement]) -> CheckResult<Vec<TypedStatement>> {
 
 fn check_statement(env: &mut Environment, statement: &Statement) -> CheckResult<TypedStatement> {
     match statement {
-        &Statement::Expr(ref expr) => {
+        Statement::Expr(expr) => {
             let expr = check_expr(env, expr)?;
             Ok(TypedStatement::Expr(expr))
         },
-        &Statement::Binding { ref name, ref value } => {
+        Statement::Binding { name, value } => {
             let value = check_expr(env, &value)?;
             let binding = Rc::new(RefCell::new(Binding {
                 name: name.text().to_string(),
@@ -267,18 +267,18 @@ fn check_statement(env: &mut Environment, statement: &Statement) -> CheckResult<
 
 fn check_expr(env: &mut Environment, expr: &Expr) -> CheckResult<ExprRef> {
     match expr {
-        &Expr::Unit(_) => Ok(ExprRef::new(TypedExpr::Unit)),
-        &Expr::Int(ref source) => {
+        Expr::Unit(_) => Ok(ExprRef::new(TypedExpr::Unit)),
+        Expr::Int(source) => {
             let value = source.text().parse::<BigInt>()?;
             Ok(ExprRef::new(TypedExpr::Int(value)))
         },
-        &Expr::String(ref source) => {
+        Expr::String(source) => {
             let text = source.text();
             let value = text[1..text.len() - 1].to_string();
             Ok(ExprRef::new(TypedExpr::String(value)))
         },
-        &Expr::Id(ref name) => env.resolve(name.text()),
-        &Expr::Binary { ref operation, ref left, ref right, .. } => {
+        Expr::Id(name) => env.resolve(name.text()),
+        Expr::Binary { operation, left, right, .. } => {
             let left_checked = check_expr(env, left)?;
             let right_checked = check_expr(env, right)?;
             let left_type = left_checked.type_();
@@ -289,25 +289,25 @@ fn check_expr(env: &mut Environment, expr: &Expr) -> CheckResult<ExprRef> {
             }
 
             match operation {
-                &BinaryOperation::Assign => {
+                BinaryOperation::Assign => {
                     if let TypedExpr::Deref(_) = *left_checked {
                         Ok(ExprRef::new(TypedExpr::Assign(left_checked, right_checked)))
                     } else {
                         error!("a variable expected at the left side of assignment, but found: {:?}", left_checked)
                     }
                 },
-                &BinaryOperation::Add => match &left_type {
-                    &Type::Int => Ok(ExprRef::new(TypedExpr::AddInt(left_checked, right_checked))),
-                    &Type::String => Ok(ExprRef::new(TypedExpr::AddStr(left_checked, right_checked))),
+                BinaryOperation::Add => match left_type {
+                    Type::Int => Ok(ExprRef::new(TypedExpr::AddInt(left_checked, right_checked))),
+                    Type::String => Ok(ExprRef::new(TypedExpr::AddStr(left_checked, right_checked))),
                     _ => error!("operation `{:?}' is not implemented for type `{:?}'", operation, left_type)
                 },
                 operation => {
-                    if let &Type::Int = &left_type {
+                    if let Type::Int = left_type {
                         let constructor =
                             match operation {
-                                &BinaryOperation::Subtract => TypedExpr::SubInt,
-                                &BinaryOperation::Multiply => TypedExpr::MulInt,
-                                &BinaryOperation::Divide => TypedExpr::DivInt,
+                                BinaryOperation::Subtract => TypedExpr::SubInt,
+                                BinaryOperation::Multiply => TypedExpr::MulInt,
+                                BinaryOperation::Divide => TypedExpr::DivInt,
                                 _ => unreachable!()
                             };
                         Ok(ExprRef::new(constructor(left_checked, right_checked)))
@@ -317,12 +317,12 @@ fn check_expr(env: &mut Environment, expr: &Expr) -> CheckResult<ExprRef> {
                 }
             }
         },
-        lambda @ &Expr::Lambda {..} => Ok(ExprRef::new(TypedExpr::Lambda(Rc::new(check_function(env, lambda)?)))),
-        &Expr::Application { ref function, ref arguments, .. } => {
+        lambda @ Expr::Lambda {..} => Ok(ExprRef::new(TypedExpr::Lambda(Rc::new(check_function(env, lambda)?)))),
+        Expr::Application { function, arguments, .. } => {
             let function = check_expr(env, &function)?;
             let function_type = function.type_();
-            let function_type_result: CheckResult<FunctionTypeRef> = match &function_type {
-                &Type::Function(ref type_) => Ok(type_.clone()),
+            let function_type_result: CheckResult<FunctionTypeRef> = match function_type {
+                Type::Function(type_) => Ok(type_.clone()),
                 _ => error!("2 expected a function, found `{:?}' of type `{:?}'", expr, function_type)
             };
             let function_type = function_type_result?;
@@ -356,7 +356,7 @@ fn check_expr(env: &mut Environment, expr: &Expr) -> CheckResult<ExprRef> {
                 arguments: arguments_checked
             }))
         },
-        &Expr::Conditional { ref condition, ref positive, ref negative, .. } => {
+        Expr::Conditional { condition, positive, negative, .. } => {
             let condition_typed = check_expr(env, condition)?;
             let condition_type = condition_typed.type_();
             if condition_type != Type::Int && condition_type != Type::String {
@@ -364,7 +364,7 @@ fn check_expr(env: &mut Environment, expr: &Expr) -> CheckResult<ExprRef> {
             }
 
             let (positive, positive_source) = match positive {
-                &box Expr::Block { ref source, ref statements } => (statements, source),
+                box Expr::Block { source, statements } => (statements, source),
                 _ => unreachable!()
             };
             if positive.is_empty() {
@@ -374,7 +374,7 @@ fn check_expr(env: &mut Environment, expr: &Expr) -> CheckResult<ExprRef> {
             let positive_type = positive.type_();
 
             let negative = match negative {
-                &Some(box Expr::Block { ref source, ref statements, .. }) => {
+                Some(box Expr::Block { source, statements, .. }) => {
                     if statements.is_empty() {
                         warning!("empty negative conditional clause: {:?}", source);
                     }
@@ -397,7 +397,7 @@ fn check_expr(env: &mut Environment, expr: &Expr) -> CheckResult<ExprRef> {
                 negative
             }))
         },
-        &Expr::Block { ref statements, .. } => {
+        Expr::Block { statements, .. } => {
             let statements = statements.iter()
                 .map(|statement| check_statement(env, statement))
                 .collect::<CheckResult<Vec<_>>>()?;
@@ -407,8 +407,8 @@ fn check_expr(env: &mut Environment, expr: &Expr) -> CheckResult<ExprRef> {
 }
 
 fn check_function(env: &mut Environment, expr: &Expr) -> CheckResult<Lambda> {
-    match &expr {
-        &Expr::Lambda { ref parameters, ref body, .. } => {
+    match expr {
+        Expr::Lambda { parameters, body, .. } => {
             env.push();
             let mut parameter_bindings = vec![];
             for parameter in parameters.iter() {

@@ -31,11 +31,11 @@ impl CFP {
 
     #[must_use]
     fn fold(&mut self, expr: &ExprRef) -> ExprRef {
-        match &expr as &TypedExpr {
-            &TypedExpr::Deref(ref binding) => {
+        match expr as &TypedExpr {
+            TypedExpr::Deref(binding) => {
                 let value = binding.borrow().value.clone();
-                match &value {
-                    &BindingValue::Var(ref value) => {
+                match value {
+                    BindingValue::Var(value) => {
                         if !binding.borrow().assigned {
                             let mut value = value.clone();
                             if !binding.borrow().dirty {
@@ -50,21 +50,21 @@ impl CFP {
                         }
                         ExprRef::new(TypedExpr::Deref(binding.clone()))
                     },
-                    &BindingValue::Arg(_) => self.env.resolve(&binding.ptr()).unwrap().clone()
+                    BindingValue::Arg(_) => self.env.resolve(&binding.ptr()).unwrap().clone()
                 }
             }
-            &TypedExpr::AddInt(ref left, ref right) => self.try_fold_numeric(expr, left, right, Add::add),
-            &TypedExpr::SubInt(ref left, ref right) => self.try_fold_numeric(expr, left, right, Sub::sub),
-            &TypedExpr::MulInt(ref left, ref right) => self.try_fold_numeric(expr, left, right, Mul::mul),
-            &TypedExpr::DivInt(ref left, ref right) => self.try_fold_numeric(expr, left, right, Div::div),
-            &TypedExpr::AddStr(ref left, ref right) => {
+            TypedExpr::AddInt(left, right) => self.try_fold_numeric(expr, left, right, Add::add),
+            TypedExpr::SubInt(left, right) => self.try_fold_numeric(expr, left, right, Sub::sub),
+            TypedExpr::MulInt(left, right) => self.try_fold_numeric(expr, left, right, Mul::mul),
+            TypedExpr::DivInt(left, right) => self.try_fold_numeric(expr, left, right, Div::div),
+            TypedExpr::AddStr(left, right) => {
                 match (&self.fold(left) as &TypedExpr, &self.fold(right) as &TypedExpr) {
-                    (&TypedExpr::String(ref left), &TypedExpr::String(ref right)) =>
+                    (TypedExpr::String(left), TypedExpr::String(right)) =>
                         ExprRef::new(TypedExpr::String(left.to_string() + right)),
                     _ => expr.clone()
                 }
             },
-            &TypedExpr::Application { ref function, ref arguments, .. } => {
+            TypedExpr::Application { function, arguments, .. } => {
                 let original_function = function;
                 let mut function = self.fold(original_function);
                 if is_primitive_constant(&function) {
@@ -72,13 +72,13 @@ impl CFP {
                 } else {
                     let arguments = arguments.iter().map(|argument| self.fold(argument)).collect::<Vec<_>>();
                     if arguments.iter().all(is_constant) {
-                        while let &TypedExpr::Deref(ref binding) = &function.clone() as &TypedExpr {
+                        while let TypedExpr::Deref(binding) = &function.clone() as &TypedExpr {
                             function = match &binding.borrow().value {
-                                &BindingValue::Var(ref value) => value.clone(),
+                                BindingValue::Var(value) => value.clone(),
                                 _ => unreachable!()
                             };
                         }
-                        if let &TypedExpr::Lambda(ref lambda) = &function as &TypedExpr {
+                        if let TypedExpr::Lambda(lambda) = &function as &TypedExpr {
                             self.env.push();
                             for (parameter, argument) in lambda.parameters.iter().zip(arguments.into_iter()) {
                                 self.env.bind(parameter.ptr(), argument).unwrap();
@@ -91,17 +91,17 @@ impl CFP {
                     expr.clone()
                 }
             },
-            &TypedExpr::Assign(ref left, ref right) => {
-                let binding = match &left as &TypedExpr {
-                    &TypedExpr::Deref(ref binding) => binding,
+            TypedExpr::Assign(left, right) => {
+                let binding = match left as &TypedExpr {
+                    TypedExpr::Deref(binding) => binding,
                     _ => unreachable!()
                 };
                 binding.borrow_mut().assigned = true;
                 ExprRef::new(TypedExpr::Assign(left.clone(), self.fold(right)))
             },
-            &TypedExpr::Lambda(ref lambda) => self.fold_function(lambda),
-            &TypedExpr::Conditional { ref condition, ref positive, ref negative } => {
-                if let &TypedExpr::Int(ref n) = &self.fold(condition) as &TypedExpr {
+            TypedExpr::Lambda(lambda) => self.fold_function(lambda),
+            TypedExpr::Conditional { condition, positive, negative } => {
+                if let TypedExpr::Int(n) = &self.fold(condition) as &TypedExpr {
                     return if n == &BigInt::zero() {
                         negative.as_ref().map(|clause| self.fold(clause)).unwrap_or_else(|| ExprRef::new(TypedExpr::Unit))
                     } else {
@@ -135,7 +135,7 @@ impl CFP {
     {
         let (left, right) = (self.fold(left), self.fold(right));
         match (&left as &TypedExpr, &right as &TypedExpr) {
-            (&TypedExpr::Int(ref left), &TypedExpr::Int(ref right)) => {
+            (TypedExpr::Int(left), TypedExpr::Int(right)) => {
                 let result = fold_impl(left.clone(), right.clone());
                 ExprRef::new(TypedExpr::Int(result))
             },
@@ -146,14 +146,14 @@ impl CFP {
 
 fn is_constant(expr: &ExprRef) -> bool {
     match expr as &TypedExpr {
-        &TypedExpr::Int(_) | &TypedExpr::String(_) | &TypedExpr::Lambda {..} => true,
+        TypedExpr::Int(_) | &TypedExpr::String(_) | &TypedExpr::Lambda {..} => true,
         _ => false
     }
 }
 
 fn is_primitive_constant(expr: &ExprRef) -> bool {
     match expr as &TypedExpr {
-        &TypedExpr::Int(_) | &TypedExpr::String(_) => true,
+        TypedExpr::Int(_) | &TypedExpr::String(_) => true,
         _ => false
     }
 }
