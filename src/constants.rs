@@ -1,10 +1,10 @@
-use semantics::*;
 use num::{BigInt, Zero};
 use std::ops::{Add, Sub, Mul, Div};
 use std::rc::Rc;
 
-use dead_bindings::*;
-use env::Environment;
+use crate::semantics::*;
+use crate::dead_bindings::*;
+use crate::env::Environment;
 
 // TODO implement operation-specific optimizations, such as "x*1 = x", "x+0 = x" and so on
 

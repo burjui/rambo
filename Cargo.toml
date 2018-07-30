@@ -1,8 +1,11 @@
+cargo-features = ["edition"]
+
 [package]
 name = "rambo"
 version = "0.0.1"
 authors = [ "Artem Borisovsky <bytefu@gmail.com>" ]
 description = "Compiler for a toy programming language Rambo, written in Rust just for fun, i.e. with no practical purpose in mind."
+edition = '2018'
 
 [[bin]]
 name = "rambo"

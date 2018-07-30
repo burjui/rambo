@@ -1,7 +1,7 @@
 use std::usize;
 
-use semantics::*;
-use env::Environment;
+use crate::semantics::*;
+use crate::env::Environment;
 
 // TODO use Position and the source code instead of {:?} for warnings
 // TODO a better way of reporting warnings than mere println!()

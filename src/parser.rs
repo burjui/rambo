@@ -1,9 +1,9 @@
 use std::fmt::{Debug, Formatter, Write, Result as FmtResult};
 use std::error::Error;
 
-use lexer::*;
-use source::*;
-use semantics::*;
+use crate::lexer::*;
+use crate::source::*;
+use crate::semantics::*;
 
 #[derive(Clone)]
 pub struct Parameter {

@@ -1,9 +1,7 @@
+#![feature(rust_2018_preview)]
+#![warn(rust_2018_idioms)]
 #![feature(box_syntax)]
 #![feature(box_patterns)]
-
-extern crate getopts;
-extern crate itertools;
-extern crate num;
 
 #[macro_use]
 mod utils;
@@ -20,14 +18,14 @@ use getopts::Options;
 use std::env::{args as program_args};
 use std::error::Error;
 
-use source::*;
-use lexer::Lexer;
-use parser::*;
-use eval::*;
-use semantics::*;
-use dead_bindings::*;
-use constants::*;
-use utils::*;
+use crate::source::*;
+use crate::lexer::Lexer;
+use crate::parser::*;
+use crate::eval::*;
+use crate::semantics::*;
+use crate::dead_bindings::*;
+use crate::constants::*;
+use crate::utils::*;
 
 fn main() {
     let args: Vec<String> = program_args().collect();

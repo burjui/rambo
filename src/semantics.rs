@@ -5,9 +5,8 @@ use std::cell::RefCell;
 use num::BigInt;
 use std::collections::HashMap;
 use itertools::Itertools;
-use utils::*;
-
-use parser::*;
+use crate::utils::*;
+use crate::parser::*;
 
 pub type FunctionTypeRef = Rc<FunctionType>;
 

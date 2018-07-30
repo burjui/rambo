@@ -4,8 +4,8 @@ use num::BigInt;
 use num::Zero;
 use std::rc::Rc;
 
-use semantics::*;
-use env::Environment;
+use crate::semantics::*;
+use crate::env::Environment;
 
 type Env = Environment<BindingPtr, Evalue>;
 
