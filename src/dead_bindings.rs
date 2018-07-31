@@ -3,8 +3,7 @@ use std::usize;
 use crate::semantics::*;
 use crate::env::Environment;
 
-// TODO use Position and the source code instead of {:?} for warnings
-// TODO a better way of reporting warnings than mere println!()
+// TODO a better way of reporting warnings than mere printing in-place
 
 crate enum Warnings { On, Off }
 
@@ -23,7 +22,8 @@ crate fn remove_dead_bindings(code: &Vec<TypedStatement>, warnings: Warnings) ->
                 if let Warnings::On = warnings {
                     let usage = usages.resolve(&binding.ptr()).unwrap();
                     if usage == 0 {
-                        warning!("unused binding: {:?}", binding.borrow());
+                        let binding = binding.borrow();
+                        warning_at!(binding.source, "unused binding: {:?}", binding);
                     }
                 }
 
@@ -37,7 +37,7 @@ crate fn remove_dead_bindings(code: &Vec<TypedStatement>, warnings: Warnings) ->
                         };
                         if let TypedExpr::Deref(referenced_binding) = value as &TypedExpr {
                             if binding.name == referenced_binding.borrow().name {
-                                warning!("redundant binding: {:?}", binding);
+                                warning_at!(binding.source, "redundant binding: {:?}", binding.source);
                             }
                         }
                     }

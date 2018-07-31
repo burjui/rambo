@@ -7,6 +7,7 @@ use std::collections::HashMap;
 use itertools::Itertools;
 use crate::utils::*;
 use crate::parser::*;
+use crate::source::Source;
 
 crate type FunctionTypeRef = Rc<FunctionType>;
 
@@ -183,7 +184,8 @@ crate struct Binding {
     crate name: String,
     crate value: BindingValue,
     crate assigned: bool,
-    crate dirty: bool
+    crate dirty: bool,
+    crate source: Source
 }
 
 impl Binding {
@@ -240,7 +242,7 @@ crate fn check_module(code: &[Statement]) -> CheckResult<Vec<TypedStatement>> {
     let mut typed_module = vec![];
     let mut env = Environment::new();
     for statement in code {
-        typed_module.push(check_statement(&mut env, &statement)?);
+        typed_module.push(check_statement(&mut env, statement)?);
     }
     Ok(typed_module)
 }
@@ -251,13 +253,14 @@ fn check_statement(env: &mut Environment, statement: &Statement) -> CheckResult<
             let expr = check_expr(env, expr)?;
             Ok(TypedStatement::Expr(expr))
         },
-        Statement::Binding { name, value } => {
+        Statement::Binding { name, value, source } => {
             let value = check_expr(env, &value)?;
             let binding = Rc::new(RefCell::new(Binding {
                 name: name.text().to_string(),
                 value: BindingValue::Var(value),
                 assigned: false,
-                dirty: false
+                dirty: false,
+                source: source.clone()
             }));
             env.bind(binding.clone())?;
             Ok(TypedStatement::Binding(binding))
@@ -416,7 +419,8 @@ fn check_function(env: &mut Environment, expr: &Expr) -> CheckResult<Lambda> {
                     name: parameter.name.to_string(),
                     value: BindingValue::Arg(parameter.type_.clone()),
                     assigned: false,
-                    dirty: false
+                    dirty: false,
+                    source: parameter.source.clone()
                 }));
                 parameter_bindings.push(binding.clone());
                 env.bind(binding)?;

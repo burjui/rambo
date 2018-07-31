@@ -97,9 +97,9 @@ impl Expr {
 crate enum Statement {
     Expr(Expr),
     Binding {
-        // TODO maybe introduce Source for the whole binding
         name: Source,
-        value: Box<Expr>
+        value: Box<Expr>,
+        source: Source
     }
 }
 
@@ -107,7 +107,7 @@ impl Debug for Statement {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> FmtResult {
         match self {
             Statement::Expr(expr) => expr.fmt(formatter),
-            Statement::Binding { name, value } => write!(formatter, "let {:?} = {:?}", name, value)
+            Statement::Binding { name, value, .. } => write!(formatter, "let {:?} = {:?}", name, value)
         }
     }
 }
@@ -153,8 +153,9 @@ impl Parser {
 
     fn parse_statement(&mut self) -> ParseResult<Statement> {
         if self.lexeme.token == Token::Id && self.lexeme.text() == "let" {
+            let start = self.lexeme.source.clone();
             self.read_lexeme()?;
-            self.parse_binding()
+            self.parse_binding(&start)
         } else {
             Ok(Statement::Expr(self.parse_expression()?))
         }
@@ -320,13 +321,15 @@ impl Parser {
         }
     }
 
-    fn parse_binding(&mut self) -> ParseResult<Statement> {
+    fn parse_binding(&mut self, start: &Source) -> ParseResult<Statement> {
         let name = self.expect(Token::Id, "identifier")?;
         self.expect(Token::Eq, "=")?;
         let value = self.parse_expression()?;
+        let source = start.extend(value.source().range.end);
         Ok(Statement::Binding {
             name: name.source,
-            value: box(value)
+            value: box(value),
+            source
         })
     }
 

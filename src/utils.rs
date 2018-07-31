@@ -8,6 +8,13 @@ macro_rules! warning {
     }};
 }
 
+macro_rules! warning_at {
+    ($source: expr, $format_string: expr $(, $argument: expr)*) => {{
+        print!("warning: {}: ", $source);
+        println!($format_string $(, $argument)*)
+    }};
+}
+
 use std::fmt::Debug;
 use itertools::Itertools;
 crate trait ByLine: Iterator {
