@@ -94,7 +94,9 @@ fn process_expr(expr: &ExprRef, usages: &mut BindingUsage) {
         TypedExpr::Deref(binding) => {
             if let BindingValue::Var(_) = &binding.borrow().value {
                 if let Ok(usage) = usages.resolve(&binding.ptr()) {
-                    usages.bind_force(binding.ptr(), usage - 1);
+                    if usage > 0 {
+                        usages.bind_force(binding.ptr(), usage - 1);
+                    }
                 }
                 process_binding(binding, usages);
             }
