@@ -31,7 +31,9 @@ fn main() {
     let args: Vec<String> = program_args().collect();
     let mut opts = Options::new();
     opts.optflag("h", "help", "print this help menu");
+    const WARNINGS_OPTION: &str = "w";
     const DUMP_OPTION: &str = "d";
+    opts.optflag(WARNINGS_OPTION, "", "suppress warnings");
     opts.optflag(DUMP_OPTION, "dump", "dump intermediate compilation results, e.g. AST");
 
     let matches = opts.parse(&args[1..]).unwrap();
@@ -40,6 +42,7 @@ fn main() {
     } else {
         for path in &matches.free {
             let options = &ProcessOptions {
+                warnings: !matches.opt_present(WARNINGS_OPTION),
                 dump: matches.opt_present(DUMP_OPTION)
             };
             match process(path, &options) {
@@ -51,6 +54,7 @@ fn main() {
 }
 
 struct ProcessOptions {
+    warnings: bool,
     dump: bool // dump intermediate compilation results
 }
 
@@ -64,31 +68,31 @@ fn process(path: &str, options: &ProcessOptions) -> Result<(), Box<dyn Error>> {
     println!("{:?}", lexer);
 
     let mut parser = Parser::new(lexer);
-    let statements = parser.parse()?;
+    let ast = parser.parse()?;
     let stats = { parser.lexer_stats() };
     println!(">> {}, {} lines, {} lexemes", file_size_pretty(source_code_length), line_count, stats.lexeme_count);
     if options.dump {
-        println!(">> AST:\n{}", statements.iter().join_as_strings("\n"));
+        println!(">> AST:\n{}", ast.iter().join_as_strings("\n"));
     }
 
-    let statements = check_module(statements.as_slice())?;
+    let hir1 = check_module(ast.as_slice())?;
     if options.dump {
-        println!(">> Semantic check:\n{}", statements.iter().join_as_strings("\n"));
+        println!(">> Semantic check:\n{}", hir1.iter().join_as_strings("\n"));
     }
 
-    let statements = remove_dead_bindings(&statements, Warnings::On);
+    let hir2 = remove_dead_bindings(&hir1, if options.warnings { Warnings::On } else { Warnings::Off });
     if options.dump {
-        println!(">> Removed unused bindings:\n{}", statements.iter().join_as_strings("\n"));
+        println!(">> Removed unused bindings:\n{}", hir2.iter().join_as_strings("\n"));
     }
 
     let mut cfp = CFP::new();
-    let statements = cfp.fold_and_propagate_constants(statements);
+    let hir3 = cfp.fold_and_propagate_constants(hir2);
     if options.dump {
-        println!(">> CFP:\n{}", statements.iter().join_as_strings("\n"));
+        println!(">> CFP:\n{}", hir3.iter().join_as_strings("\n"));
     }
 
     let mut evaluator = Evaluator::new();
-    let evalue = evaluator.eval_module(statements.as_slice())?;
+    let evalue = evaluator.eval_module(hir3.as_slice())?;
     println!(">> Evaluated: {:?}", evalue);
 
     Ok(())
