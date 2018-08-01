@@ -104,13 +104,7 @@ impl Debug for TypedExpr {
             TypedExpr::Unit => write!(formatter, "()"),
             TypedExpr::Int(value) => write!(formatter, "{}", value),
             TypedExpr::String(value) => write!(formatter, "\"{}\"", value),
-            TypedExpr::Deref(binding) => {
-                let suffix = match &binding.borrow().value {
-                    BindingValue::Var(_) => format!("[{:?}]", &*binding.borrow() as *const Binding),
-                    _ => "".to_string()
-                };
-                write!(formatter, "(*{}{})", binding.borrow().name, suffix)
-            },
+            TypedExpr::Deref(binding) => write!(formatter, "#{}", binding.borrow().name),
             TypedExpr::AddInt(left, right) => write!(formatter, "({:?} + {:?})", left, right),
             TypedExpr::SubInt(left, right) => write!(formatter, "({:?} - {:?})", left, right),
             TypedExpr::MulInt(left, right) => write!(formatter, "({:?} * {:?})", left, right),
@@ -196,7 +190,7 @@ impl Binding {
 
 impl Debug for Binding {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> FmtResult {
-        write!(formatter, "let {}[{:?}] = {:?}", self.name, self as *const Self, self.value)
+        write!(formatter, "let {} = {:?}", self.name, self.value)
     }
 }
 

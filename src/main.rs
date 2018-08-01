@@ -63,34 +63,31 @@ fn process(path: &str, options: &ProcessOptions) -> Result<(), Box<dyn Error>> {
     let file = SourceFile::new(source_code, path)?;
     let line_count = file.lines.len();
     let lexer = Lexer::new(file);
-    println!("{:?}", lexer);
 
+    println!(">> Parsing");
     let mut parser = Parser::new(lexer);
     let ast = parser.parse()?;
     let stats = { parser.lexer_stats() };
-    println!(">> {}, {} lines, {} lexemes", file_size_pretty(source_code_length), line_count, stats.lexeme_count);
+    println!("{}, {} lines, {} lexemes", file_size_pretty(source_code_length), line_count, stats.lexeme_count);
     if options.dump {
-        println!(">> AST:\n{}", ast.iter().join_as_strings("\n"));
+        println!(".. AST:\n{}", ast.iter().join_as_strings("\n"));
     }
 
+    println!(">> Semantic check");
     let hir1 = check_module(ast.as_slice())?;
     if options.dump {
-        println!(">> Semantic check:\n{}", hir1.iter().join_as_strings("\n"));
+        println!("{}", hir1.iter().join_as_strings("\n"));
     }
 
-    // let hir2 = remove_dead_bindings(&hir1, if options.warnings { Warnings::On } else { Warnings::Off });
-    // if options.dump {
-    //     println!(">> Removed unused bindings:\n{}", hir2.iter().join_as_strings("\n"));
-    // }
-
+    println!(">> CFP");
     let mut cfp = CFP::new();
-    let hir3 = cfp.fold_and_propagate_constants(hir1);
+    let hir2 = cfp.fold_and_propagate_constants(hir1.as_slice());
     if options.dump {
-        println!(">> CFP:\n{}", hir3.iter().join_as_strings("\n"));
+        println!("{}", hir2.iter().join_as_strings("\n"));
     }
 
     let mut evaluator = Evaluator::new();
-    let evalue = evaluator.eval_module(hir3.as_slice())?;
+    let evalue = evaluator.eval_module(hir2.as_slice())?;
     println!(">> Evaluated: {:?}", evalue);
 
     Ok(())

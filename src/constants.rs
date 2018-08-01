@@ -19,10 +19,13 @@ impl CFP {
         }
     }
 
-    crate fn fold_and_propagate_constants(&mut self, code: Vec<TypedStatement>) -> Vec<TypedStatement> {
+    crate fn fold_and_propagate_constants(&mut self, code: &[TypedStatement]) -> Vec<TypedStatement> {
         code.into_iter()
             .map(|statement| match statement {
-                TypedStatement::Binding(_) => statement,
+                TypedStatement::Binding(binding) => {
+                    self.process_binding(binding);
+                    TypedStatement::Binding(binding.clone())
+                },
                 TypedStatement::Expr(expr) => TypedStatement::Expr(self.fold(&expr))
             })
             .collect::<Vec<_>>()
@@ -32,22 +35,13 @@ impl CFP {
     fn fold(&mut self, expr: &ExprRef) -> ExprRef {
         match expr as &TypedExpr {
             TypedExpr::Deref(binding) => {
-                let value = binding.borrow().value.clone();
-                match value {
+                match &binding.borrow().value {
                     BindingValue::Var(value) => {
-                        if !binding.borrow().assigned {
-                            let mut value = value.clone();
-                            if !binding.borrow().dirty {
-                                let mut binding = binding.borrow_mut();
-                                binding.dirty = true;
-                                value = self.fold(&value);
-                                binding.value = BindingValue::Var(value.clone());
-                            }
-                            if is_primitive_constant(&value) {
-                                return value;
-                            }
+                        if is_primitive_constant(&value) {
+                            return value.clone()
+                        } else {
+                            expr.clone()
                         }
-                        ExprRef::new(TypedExpr::Deref(binding.clone()))
                     },
                     BindingValue::Arg(_) => self.env.resolve(&binding.ptr()).unwrap().clone()
                 }
@@ -109,7 +103,34 @@ impl CFP {
                 }
                 expr.clone()
             },
-            _ => expr.clone()
+            TypedExpr::Block(statements) => {
+                let statements = self.fold_and_propagate_constants(statements);
+                if statements.len() == 1 {
+                    if let TypedStatement::Expr(expr) = &statements[0] {
+                        return expr.clone()
+                    }
+                }
+                ExprRef::new(TypedExpr::Block(statements))
+            },
+            TypedExpr::Phantom |
+            TypedExpr::Unit |
+            TypedExpr::Int(_) |
+            TypedExpr::String(_) => expr.clone()
+        }
+    }
+
+    fn process_binding(&mut self, binding: &BindingRef) {
+        let value = binding.borrow().value.clone();
+        if let BindingValue::Var(value) = value {
+            if !binding.borrow().assigned {
+                let mut value = value.clone();
+                if !binding.borrow().dirty {
+                    let mut binding = binding.borrow_mut();
+                    binding.dirty = true;
+                    value = self.fold(&value);
+                    binding.value = BindingValue::Var(value.clone());
+                }
+            }
         }
     }
 
