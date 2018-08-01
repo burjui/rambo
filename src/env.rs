@@ -17,7 +17,6 @@ where Key: Eq + Debug + Hash, Value: Clone {
         }
     }
 
-    // TODO: Value instead of &Value
     crate fn bind(&self, key: Key, value: Value) -> Result<(), Box<dyn Error>> {
         if self.last().borrow().contains_key(&key) {
             error!("redefinition of key {:?}", key)

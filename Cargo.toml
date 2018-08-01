@@ -13,4 +13,5 @@ name = "rambo"
 [dependencies]
 getopts = "0.2"
 itertools = "0.6"
-num = "0.1.37"
+num-bigint = "0.2.0"
+num-traits = "0.2.5"

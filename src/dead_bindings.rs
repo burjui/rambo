@@ -9,6 +9,7 @@ crate enum Warnings { On, Off }
 
 type BindingUsage = Environment<BindingPtr, usize>;
 
+// TODO fix remove_dead_bindings()
 crate fn remove_dead_bindings(code: &Vec<TypedStatement>, warnings: Warnings) -> Vec<TypedStatement> {
     let usages = {
         let mut usages: BindingUsage = BindingUsage::new();

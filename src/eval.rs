@@ -1,7 +1,7 @@
 use std::fmt::{Debug, Formatter, Result as FmtResult};
 use std::error::Error;
-use num::BigInt;
-use num::Zero;
+use num_bigint::BigInt;
+use num_traits::Zero;
 use std::rc::Rc;
 
 use crate::semantics::*;

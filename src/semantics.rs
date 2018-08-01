@@ -2,7 +2,7 @@ use std::fmt::{Debug, Formatter, Result as FmtResult};
 use std::error::Error;
 use std::rc::Rc;
 use std::cell::RefCell;
-use num::BigInt;
+use num_bigint::BigInt;
 use std::collections::HashMap;
 use itertools::Itertools;
 use crate::utils::*;
