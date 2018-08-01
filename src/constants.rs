@@ -4,7 +4,6 @@ use std::ops::{Add, Sub, Mul, Div};
 use std::rc::Rc;
 
 use crate::semantics::*;
-use crate::dead_bindings::*;
 use crate::env::Environment;
 
 // TODO implement operation-specific optimizations, such as "x*1 = x", "x+0 = x" and so on
@@ -21,13 +20,12 @@ impl CFP {
     }
 
     crate fn fold_and_propagate_constants(&mut self, code: Vec<TypedStatement>) -> Vec<TypedStatement> {
-        let code = code.into_iter()
+        code.into_iter()
             .map(|statement| match statement {
                 TypedStatement::Binding(_) => statement,
                 TypedStatement::Expr(expr) => TypedStatement::Expr(self.fold(&expr))
             })
-            .collect::<Vec<_>>();
-        remove_dead_bindings(&code, Warnings::Off)
+            .collect::<Vec<_>>()
     }
 
     #[must_use]

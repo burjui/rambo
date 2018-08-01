@@ -10,7 +10,6 @@ mod lexer;
 mod parser;
 mod eval;
 mod semantics;
-mod dead_bindings;
 mod constants;
 mod env;
 
@@ -23,7 +22,6 @@ use crate::lexer::Lexer;
 use crate::parser::*;
 use crate::eval::*;
 use crate::semantics::*;
-use crate::dead_bindings::*;
 use crate::constants::*;
 use crate::utils::*;
 
@@ -80,13 +78,13 @@ fn process(path: &str, options: &ProcessOptions) -> Result<(), Box<dyn Error>> {
         println!(">> Semantic check:\n{}", hir1.iter().join_as_strings("\n"));
     }
 
-    let hir2 = remove_dead_bindings(&hir1, if options.warnings { Warnings::On } else { Warnings::Off });
-    if options.dump {
-        println!(">> Removed unused bindings:\n{}", hir2.iter().join_as_strings("\n"));
-    }
+    // let hir2 = remove_dead_bindings(&hir1, if options.warnings { Warnings::On } else { Warnings::Off });
+    // if options.dump {
+    //     println!(">> Removed unused bindings:\n{}", hir2.iter().join_as_strings("\n"));
+    // }
 
     let mut cfp = CFP::new();
-    let hir3 = cfp.fold_and_propagate_constants(hir2);
+    let hir3 = cfp.fold_and_propagate_constants(hir1);
     if options.dump {
         println!(">> CFP:\n{}", hir3.iter().join_as_strings("\n"));
     }
