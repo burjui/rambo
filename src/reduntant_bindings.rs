@@ -24,7 +24,6 @@ impl RedundantBindings {
         let mut disconnected_nodes = HashSet::<NodeIndex>::new();
         let binding_nodes = self.map.values().map(|v| *v).collect::<Vec<_>>();
         binding_nodes.into_iter().for_each(|node| Self::process_node(&mut self.graph, node, &mut disconnected_nodes));
-
         {
             let mut reduntant_sources = disconnected_nodes.iter()
                 .filter_map(|node| self.graph.node_weight(*node))
@@ -37,7 +36,6 @@ impl RedundantBindings {
                 }
             }
         }
-
         let reduntant_bindings = self.map.into_iter()
             .filter_map(|(binding, node)| if disconnected_nodes.contains(&node) { Some(binding) } else { None })
             .collect::<HashSet<_>>();
@@ -76,11 +74,34 @@ impl ReduntantBindingRemover {
 }
 
 impl TypedVisitor for ReduntantBindingRemover {
+    fn post_statements(&mut self, statements: Vec<TypedStatement>) -> Vec<TypedStatement> {
+        // Remove consecutive `()' left from redundant bindings
+        let mut previous_expr_is_unit = false;
+        statements.into_iter()
+            .filter_map(|statement| match &statement {
+                TypedStatement::Binding(_) => Some(statement),
+                TypedStatement::Expr(expr) => {
+                    previous_expr_is_unit = match expr as &TypedExpr {
+                        TypedExpr::Unit(_) => {
+                            if previous_expr_is_unit {
+                                return None;
+                            }
+                            true
+                        },
+                        _ => false
+                    };
+                    Some(statement)
+                }
+            })
+            .collect()
+    }
+
     fn visit_statement(&mut self, statement: &TypedStatement) -> Option<TypedStatement> {
         match statement {
             TypedStatement::Binding(binding) =>
                 if self.reduntant_bindings.contains(&binding.ptr()) {
-                    None
+                    let unit = TypedExpr::Unit(binding.borrow().source.clone());
+                    Some(TypedStatement::Expr(ExprRef::new(unit)))
                 } else {
                     Some(TypedStatement::Binding(self.visit_binding(binding)))
                 },

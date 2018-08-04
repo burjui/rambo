@@ -8,7 +8,14 @@ use std::rc::Rc;
 
 crate trait TypedVisitor {
     fn visit_statements(&mut self, statements: &[TypedStatement]) -> Vec<TypedStatement> {
-        statements.iter().filter_map(|statement| self.visit_statement(statement)).collect()
+        let statements = statements.iter()
+            .filter_map(|statement| self.visit_statement(statement))
+            .collect::<Vec<_>>();
+        self.post_statements(statements)
+    }
+
+    fn post_statements(&mut self, statements: Vec<TypedStatement>) -> Vec<TypedStatement> {
+        statements.to_vec()
     }
 
     fn visit_statement(&mut self, statement: &TypedStatement) -> Option<TypedStatement> {
@@ -66,8 +73,7 @@ crate trait TypedVisitor {
 
     #[allow(unused)]
     fn post_deref(&mut self, expr: &ExprRef, binding: BindingRef, source: &Source) -> ExprRef {
-        // ExprRef::new(TypedExpr::Deref(binding, source.clone()))
-        expr.clone()
+        ExprRef::new(TypedExpr::Deref(binding, source.clone()))
     }
 
     fn visit_binding(&mut self, binding: &BindingRef) -> BindingRef {
@@ -92,9 +98,8 @@ crate trait TypedVisitor {
     fn post_lambda(&mut self, expr: &ExprRef, type_: &FunctionTypeRef,
         parameters: Vec<BindingRef>, body: ExprRef, source: &Source) -> ExprRef
     {
-        // let lambda = Rc::new(Lambda { type_: type_.clone(), parameters, body });
-        // ExprRef::new(TypedExpr::Lambda(lambda, source.clone()))
-        expr.clone()
+        let lambda = Rc::new(Lambda { type_: type_.clone(), parameters, body });
+        ExprRef::new(TypedExpr::Lambda(lambda, source.clone()))
     }
 
     fn visit_application(&mut self, expr: &ExprRef, type_: &Type,
@@ -109,13 +114,12 @@ crate trait TypedVisitor {
     fn post_application(&mut self, expr: &ExprRef, type_: &Type,
         function: ExprRef, arguments: Vec<ExprRef>, source: &Source) -> ExprRef
     {
-        // ExprRef::new(TypedExpr::Application {
-        //     type_: type_.clone(),
-        //     function,
-        //     arguments,
-        //     source: source.clone()
-        // })
-        expr.clone()
+        ExprRef::new(TypedExpr::Application {
+            type_: type_.clone(),
+            function,
+            arguments,
+            source: source.clone()
+        })
     }
 
     fn visit_addint(&mut self, expr: &ExprRef, left: &ExprRef, right: &ExprRef, source: &Source) -> ExprRef {
@@ -126,8 +130,7 @@ crate trait TypedVisitor {
 
     #[allow(unused)]
     fn post_addint(&mut self, expr: &ExprRef, left: ExprRef, right: ExprRef, source: &Source) -> ExprRef {
-        // ExprRef::new(TypedExpr::AddInt(left.clone(), right.clone(), source.clone()))
-        expr.clone()
+        ExprRef::new(TypedExpr::AddInt(left.clone(), right.clone(), source.clone()))
     }
 
     fn visit_subint(&mut self, expr: &ExprRef, left: &ExprRef, right: &ExprRef, source: &Source) -> ExprRef {
@@ -138,8 +141,7 @@ crate trait TypedVisitor {
 
     #[allow(unused)]
     fn post_subint(&mut self, expr: &ExprRef, left: ExprRef, right: ExprRef, source: &Source) -> ExprRef {
-        // ExprRef::new(TypedExpr::SubInt(left.clone(), right.clone(), source.clone()))
-        expr.clone()
+        ExprRef::new(TypedExpr::SubInt(left.clone(), right.clone(), source.clone()))
     }
 
     fn visit_mulint(&mut self, expr: &ExprRef, left: &ExprRef, right: &ExprRef, source: &Source) -> ExprRef {
@@ -150,8 +152,7 @@ crate trait TypedVisitor {
 
     #[allow(unused)]
     fn post_mulint(&mut self, expr: &ExprRef, left: ExprRef, right: ExprRef, source: &Source) -> ExprRef {
-        // ExprRef::new(TypedExpr::MulInt(left.clone(), right.clone(), source.clone()))
-        expr.clone()
+        ExprRef::new(TypedExpr::MulInt(left.clone(), right.clone(), source.clone()))
     }
 
     fn visit_divint(&mut self, expr: &ExprRef, left: &ExprRef, right: &ExprRef, source: &Source) -> ExprRef {
@@ -162,8 +163,7 @@ crate trait TypedVisitor {
 
     #[allow(unused)]
     fn post_divint(&mut self, expr: &ExprRef, left: ExprRef, right: ExprRef, source: &Source) -> ExprRef {
-        // ExprRef::new(TypedExpr::DivInt(left.clone(), right.clone(), source.clone()))
-        expr.clone()
+        ExprRef::new(TypedExpr::DivInt(left.clone(), right.clone(), source.clone()))
     }
 
     fn visit_addstr(&mut self, expr: &ExprRef, left: &ExprRef, right: &ExprRef, source: &Source) -> ExprRef {
@@ -174,8 +174,7 @@ crate trait TypedVisitor {
 
     #[allow(unused)]
     fn post_addstr(&mut self, expr: &ExprRef, left: ExprRef, right: ExprRef, source: &Source) -> ExprRef {
-        // ExprRef::new(TypedExpr::AddStr(left.clone(), right.clone(), source.clone()))
-        expr.clone()
+        ExprRef::new(TypedExpr::AddStr(left.clone(), right.clone(), source.clone()))
     }
 
     fn visit_assign(&mut self, expr: &ExprRef, left: &ExprRef, right: &ExprRef, source: &Source) -> ExprRef {
@@ -190,8 +189,7 @@ crate trait TypedVisitor {
 
     #[allow(unused)]
     fn post_assign(&mut self, expr: &ExprRef, left: ExprRef, right: ExprRef, source: &Source) -> ExprRef {
-        // ExprRef::new(TypedExpr::Assign(left.clone(), right.clone(), source.clone()))
-        expr.clone()
+        ExprRef::new(TypedExpr::Assign(left.clone(), right.clone(), source.clone()))
     }
 
     fn visit_conditional(&mut self, expr: &ExprRef, condition: &ExprRef, positive: &ExprRef, negative: &Option<ExprRef>, source: &Source) -> ExprRef {
@@ -203,10 +201,9 @@ crate trait TypedVisitor {
 
     #[allow(unused)]
     fn post_conditional(&mut self, expr: &ExprRef, condition: ExprRef, positive: ExprRef, negative: Option<ExprRef>, source: &Source) -> ExprRef {
-        // ExprRef::new(TypedExpr::Conditional {
-        //     condition, positive, negative, source: source.clone()
-        // })
-        expr.clone()
+        ExprRef::new(TypedExpr::Conditional {
+            condition, positive, negative, source: source.clone()
+        })
     }
 
     fn visit_block(&mut self, expr: &ExprRef, statements: &[TypedStatement], source: &Source) -> ExprRef {
@@ -214,7 +211,8 @@ crate trait TypedVisitor {
         self.post_block(expr, statements, source)
     }
 
-    fn post_block(&mut self, _expr: &ExprRef, statements: Vec<TypedStatement>, source: &Source) -> ExprRef {
+    #[allow(unused)]
+    fn post_block(&mut self, expr: &ExprRef, statements: Vec<TypedStatement>, source: &Source) -> ExprRef {
         ExprRef::new(TypedExpr::Block(statements, source.clone()))
     }
 }
