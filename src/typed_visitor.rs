@@ -6,16 +6,6 @@ use crate::source::Source;
 use num_bigint::BigInt;
 use std::rc::Rc;
 
-crate struct NoOpTypedVisitor;
-
-impl NoOpTypedVisitor {
-    crate fn new() -> NoOpTypedVisitor {
-        NoOpTypedVisitor
-    }
-}
-
-impl TypedVisitor for NoOpTypedVisitor {}
-
 crate trait TypedVisitor {
     fn visit_statements(&mut self, statements: &[TypedStatement]) -> Vec<TypedStatement> {
         statements.iter().filter_map(|statement| self.visit_statement(statement)).collect()

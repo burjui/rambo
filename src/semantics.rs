@@ -129,28 +129,6 @@ impl Debug for TypedExpr {
 }
 
 impl TypedExpr {
-    crate fn source(&self) -> Option<Source> {
-        match self {
-            TypedExpr::Phantom => None,
-            TypedExpr::Unit(source) |
-            TypedExpr::Int(_, source) |
-            TypedExpr::AddInt(_, _, source) |
-            TypedExpr::SubInt(_, _, source) |
-            TypedExpr::MulInt(_, _, source) |
-            TypedExpr::DivInt(_, _, source) => Some(source.clone()),
-
-            TypedExpr::String(_, source) |
-            TypedExpr::AddStr(_, _, source) => Some(source.clone()),
-
-            TypedExpr::Deref(_, source) => Some(source.clone()),
-            TypedExpr::Assign(_, _, source) => Some(source.clone()),
-            TypedExpr::Lambda(_, source) => Some(source.clone()),
-            TypedExpr::Application { source, .. } => Some(source.clone()),
-            TypedExpr::Conditional { source, .. } => Some(source.clone()),
-            TypedExpr::Block(_, source) => Some(source.clone()),
-        }
-    }
-
     crate fn type_(&self) -> Type {
         match self {
             TypedExpr::Phantom => unreachable!(),

@@ -2,7 +2,7 @@ use petgraph::{ Graph, Direction, visit::EdgeRef, graph::NodeIndex, dot::{ Dot, 
 use crate::semantics::*;
 use crate::source::Source;
 use std::collections::{ hash_map::HashMap, hash_set::HashSet };
-use crate::typed_visitor::{ TypedVisitor, NoOpTypedVisitor };
+use crate::typed_visitor::{ TypedVisitor };
 
 #[derive(PartialEq)]
 crate enum Warnings { On, Off }
@@ -11,18 +11,6 @@ crate struct RedundantBindings {
     warnings: Warnings,
     graph: ReachabilityGraph,
     map: BindingToNodeMap
-}
-
-struct ReduntantBindingRemover {
-
-}
-
-impl ReduntantBindingRemover {
-
-}
-
-impl TypedVisitor for ReduntantBindingRemover {
-
 }
 
 impl RedundantBindings {
@@ -36,6 +24,7 @@ impl RedundantBindings {
         let mut disconnected_nodes = HashSet::<NodeIndex>::new();
         let binding_nodes = self.map.values().map(|v| *v).collect::<Vec<_>>();
         binding_nodes.into_iter().for_each(|node| Self::process_node(&mut self.graph, node, &mut disconnected_nodes));
+
         {
             let mut reduntant_sources = disconnected_nodes.iter()
                 .filter_map(|node| self.graph.node_weight(*node))
@@ -44,11 +33,15 @@ impl RedundantBindings {
             reduntant_sources.sort_by_key(|source| source.range.start);
             if self.warnings == Warnings::On {
                 for source in reduntant_sources {
-                    warning_at!(source, "redundant binding: {}", source.text());
+                    warning_at!(source, "redundant definition: {}", source.text());
                 }
             }
         }
-        NoOpTypedVisitor::new().visit_statements(code)
+
+        let reduntant_bindings = self.map.into_iter()
+            .filter_map(|(binding, node)| if disconnected_nodes.contains(&node) { Some(binding) } else { None })
+            .collect::<HashSet<_>>();
+        ReduntantBindingRemover::new(reduntant_bindings).visit_statements(code)
     }
 
     fn process_node(graph: &mut ReachabilityGraph, node: NodeIndex, disconnected_nodes: &mut HashSet<NodeIndex>) {
@@ -70,6 +63,30 @@ type BindingToNodeMap = HashMap<BindingPtr, NodeIndex>;
 struct Reachability {
     graph: ReachabilityGraph,
     map: BindingToNodeMap
+}
+
+struct ReduntantBindingRemover {
+    reduntant_bindings: HashSet<BindingPtr>
+}
+
+impl ReduntantBindingRemover {
+    fn new(reduntant_bindings: HashSet<BindingPtr>) -> Self {
+        Self { reduntant_bindings }
+    }
+}
+
+impl TypedVisitor for ReduntantBindingRemover {
+    fn visit_statement(&mut self, statement: &TypedStatement) -> Option<TypedStatement> {
+        match statement {
+            TypedStatement::Binding(binding) =>
+                if self.reduntant_bindings.contains(&binding.ptr()) {
+                    None
+                } else {
+                    Some(TypedStatement::Binding(self.visit_binding(binding)))
+                },
+            TypedStatement::Expr(expr) => Some(TypedStatement::Expr(self.visit(expr)))
+        }
+    }
 }
 
 impl Reachability {
