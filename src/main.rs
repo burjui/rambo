@@ -13,6 +13,7 @@ mod semantics;
 mod constants;
 mod env;
 mod reduntant_bindings;
+mod typed_visitor;
 
 use getopts::Options;
 use std::env::{args as program_args};

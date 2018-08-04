@@ -7,7 +7,7 @@ use std::rc::Rc;
 use crate::semantics::*;
 use crate::env::Environment;
 
-type Env = Environment<BindingPtr, Evalue>;
+type Env = Environment<String, Evalue>;
 
 crate struct Evaluator {
     env: Env,
@@ -36,7 +36,7 @@ impl<'a> Evaluator {
                     BindingValue::Var(expr) => self.eval_expr(expr)?,
                     BindingValue::Arg(_) => panic!("{:?}", binding.borrow().value)
                 };
-                self.env.bind(binding.ptr(), value).unwrap();
+                self.env.bind_force(binding.borrow().name.clone(), value);
                 Ok(Evalue::Unit)
             }
         }
@@ -85,10 +85,10 @@ impl<'a> Evaluator {
                     unreachable!()
                 };
                 let value = self.eval_expr(right)?;
-                self.env.bind_force(left_binding.ptr(), value.clone());
+                self.env.bind_force(left_binding.borrow().name.clone(), value.clone());
                 Ok(value)
             },
-            TypedExpr::Deref(binding, _) => Ok(self.env.resolve(&binding.ptr()).unwrap()),
+            TypedExpr::Deref(binding, _) => Ok(self.env.resolve(&binding.borrow().name).unwrap()),
             TypedExpr::Application { function, arguments, .. } => {
                 let arguments: Result<Vec<Evalue>, Box<dyn Error>> = arguments.iter()
                     .map(|argument| self.eval_expr(argument)).collect();
@@ -99,7 +99,7 @@ impl<'a> Evaluator {
                 };
                 self.env.push();
                 for (parameter, argument) in lambda.parameters.iter().zip(arguments.into_iter()) {
-                    self.env.bind(parameter.ptr(), argument).unwrap();
+                    self.env.bind(parameter.borrow().name.clone(), argument).unwrap();
                 }
                 let result = self.eval_expr(&lambda.body);
                 self.env.pop();
@@ -120,10 +120,13 @@ impl<'a> Evaluator {
                 clause.map(|expr| self.eval_expr(expr)).unwrap_or_else(|| Ok(Evalue::Unit))
             },
             TypedExpr::Block(statements, _) => {
-                statements.iter()
+                self.env.push();
+                let result = statements.iter()
                     .map(|statement| self.eval_statement(statement))
                     .last()
-                    .unwrap_or(Ok(Evalue::Unit))
+                    .unwrap_or(Ok(Evalue::Unit));
+                self.env.pop();
+                result
             }
         }
     }

@@ -2,6 +2,7 @@ use petgraph::{ Graph, Direction, visit::EdgeRef, graph::NodeIndex, dot::{ Dot, 
 use crate::semantics::*;
 use crate::source::Source;
 use std::collections::hash_map::HashMap;
+use crate::typed_visitor::{ TypedVisitor, NoOpTypedVisitor };
 
 #[derive(PartialEq)]
 crate enum Warnings { On, Off }
@@ -36,8 +37,7 @@ impl RedundantBindings {
                 }
             }
         }
-        // TODO actually modify code
-        code.to_vec()
+        NoOpTypedVisitor::new().visit_statements(code)
     }
 
     fn process_node(graph: &mut ReachabilityGraph, node: NodeIndex) {

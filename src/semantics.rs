@@ -220,7 +220,7 @@ impl BindingValue {
     }
 }
 
-type BindingCell = RefCell<Binding>;
+crate type BindingCell = RefCell<Binding>;
 crate type BindingRef = Rc<BindingCell>;
 
 crate struct Binding {
