@@ -8,3 +8,9 @@ else {
     let a = (z x y)
     z a "/test"
 }
+let a = 1
+let b = a + 2
+let c = 2
+let d = c
+let e = d
+let f = e

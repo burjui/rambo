@@ -7,6 +7,7 @@ use std::collections::HashMap;
 use itertools::Itertools;
 use crate::utils::*;
 use crate::parser::*;
+use crate::parser::Parameter as ParsedParameter;
 use crate::source::Source;
 
 crate type FunctionTypeRef = Rc<FunctionType>;
@@ -73,76 +74,100 @@ impl Debug for Lambda {
 
 crate enum TypedExpr {
     Phantom,
-    Unit,
-    Int(BigInt),
-    String(String),
-    Deref(BindingRef),
-    Lambda(Rc<Lambda>),
+    Unit(Source),
+    Int(BigInt, Source),
+    String(String, Source),
+    Deref(BindingRef, Source),
+    Lambda(Rc<Lambda>, Source),
     Application {
         type_: Type,
         function: ExprRef,
-        arguments: Vec<ExprRef>
+        arguments: Vec<ExprRef>,
+        source: Source
     },
-    AddInt(ExprRef, ExprRef),
-    SubInt(ExprRef, ExprRef),
-    MulInt(ExprRef, ExprRef),
-    DivInt(ExprRef, ExprRef),
-    AddStr(ExprRef, ExprRef),
-    Assign(ExprRef, ExprRef),
+    AddInt(ExprRef, ExprRef, Source),
+    SubInt(ExprRef, ExprRef, Source),
+    MulInt(ExprRef, ExprRef, Source),
+    DivInt(ExprRef, ExprRef, Source),
+    AddStr(ExprRef, ExprRef, Source),
+    Assign(ExprRef, ExprRef, Source), // TODO turn first arg into binding
     Conditional {
         condition: ExprRef,
         positive: ExprRef,
-        negative: Option<ExprRef>
+        negative: Option<ExprRef>,
+        source: Source
     },
-    Block(Vec<TypedStatement>)
+    Block(Vec<TypedStatement>, Source)
 }
 
 impl Debug for TypedExpr {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> FmtResult {
         match self {
             TypedExpr::Phantom => write!(formatter, "@"),
-            TypedExpr::Unit => write!(formatter, "()"),
-            TypedExpr::Int(value) => write!(formatter, "{}", value),
-            TypedExpr::String(value) => write!(formatter, "\"{}\"", value),
-            TypedExpr::Deref(binding) => write!(formatter, "#{}", binding.borrow().name),
-            TypedExpr::AddInt(left, right) => write!(formatter, "({:?} + {:?})", left, right),
-            TypedExpr::SubInt(left, right) => write!(formatter, "({:?} - {:?})", left, right),
-            TypedExpr::MulInt(left, right) => write!(formatter, "({:?} * {:?})", left, right),
-            TypedExpr::DivInt(left, right) => write!(formatter, "({:?} / {:?})", left, right),
-            TypedExpr::AddStr(left, right) => write!(formatter, "({:?} + {:?})", left, right),
-            TypedExpr::Assign(left, right) => write!(formatter, "({:?} = {:?})", left, right),
-            TypedExpr::Lambda(lambda) => lambda.fmt(formatter),
+            TypedExpr::Unit(_) => write!(formatter, "()"),
+            TypedExpr::Int(value, _) => write!(formatter, "{}", value),
+            TypedExpr::String(value, _) => write!(formatter, "\"{}\"", value),
+            TypedExpr::Deref(binding, _) => write!(formatter, "#{}", binding.borrow().name),
+            TypedExpr::AddInt(left, right, _) => write!(formatter, "({:?} + {:?})", left, right),
+            TypedExpr::SubInt(left, right, _) => write!(formatter, "({:?} - {:?})", left, right),
+            TypedExpr::MulInt(left, right, _) => write!(formatter, "({:?} * {:?})", left, right),
+            TypedExpr::DivInt(left, right, _) => write!(formatter, "({:?} / {:?})", left, right),
+            TypedExpr::AddStr(left, right, _) => write!(formatter, "({:?} + {:?})", left, right),
+            TypedExpr::Assign(left, right, _) => write!(formatter, "({:?} = {:?})", left, right),
+            TypedExpr::Lambda(lambda, _) => lambda.fmt(formatter),
             TypedExpr::Application { function, arguments, .. } => write!(formatter, "({:?} @ {:?})", function, arguments),
-            TypedExpr::Conditional { condition, positive, negative } => {
+            TypedExpr::Conditional { condition, positive, negative, .. } => {
                 let negative = match negative {
                     Some(negative) => format!(" else {:?})", negative),
                     _ => "".to_string()
                 };
                 write!(formatter, "(if {:?} {:?}{})", condition, positive, negative)
             },
-            TypedExpr::Block(statements) => write!(formatter, "{{ {} }})", statements.iter().join_as_strings("; "))
+            TypedExpr::Block(statements, _) => write!(formatter, "{{ {} }})", statements.iter().join_as_strings("; "))
         }
     }
 }
 
 impl TypedExpr {
+    crate fn source(&self) -> Option<Source> {
+        match self {
+            TypedExpr::Phantom => None,
+            TypedExpr::Unit(source) |
+            TypedExpr::Int(_, source) |
+            TypedExpr::AddInt(_, _, source) |
+            TypedExpr::SubInt(_, _, source) |
+            TypedExpr::MulInt(_, _, source) |
+            TypedExpr::DivInt(_, _, source) => Some(source.clone()),
+
+            TypedExpr::String(_, source) |
+            TypedExpr::AddStr(_, _, source) => Some(source.clone()),
+
+            TypedExpr::Deref(_, source) => Some(source.clone()),
+            TypedExpr::Assign(_, _, source) => Some(source.clone()),
+            TypedExpr::Lambda(_, source) => Some(source.clone()),
+            TypedExpr::Application { source, .. } => Some(source.clone()),
+            TypedExpr::Conditional { source, .. } => Some(source.clone()),
+            TypedExpr::Block(_, source) => Some(source.clone()),
+        }
+    }
+
     crate fn type_(&self) -> Type {
         match self {
             TypedExpr::Phantom => unreachable!(),
-            TypedExpr::Unit => Type::Unit,
+            TypedExpr::Unit(_) => Type::Unit,
 
-            TypedExpr::Int(_) |
-            TypedExpr::AddInt(_, _) |
-            TypedExpr::SubInt(_, _) |
-            TypedExpr::MulInt(_, _) |
-            TypedExpr::DivInt(_, _) => Type::Int,
+            TypedExpr::Int(_, _) |
+            TypedExpr::AddInt(_, _, _) |
+            TypedExpr::SubInt(_, _, _) |
+            TypedExpr::MulInt(_, _, _) |
+            TypedExpr::DivInt(_, _, _) => Type::Int,
 
-            TypedExpr::String(_) |
-            TypedExpr::AddStr(_, _) => Type::String,
+            TypedExpr::String(_, _) |
+            TypedExpr::AddStr(_, _, _) => Type::String,
 
-            TypedExpr::Deref(binding) => binding.borrow().type_(),
-            TypedExpr::Assign(left, _) => left.type_(),
-            TypedExpr::Lambda(lambda) => Type::Function(lambda.type_.clone()),
+            TypedExpr::Deref(binding, _) => binding.borrow().type_(),
+            TypedExpr::Assign(left, _, _) => left.type_(),
+            TypedExpr::Lambda(lambda, _) => Type::Function(lambda.type_.clone()),
             TypedExpr::Application { type_, .. } => type_.clone(),
             TypedExpr::Conditional { positive, negative, .. } => {
                 if negative.is_none() {
@@ -151,8 +176,32 @@ impl TypedExpr {
                     positive.type_()
                 }
             },
-            TypedExpr::Block(statements) => statements.last().map(TypedStatement::type_).unwrap_or_else(|| Type::Unit)
+            TypedExpr::Block(statements, _) => statements.last().map(TypedStatement::type_).unwrap_or_else(|| Type::Unit)
         }
+    }
+
+    crate fn clone_at(&self, source: Source) -> ExprRef {
+        Rc::new(match self {
+            TypedExpr::Phantom => TypedExpr::Phantom,
+            TypedExpr::Unit(_) => TypedExpr::Unit(source),
+            TypedExpr::Int(value, _) => TypedExpr::Int(value.clone(), source),
+            TypedExpr::AddInt(left, right, _) => TypedExpr::AddInt(left.clone(), right.clone(), source),
+            TypedExpr::SubInt(left, right, _) => TypedExpr::SubInt(left.clone(), right.clone(), source),
+            TypedExpr::MulInt(left, right, _) => TypedExpr::MulInt(left.clone(), right.clone(), source),
+            TypedExpr::DivInt(left, right, _) => TypedExpr::DivInt(left.clone(), right.clone(), source),
+            TypedExpr::String(value, _) => TypedExpr::String(value.clone(), source),
+            TypedExpr::AddStr(left, right, _) => TypedExpr::AddStr(left.clone(), right.clone(), source),
+            TypedExpr::Deref(binding, _) => TypedExpr::Deref(binding.clone(), source),
+            TypedExpr::Assign(left, right, _) => TypedExpr::Assign(left.clone(), right.clone(), source),
+            TypedExpr::Lambda(lambda, _) => TypedExpr::Lambda(lambda.clone(), source),
+            TypedExpr::Application { type_, function, arguments, .. } => TypedExpr::Application {
+                type_: type_.clone(), function: function.clone(), arguments: arguments.clone(), source
+            },
+            TypedExpr::Conditional { condition, positive, negative, .. } => TypedExpr::Conditional {
+                condition: condition.clone(), positive: positive.clone(), negative: negative.clone(), source
+            },
+            TypedExpr::Block(statements, _) => TypedExpr::Block(statements.clone(), source),
+        })
     }
 }
 
@@ -264,17 +313,17 @@ fn check_statement(env: &mut Environment, statement: &Statement) -> CheckResult<
 
 fn check_expr(env: &mut Environment, expr: &Expr) -> CheckResult<ExprRef> {
     match expr {
-        Expr::Unit(_) => Ok(ExprRef::new(TypedExpr::Unit)),
+        Expr::Unit(source) => Ok(ExprRef::new(TypedExpr::Unit(source.clone()))),
         Expr::Int(source) => {
             let value = source.text().parse::<BigInt>()?;
-            Ok(ExprRef::new(TypedExpr::Int(value)))
+            Ok(ExprRef::new(TypedExpr::Int(value, source.clone())))
         },
         Expr::String(source) => {
             let text = source.text();
             let value = text[1..text.len() - 1].to_string();
-            Ok(ExprRef::new(TypedExpr::String(value)))
+            Ok(ExprRef::new(TypedExpr::String(value, source.clone())))
         },
-        Expr::Id(name) => env.resolve(name.text()),
+        Expr::Id(name) => env.resolve(name),
         Expr::Binary { operation, left, right, .. } => {
             let left_checked = check_expr(env, left)?;
             let right_checked = check_expr(env, right)?;
@@ -287,15 +336,15 @@ fn check_expr(env: &mut Environment, expr: &Expr) -> CheckResult<ExprRef> {
 
             match operation {
                 BinaryOperation::Assign => {
-                    if let TypedExpr::Deref(_) = *left_checked {
-                        Ok(ExprRef::new(TypedExpr::Assign(left_checked, right_checked)))
+                    if let TypedExpr::Deref(_, _) = *left_checked {
+                        Ok(ExprRef::new(TypedExpr::Assign(left_checked, right_checked, expr.source().clone())))
                     } else {
                         error!("a variable expected at the left side of assignment, but found: {:?}", left_checked)
                     }
                 },
                 BinaryOperation::Add => match left_type {
-                    Type::Int => Ok(ExprRef::new(TypedExpr::AddInt(left_checked, right_checked))),
-                    Type::String => Ok(ExprRef::new(TypedExpr::AddStr(left_checked, right_checked))),
+                    Type::Int => Ok(ExprRef::new(TypedExpr::AddInt(left_checked, right_checked, expr.source().clone()))),
+                    Type::String => Ok(ExprRef::new(TypedExpr::AddStr(left_checked, right_checked, expr.source().clone()))),
                     _ => error!("operation `{:?}' is not implemented for type `{:?}'", operation, left_type)
                 },
                 operation => {
@@ -307,15 +356,16 @@ fn check_expr(env: &mut Environment, expr: &Expr) -> CheckResult<ExprRef> {
                                 BinaryOperation::Divide => TypedExpr::DivInt,
                                 _ => unreachable!()
                             };
-                        Ok(ExprRef::new(constructor(left_checked, right_checked)))
+                        Ok(ExprRef::new(constructor(left_checked, right_checked, expr.source().clone())))
                     } else {
                         error!("operation `{:?}' is not implemented for type `{:?}'", operation, left_type)
                     }
                 }
             }
         },
-        lambda @ Expr::Lambda {..} => Ok(ExprRef::new(TypedExpr::Lambda(Rc::new(check_function(env, lambda)?)))),
-        Expr::Application { function, arguments, .. } => {
+        Expr::Lambda { source, parameters, body } => Ok(ExprRef::new(TypedExpr::Lambda(
+            Rc::new(check_function(env, parameters.as_slice(), &body)?), source.clone()))),
+        Expr::Application { source, function, arguments } => {
             let function = check_expr(env, &function)?;
             let function_type = function.type_();
             let function_type_result: CheckResult<FunctionTypeRef> = match function_type {
@@ -350,10 +400,11 @@ fn check_expr(env: &mut Environment, expr: &Expr) -> CheckResult<ExprRef> {
             Ok(ExprRef::new(TypedExpr::Application {
                 type_: function_type.result.clone(),
                 function,
-                arguments: arguments_checked
+                arguments: arguments_checked,
+                source: source.clone()
             }))
         },
-        Expr::Conditional { condition, positive, negative, .. } => {
+        Expr::Conditional { source, condition, positive, negative } => {
             let condition_typed = check_expr(env, condition)?;
             let condition_type = condition_typed.type_();
             if condition_type != Type::Int && condition_type != Type::String {
@@ -367,7 +418,7 @@ fn check_expr(env: &mut Environment, expr: &Expr) -> CheckResult<ExprRef> {
             if positive.is_empty() {
                 warning!("empty positive conditional clause: {:?}", positive_source);
             }
-            let positive = check_block(env, positive.iter())?;
+            let positive = check_block(env, positive.iter(), positive_source.clone())?;
             let positive_type = positive.type_();
 
             let negative = match negative {
@@ -375,7 +426,7 @@ fn check_expr(env: &mut Environment, expr: &Expr) -> CheckResult<ExprRef> {
                     if statements.is_empty() {
                         warning!("empty negative conditional clause: {:?}", source);
                     }
-                    Some(check_block(env, statements.iter())?)
+                    Some(check_block(env, statements.iter(), source.clone())?)
                 },
                 _ => None
             };
@@ -391,61 +442,57 @@ fn check_expr(env: &mut Environment, expr: &Expr) -> CheckResult<ExprRef> {
             Ok(ExprRef::new(TypedExpr::Conditional {
                 condition: condition_typed,
                 positive,
-                negative
+                negative,
+                source: source.clone()
             }))
         },
-        Expr::Block { statements, .. } => {
+        Expr::Block { source, statements } => {
             let statements = statements.iter()
                 .map(|statement| check_statement(env, statement))
                 .collect::<CheckResult<Vec<_>>>()?;
-            Ok(ExprRef::new(TypedExpr::Block(statements)))
+            Ok(ExprRef::new(TypedExpr::Block(statements, source.clone())))
         }
     }
 }
 
-fn check_function(env: &mut Environment, expr: &Expr) -> CheckResult<Lambda> {
-    match expr {
-        Expr::Lambda { parameters, body, .. } => {
-            env.push();
-            let mut parameter_bindings = vec![];
-            for parameter in parameters.iter() {
-                let binding = Rc::new(RefCell::new(Binding {
-                    name: parameter.name.to_string(),
-                    value: BindingValue::Arg(parameter.type_.clone()),
-                    assigned: false,
-                    dirty: false,
-                    source: parameter.source.clone()
-                }));
-                parameter_bindings.push(binding.clone());
-                env.bind(binding)?;
-            }
-            let body = check_expr(env, body)?;
-            env.pop();
-            let parameters = parameters.iter()
-                .map(|parameter| Parameter {
-                    name: parameter.name.to_string(),
-                    type_: parameter.type_.clone()
-                })
-                .collect();
-            let function_type = Rc::new(FunctionType {
-                parameters,
-                result: body.type_()
-            });
-            Ok(Lambda{
-                type_: function_type,
-                parameters: parameter_bindings,
-                body
-            })
-        },
-        _ => error!("3 expected a function, found `{:?}'", expr)
+fn check_function(env: &mut Environment, parameters: &[ParsedParameter], body: &Expr) -> CheckResult<Lambda> {
+    env.push();
+    let mut parameter_bindings = vec![];
+    for parameter in parameters.iter() {
+        let binding = Rc::new(RefCell::new(Binding {
+            name: parameter.name.to_string(),
+            value: BindingValue::Arg(parameter.type_.clone()),
+            assigned: false,
+            dirty: false,
+            source: parameter.source.clone()
+        }));
+        parameter_bindings.push(binding.clone());
+        env.bind(binding)?;
     }
+    let body = check_expr(env, body)?;
+    env.pop();
+    let parameters = parameters.iter()
+        .map(|parameter| Parameter {
+            name: parameter.name.to_string(),
+            type_: parameter.type_.clone()
+        })
+        .collect();
+    let function_type = Rc::new(FunctionType {
+        parameters,
+        result: body.type_()
+    });
+    Ok(Lambda{
+        type_: function_type,
+        parameters: parameter_bindings,
+        body
+    })
 }
 
-fn check_block<'a, BlockIterator>(env: &mut Environment, block: BlockIterator) -> CheckResult<ExprRef>
+fn check_block<'a, BlockIterator>(env: &mut Environment, block: BlockIterator, source: Source) -> CheckResult<ExprRef>
     where BlockIterator: Iterator<Item = &'a Statement>
 {
     let statements: CheckResult<Vec<_>> = block.map(|statement| check_statement(env, statement)).collect();
-    Ok(Rc::new(TypedExpr::Block(statements?)))
+    Ok(Rc::new(TypedExpr::Block(statements?, source)))
 }
 
 crate struct Environment {
@@ -470,10 +517,10 @@ impl Environment {
         Ok(())
     }
 
-    crate fn resolve(&self, name: &str) -> Result<ExprRef, Box<dyn Error>> {
+    crate fn resolve(&self, name: &Source) -> Result<ExprRef, Box<dyn Error>> {
         for scope in self.scopes.iter().rev() {
-            if let Some(binding) = scope.borrow().get(name) {
-                return Ok(ExprRef::new(TypedExpr::Deref(binding.clone())));
+            if let Some(binding) = scope.borrow().get(name.text()) {
+                return Ok(ExprRef::new(TypedExpr::Deref(binding.clone(), name.clone())));
             }
         }
         Err(From::from(format!("`{}' is undefined", name)))

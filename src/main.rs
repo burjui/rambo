@@ -12,6 +12,7 @@ mod eval;
 mod semantics;
 mod constants;
 mod env;
+mod reduntant_bindings;
 
 use getopts::Options;
 use std::env::{args as program_args};
@@ -24,6 +25,7 @@ use crate::eval::*;
 use crate::semantics::*;
 use crate::constants::*;
 use crate::utils::*;
+use crate::reduntant_bindings::*;
 
 fn main() {
     let args: Vec<String> = program_args().collect();
@@ -74,7 +76,13 @@ fn process(path: &str, options: &ProcessOptions) -> Result<(), Box<dyn Error>> {
     }
 
     println!(">> Semantic check");
-    let hir1 = check_module(ast.as_slice())?;
+    let hir0 = check_module(ast.as_slice())?;
+    if options.dump {
+        println!("{}", hir0.iter().join_as_strings("\n"));
+    }
+
+    println!(">> Redunant bindings");
+    let hir1 = remove_reduntant_bindings(hir0.as_slice());
     if options.dump {
         println!("{}", hir1.iter().join_as_strings("\n"));
     }

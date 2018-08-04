@@ -1,10 +1,10 @@
 use num_bigint::BigInt;
 use num_traits::Zero;
 use std::ops::{Add, Sub, Mul, Div};
-use std::rc::Rc;
 
 use crate::semantics::*;
 use crate::env::Environment;
+use crate::source::Source;
 
 // TODO implement operation-specific optimizations, such as "x*1 = x", "x+0 = x" and so on
 
@@ -34,11 +34,11 @@ impl CFP {
     #[must_use]
     fn fold(&mut self, expr: &ExprRef) -> ExprRef {
         match expr as &TypedExpr {
-            TypedExpr::Deref(binding) => {
+            TypedExpr::Deref(binding, source) => {
                 match &binding.borrow().value {
                     BindingValue::Var(value) => {
                         if is_primitive_constant(&value) {
-                            return value.clone()
+                            return value.clone_at(source.clone())
                         } else {
                             expr.clone()
                         }
@@ -46,18 +46,18 @@ impl CFP {
                     BindingValue::Arg(_) => self.env.resolve(&binding.ptr()).unwrap().clone()
                 }
             }
-            TypedExpr::AddInt(left, right) => self.try_fold_numeric(expr, left, right, Add::add),
-            TypedExpr::SubInt(left, right) => self.try_fold_numeric(expr, left, right, Sub::sub),
-            TypedExpr::MulInt(left, right) => self.try_fold_numeric(expr, left, right, Mul::mul),
-            TypedExpr::DivInt(left, right) => self.try_fold_numeric(expr, left, right, Div::div),
-            TypedExpr::AddStr(left, right) => {
+            TypedExpr::AddInt(left, right, source) => self.try_fold_numeric(expr, left, right, Add::add, source),
+            TypedExpr::SubInt(left, right, source) => self.try_fold_numeric(expr, left, right, Sub::sub, source),
+            TypedExpr::MulInt(left, right, source) => self.try_fold_numeric(expr, left, right, Mul::mul, source),
+            TypedExpr::DivInt(left, right, source) => self.try_fold_numeric(expr, left, right, Div::div, source),
+            TypedExpr::AddStr(left, right, source) => {
                 match (&self.fold(left) as &TypedExpr, &self.fold(right) as &TypedExpr) {
-                    (TypedExpr::String(left), TypedExpr::String(right)) =>
-                        ExprRef::new(TypedExpr::String(left.to_string() + right)),
+                    (TypedExpr::String(left, _), TypedExpr::String(right, _)) =>
+                        ExprRef::new(TypedExpr::String(left.to_string() + right, source.clone())),
                     _ => expr.clone()
                 }
             },
-            TypedExpr::Application { function, arguments, .. } => {
+            TypedExpr::Application { function, arguments, source, .. } => {
                 let original_function = function;
                 let mut function = self.fold(original_function);
                 if is_primitive_constant(&function) {
@@ -65,57 +65,71 @@ impl CFP {
                 } else {
                     let arguments = arguments.iter().map(|argument| self.fold(argument)).collect::<Vec<_>>();
                     if arguments.iter().all(is_constant) {
-                        while let TypedExpr::Deref(binding) = &function.clone() as &TypedExpr {
+                        while let TypedExpr::Deref(binding, _) = &function.clone() as &TypedExpr {
                             function = match &binding.borrow().value {
                                 BindingValue::Var(value) => value.clone(),
                                 _ => unreachable!()
                             };
                         }
-                        if let TypedExpr::Lambda(lambda) = &function as &TypedExpr {
+                        if let TypedExpr::Lambda(lambda, _) = &function as &TypedExpr {
                             self.env.push();
                             for (parameter, argument) in lambda.parameters.iter().zip(arguments.into_iter()) {
                                 self.env.bind(parameter.ptr(), argument).unwrap();
                             }
                             let result = self.fold(&lambda.body);
                             self.env.pop();
-                            return result
+                            return result.clone_at(source.clone())
                         }
                     }
                     expr.clone()
                 }
             },
-            TypedExpr::Assign(left, right) => {
-                let binding = match left as &TypedExpr {
-                    TypedExpr::Deref(binding) => binding,
+            TypedExpr::Assign(left, right, source) => {
+                match left as &TypedExpr {
+                    TypedExpr::Deref(binding, _) => binding.borrow_mut().assigned = true,
                     _ => unreachable!()
                 };
-                binding.borrow_mut().assigned = true;
-                ExprRef::new(TypedExpr::Assign(left.clone(), self.fold(right)))
+                ExprRef::new(TypedExpr::Assign(left.clone(), self.fold(right), source.clone()))
             },
-            TypedExpr::Lambda(lambda) => self.fold_function(lambda),
-            TypedExpr::Conditional { condition, positive, negative } => {
-                if let TypedExpr::Int(n) = &self.fold(condition) as &TypedExpr {
+            TypedExpr::Lambda(lambda, source) => {
+                self.env.push();
+                for parameter in &lambda.parameters {
+                    self.env.bind(parameter.ptr(), ExprRef::new(TypedExpr::Phantom)).unwrap();
+                }
+                let body = self.fold(&lambda.body);
+                self.env.pop();
+                if is_primitive_constant(&body) {
+                    body.clone_at(source.clone())
+                } else {
+                    expr.clone()
+                }
+            },
+            TypedExpr::Conditional { condition, positive, negative, source } => {
+                let condition = self.fold(condition);
+                if let TypedExpr::Int(n, _) = &condition as &TypedExpr {
                     return if n == &BigInt::zero() {
-                        negative.as_ref().map(|clause| self.fold(clause)).unwrap_or_else(|| ExprRef::new(TypedExpr::Unit))
+                        negative.as_ref()
+                            .map(|clause| self.fold(clause))
+                            .unwrap_or_else(|| ExprRef::new(TypedExpr::Unit(source.clone())))
                     } else {
-                        self.fold(positive)
+                        self.fold(positive).clone_at(source.clone())
                     }
                 }
                 expr.clone()
             },
-            TypedExpr::Block(statements) => {
+            TypedExpr::Block(statements, source) => {
                 let statements = self.fold_and_propagate_constants(statements);
                 if statements.len() == 1 {
                     if let TypedStatement::Expr(expr) = &statements[0] {
-                        return expr.clone()
+                        return expr.clone_at(source.clone())
                     }
                 }
-                ExprRef::new(TypedExpr::Block(statements))
+                ExprRef::new(TypedExpr::Block(statements, source.clone()))
             },
             TypedExpr::Phantom |
-            TypedExpr::Unit |
-            TypedExpr::Int(_) |
-            TypedExpr::String(_) => expr.clone()
+            TypedExpr::Unit(_) |
+            TypedExpr::Int(_, _) |
+            TypedExpr::String(_, _) => expr.clone()
         }
     }
 
@@ -135,29 +149,15 @@ impl CFP {
     }
 
     #[must_use]
-    fn fold_function(&mut self, lambda: &Rc<Lambda>) -> ExprRef {
-        self.env.push();
-        for parameter in &lambda.parameters {
-            self.env.bind(parameter.ptr(), ExprRef::new(TypedExpr::Phantom)).unwrap();
-        }
-        let body = self.fold(&lambda.body);
-        self.env.pop();
-        if is_primitive_constant(&body) {
-            body
-        } else {
-            ExprRef::new(TypedExpr::Lambda(lambda.clone()))
-        }
-    }
-
-    #[must_use]
-    fn try_fold_numeric<FoldFn>(&mut self, original_expr: &ExprRef, left: &ExprRef, right: &ExprRef, fold_impl: FoldFn) -> ExprRef
+    fn try_fold_numeric<FoldFn>(&mut self, original_expr: &ExprRef,
+        left: &ExprRef, right: &ExprRef, fold_impl: FoldFn, source: &Source) -> ExprRef
         where FoldFn: FnOnce(BigInt, BigInt) -> BigInt
     {
         let (left, right) = (self.fold(left), self.fold(right));
         match (&left as &TypedExpr, &right as &TypedExpr) {
-            (TypedExpr::Int(left), TypedExpr::Int(right)) => {
+            (TypedExpr::Int(left, _), TypedExpr::Int(right, _)) => {
                 let result = fold_impl(left.clone(), right.clone());
-                ExprRef::new(TypedExpr::Int(result))
+                ExprRef::new(TypedExpr::Int(result, source.clone()))
             },
             _ => original_expr.clone()
         }
@@ -166,14 +166,14 @@ impl CFP {
 
 fn is_constant(expr: &ExprRef) -> bool {
     match expr as &TypedExpr {
-        TypedExpr::Int(_) | &TypedExpr::String(_) | &TypedExpr::Lambda {..} => true,
+        TypedExpr::Int(_, _) | &TypedExpr::String(_, _) | &TypedExpr::Lambda {..} => true,
         _ => false
     }
 }
 
 fn is_primitive_constant(expr: &ExprRef) -> bool {
     match expr as &TypedExpr {
-        TypedExpr::Int(_) | &TypedExpr::String(_) => true,
+        TypedExpr::Int(_, _) | &TypedExpr::String(_, _) => true,
         _ => false
     }
 }

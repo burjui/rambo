@@ -45,30 +45,30 @@ impl<'a> Evaluator {
     fn eval_expr(&mut self, expr: &TypedExpr) -> Result<Evalue, Box<dyn Error>> {
         match expr {
             TypedExpr::Phantom => unreachable!(),
-            TypedExpr::Unit => Ok(Evalue::Unit),
-            TypedExpr::Int(value) => Ok(Evalue::Int(value.clone())),
-            TypedExpr::String(value) => Ok(Evalue::String(value.clone())),
-            TypedExpr::AddInt(left, right) => {
+            TypedExpr::Unit(_) => Ok(Evalue::Unit),
+            TypedExpr::Int(value, _) => Ok(Evalue::Int(value.clone())),
+            TypedExpr::String(value, _) => Ok(Evalue::String(value.clone())),
+            TypedExpr::AddInt(left, right, _) => {
                 let left = self.eval_expr(left)?;
                 let right = self.eval_expr(right)?;
                 Self::numeric_binary_operation(&left, &right, "+", |a, b| a + b)
             },
-            TypedExpr::SubInt(left, right) => {
+            TypedExpr::SubInt(left, right, _) => {
                 let left = self.eval_expr(left)?;
                 let right = self.eval_expr(right)?;
                 Self::numeric_binary_operation(&left, &right, "-", |a, b| a - b)
             },
-            TypedExpr::MulInt(left, right) => {
+            TypedExpr::MulInt(left, right, _) => {
                 let left = self.eval_expr(left)?;
                 let right = self.eval_expr(right)?;
                 Self::numeric_binary_operation(&left, &right, "*", |a, b| a * b)
             },
-            TypedExpr::DivInt(left, right) => {
+            TypedExpr::DivInt(left, right, _) => {
                 let left = self.eval_expr(left)?;
                 let right = self.eval_expr(right)?;
                 Self::numeric_binary_operation(&left, &right, "/", |a, b| a / b)
             },
-            TypedExpr::AddStr(left, right) => {
+            TypedExpr::AddStr(left, right, _) => {
                 let left = self.eval_expr(left)?;
                 let right = self.eval_expr(right)?;
                 if let (Evalue::String(left), Evalue::String(right)) = (left, right) {
@@ -77,9 +77,9 @@ impl<'a> Evaluator {
                     unreachable!()
                 }
             },
-            TypedExpr::Assign(left, right) => {
+            TypedExpr::Assign(left, right, _) => {
                 let left_binding;
-                if let TypedExpr::Deref(binding) = &left as &TypedExpr {
+                if let TypedExpr::Deref(binding, _) = &left as &TypedExpr {
                     left_binding = binding
                 } else {
                     unreachable!()
@@ -88,7 +88,7 @@ impl<'a> Evaluator {
                 self.env.bind_force(left_binding.ptr(), value.clone());
                 Ok(value)
             },
-            TypedExpr::Deref(binding) => Ok(self.env.resolve(&binding.ptr()).unwrap()),
+            TypedExpr::Deref(binding, _) => Ok(self.env.resolve(&binding.ptr()).unwrap()),
             TypedExpr::Application { function, arguments, .. } => {
                 let arguments: Result<Vec<Evalue>, Box<dyn Error>> = arguments.iter()
                     .map(|argument| self.eval_expr(argument)).collect();
@@ -105,8 +105,8 @@ impl<'a> Evaluator {
                 self.env.pop();
                 result
             },
-            TypedExpr::Lambda(lambda) => Ok(Evalue::Lambda(lambda.clone())),
-            TypedExpr::Conditional { condition, positive, negative } => {
+            TypedExpr::Lambda(lambda, _) => Ok(Evalue::Lambda(lambda.clone())),
+            TypedExpr::Conditional { condition, positive, negative, .. } => {
                 let condition = match self.eval_expr(condition)? {
                     Evalue::Int(value) => !value.is_zero(),
                     Evalue::String(value) => value.len() > 0,
@@ -119,7 +119,7 @@ impl<'a> Evaluator {
                 };
                 clause.map(|expr| self.eval_expr(expr)).unwrap_or_else(|| Ok(Evalue::Unit))
             },
-            TypedExpr::Block(statements) => {
+            TypedExpr::Block(statements, _) => {
                 statements.iter()
                     .map(|statement| self.eval_statement(statement))
                     .last()
