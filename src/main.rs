@@ -82,7 +82,7 @@ fn process(path: &str, options: &ProcessOptions) -> Result<(), Box<dyn Error>> {
     }
 
     println!(">> Redunant bindings");
-    let hir1 = remove_reduntant_bindings(hir0.as_slice());
+    let hir1 = RedundantBindings::remove(hir0.as_slice(), if options.warnings { Warnings::On } else { Warnings::Off });
     if options.dump {
         println!("{}", hir1.iter().join_as_strings("\n"));
     }
