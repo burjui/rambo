@@ -325,7 +325,7 @@ impl Parser {
         let name = self.expect(Token::Id, "identifier")?;
         self.expect(Token::Eq, "=")?;
         let value = self.parse_expression()?;
-        let source = start.extend(value.source().range.end);
+        let source = start.extend(self.previous_lexeme_end);
         Ok(Statement::Binding {
             name: name.source,
             value: box(value),
