@@ -7,7 +7,7 @@ use std::rc::Rc;
 use crate::semantics::*;
 use crate::env::Environment;
 
-type Env = Environment<String, Evalue>;
+type Env = Environment<BindingPtr, Evalue>;
 
 crate struct Evaluator {
     env: Env,
@@ -36,7 +36,7 @@ impl<'a> Evaluator {
                     BindingValue::Var(expr) => self.eval_expr(expr)?,
                     BindingValue::Arg(_) => panic!("{:?}", binding.borrow().value)
                 };
-                self.env.bind_force(binding.borrow().name.clone(), value);
+                self.env.bind_force(binding.ptr(), value);
                 Ok(Evalue::Unit)
             }
         }
@@ -85,10 +85,10 @@ impl<'a> Evaluator {
                     unreachable!()
                 };
                 let value = self.eval_expr(right)?;
-                self.env.bind_force(left_binding.borrow().name.clone(), value.clone());
+                self.env.bind_force(left_binding.ptr(), value.clone());
                 Ok(value)
             },
-            TypedExpr::Deref(binding, _) => Ok(self.env.resolve(&binding.borrow().name).unwrap()),
+            TypedExpr::Deref(binding, _) => Ok(self.env.resolve(&binding.ptr()).unwrap()),
             TypedExpr::Application { function, arguments, .. } => {
                 let arguments: Result<Vec<Evalue>, Box<dyn Error>> = arguments.iter()
                     .map(|argument| self.eval_expr(argument)).collect();
@@ -99,7 +99,7 @@ impl<'a> Evaluator {
                 };
                 self.env.push();
                 for (parameter, argument) in lambda.parameters.iter().zip(arguments.into_iter()) {
-                    self.env.bind(parameter.borrow().name.clone(), argument).unwrap();
+                    self.env.bind(parameter.ptr(), argument).unwrap();
                 }
                 let result = self.eval_expr(&lambda.body);
                 self.env.pop();

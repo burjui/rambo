@@ -9,7 +9,7 @@ use crate::source::Source;
 // TODO implement operation-specific optimizations, such as "x*1 = x", "x+0 = x" and so on
 
 crate struct CFP {
-    env: Environment<String, ExprRef> // TODO Maybe Rc<String>
+    env: Environment<BindingPtr, ExprRef>
 }
 
 impl CFP {
@@ -35,7 +35,6 @@ impl CFP {
     fn fold(&mut self, expr: &ExprRef) -> ExprRef {
         match expr as &TypedExpr {
             TypedExpr::Deref(binding, source) => {
-                let name = &binding.borrow().name;
                 match &binding.borrow().value {
                     BindingValue::Var(value) => {
                         if is_primitive_constant(&value) {
@@ -44,7 +43,7 @@ impl CFP {
                             expr.clone()
                         }
                     },
-                    BindingValue::Arg(_) => self.env.resolve(name).unwrap().clone()
+                    BindingValue::Arg(_) => self.env.resolve(&binding.ptr()).unwrap().clone()
                 }
             }
             TypedExpr::AddInt(left, right, source) => self.try_fold_numeric(expr, left, right, Add::add, source),
@@ -75,7 +74,7 @@ impl CFP {
                         if let TypedExpr::Lambda(lambda, _) = &function as &TypedExpr {
                             self.env.push();
                             for (parameter, argument) in lambda.parameters.iter().zip(arguments.into_iter()) {
-                                self.env.bind(parameter.borrow().name.clone(), argument).unwrap();
+                                self.env.bind(parameter.ptr(), argument).unwrap();
                             }
                             let result = self.fold(&lambda.body);
                             self.env.pop();
@@ -95,7 +94,7 @@ impl CFP {
             TypedExpr::Lambda(lambda, source) => {
                 self.env.push();
                 for parameter in &lambda.parameters {
-                    self.env.bind(parameter.borrow().name.clone(), ExprRef::new(TypedExpr::Phantom)).unwrap();
+                    self.env.bind(parameter.ptr(), ExprRef::new(TypedExpr::Phantom)).unwrap();
                 }
                 let body = self.fold(&lambda.body);
                 self.env.pop();
