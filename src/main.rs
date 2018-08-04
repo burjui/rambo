@@ -78,12 +78,14 @@ fn process(path: &str, options: &ProcessOptions) -> Result<(), Box<dyn Error>> {
 
     println!(">> Semantic check");
     let hir0 = check_module(ast.as_slice())?;
+    drop(ast);
     if options.dump {
         println!("{}", hir0.iter().join_as_strings("\n"));
     }
 
     println!(">> Redunant bindings");
     let hir1 = RedundantBindings::remove(hir0.as_slice(), if options.warnings { Warnings::On } else { Warnings::Off });
+    drop(hir0);
     if options.dump {
         println!("{}", hir1.iter().join_as_strings("\n"));
     }
@@ -91,6 +93,7 @@ fn process(path: &str, options: &ProcessOptions) -> Result<(), Box<dyn Error>> {
     println!(">> CFP");
     let mut cfp = CFP::new();
     let hir2 = cfp.fold_and_propagate_constants(hir1.as_slice());
+    drop(hir1);
     if options.dump {
         println!("{}", hir2.iter().join_as_strings("\n"));
     }
