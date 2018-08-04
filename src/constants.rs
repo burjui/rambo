@@ -5,6 +5,7 @@ use std::ops::{Add, Sub, Mul, Div};
 use crate::semantics::*;
 use crate::env::Environment;
 use crate::source::Source;
+use crate::reduntant_bindings::{ RedundantBindings, Warnings };
 
 // TODO implement operation-specific optimizations, such as "x*1 = x", "x+0 = x" and so on
 
@@ -20,7 +21,7 @@ impl CFP {
     }
 
     crate fn fold_and_propagate_constants(&mut self, code: &[TypedStatement]) -> Vec<TypedStatement> {
-        code.into_iter()
+        let code = code.into_iter()
             .map(|statement| match statement {
                 TypedStatement::Binding(binding) => {
                     self.process_binding(binding);
@@ -28,7 +29,8 @@ impl CFP {
                 },
                 TypedStatement::Expr(expr) => TypedStatement::Expr(self.fold(&expr))
             })
-            .collect::<Vec<_>>()
+            .collect::<Vec<_>>();
+        RedundantBindings::remove(code.as_slice(), Warnings::Off)
     }
 
     #[must_use]
@@ -121,8 +123,11 @@ impl CFP {
                 self.env.push();
                 let statements = self.fold_and_propagate_constants(statements);
                 self.env.pop();
-                if statements.len() == 1 {
-                    if let TypedStatement::Expr(expr) = &statements[0] {
+                if statements.iter().all(|statement| match statement {
+                    TypedStatement::Expr(expr) => is_primitive_constant(expr),
+                    _ => false
+                }) {
+                    if let TypedStatement::Expr(expr) = &statements[statements.len() - 1] {
                         return expr.clone_at(source.clone())
                     }
                 }
@@ -168,14 +173,14 @@ impl CFP {
 
 fn is_constant(expr: &ExprRef) -> bool {
     match expr as &TypedExpr {
-        TypedExpr::Int(_, _) | &TypedExpr::String(_, _) | &TypedExpr::Lambda {..} => true,
+        &TypedExpr::Unit(_) | TypedExpr::Int(_, _) | &TypedExpr::String(_, _) | &TypedExpr::Lambda {..} => true,
         _ => false
     }
 }
 
 fn is_primitive_constant(expr: &ExprRef) -> bool {
     match expr as &TypedExpr {
-        TypedExpr::Int(_, _) | &TypedExpr::String(_, _) => true,
+        &TypedExpr::Unit(_) | TypedExpr::Int(_, _) | &TypedExpr::String(_, _) => true,
         _ => false
     }
 }
