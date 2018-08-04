@@ -1,7 +1,7 @@
 use petgraph::{ Graph, Direction, visit::EdgeRef, graph::NodeIndex, dot::{ Dot, Config } };
 use crate::semantics::*;
 use crate::source::Source;
-use std::collections::hash_map::HashMap;
+use std::collections::{ hash_map::HashMap, hash_set::HashSet };
 use crate::typed_visitor::{ TypedVisitor, NoOpTypedVisitor };
 
 #[derive(PartialEq)]
@@ -13,6 +13,18 @@ crate struct RedundantBindings {
     map: BindingToNodeMap
 }
 
+struct ReduntantBindingRemover {
+
+}
+
+impl ReduntantBindingRemover {
+
+}
+
+impl TypedVisitor for ReduntantBindingRemover {
+
+}
+
 impl RedundantBindings {
     crate fn remove(code: &[TypedStatement], warnings: Warnings) -> Vec<TypedStatement> {
         let (graph, map) = Reachability::compute(code);
@@ -21,32 +33,32 @@ impl RedundantBindings {
     }
 
     fn remove_unreachable(mut self, code: &[TypedStatement]) -> Vec<TypedStatement> {
-        let mut entries = self.map.into_iter().collect::<Vec<_>>();
-        entries.sort_by_key(|(binding, _)| unsafe { (**binding).borrow().source.range.start });
-
-        for (_, node) in &entries {
-            Self::process_node(&mut self.graph, *node);
-        }
-
-        for (binding, node) in &entries {
-            let incoming_count = self.graph.edges_directed(*node, Direction::Incoming).count();
-            if incoming_count == 0 && self.warnings == Warnings::On {
-                unsafe {
-                    let binding = (**binding).borrow();
-                    warning_at!(&binding.source, "redundant binding: {}", binding.source.text());
+        let mut disconnected_nodes = HashSet::<NodeIndex>::new();
+        let binding_nodes = self.map.values().map(|v| *v).collect::<Vec<_>>();
+        binding_nodes.into_iter().for_each(|node| Self::process_node(&mut self.graph, node, &mut disconnected_nodes));
+        {
+            let mut reduntant_sources = disconnected_nodes.iter()
+                .filter_map(|node| self.graph.node_weight(*node))
+                .map(|SourcePrinter(source)| source)
+                .collect::<Vec<_>>();
+            reduntant_sources.sort_by_key(|source| source.range.start);
+            if self.warnings == Warnings::On {
+                for source in reduntant_sources {
+                    warning_at!(source, "redundant binding: {}", source.text());
                 }
             }
         }
         NoOpTypedVisitor::new().visit_statements(code)
     }
 
-    fn process_node(graph: &mut ReachabilityGraph, node: NodeIndex) {
+    fn process_node(graph: &mut ReachabilityGraph, node: NodeIndex, disconnected_nodes: &mut HashSet<NodeIndex>) {
         let incoming_count = graph.edges_directed(node, Direction::Incoming).count();
         if incoming_count == 0 {
+            disconnected_nodes.insert(node);
             let outgoing = graph.edges_directed(node, Direction::Outgoing).map(|edge| (edge.id(), edge.target())).collect::<Vec<_>>();
             for (edge, dst) in &outgoing {
                 graph.remove_edge(*edge);
-                Self::process_node(graph, *dst);
+                Self::process_node(graph, *dst, disconnected_nodes);
             }
         }
     }
