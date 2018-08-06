@@ -501,7 +501,7 @@ impl Environment {
                 return Ok(ExprRef::new(TypedExpr::Deref(binding.clone(), name.clone())));
             }
         }
-        Err(From::from(format!("`{}' is undefined", name)))
+        error!("`{:?}' is undefined'", name)
     }
 
     fn push(&mut self) {

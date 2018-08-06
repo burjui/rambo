@@ -7,7 +7,9 @@ use std::rc::Rc;
 
 #[derive(Debug, PartialEq, Copy, Clone)]
 crate enum Token {
-    EOF, Id, Int, String, LParen, RParen, LBrace, RBrace, Eq, EqEq, Lt, LtEq, Gt, GtEq, Lambda, Minus, Arrow, Plus, Star, Slash, Colon
+    EOF, Id, Int, String, LParen, RParen, LBrace, RBrace,
+    Eq, EqEq, Lt, LtEq, Gt, GtEq, Lambda, Minus, Arrow,
+    Plus, Star, Slash, Colon, Comma
 }
 
 #[derive(Clone)]
@@ -209,6 +211,7 @@ impl Lexer {
             .or_else(|| on!('>', Token::Gt, on!('=', Token::GtEq)))
             .or_else(|| on!('→', Token::Arrow))
             .or_else(|| on!(':', Token::Colon))
+            .or_else(|| on!(',', Token::Comma))
             .or_else(|| on!('{', Token::LBrace))
             .or_else(|| on!('}', Token::RBrace))
             .map(|token| self.new_lexeme(token, None)))

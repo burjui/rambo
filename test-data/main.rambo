@@ -1,6 +1,6 @@
 ﻿let x = "abc"
 let y = "efg"
-let z = \ (a:str) (b:str) -> a + b
+let z = \ (a:str, b:str) -> a + b
 if 0 {
     "false"
 }

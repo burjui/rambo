@@ -335,23 +335,28 @@ impl Parser {
 
     fn parse_lambda(&mut self, start: &Source) -> ParseResult<Expr> {
         let mut parameters = vec![];
-        while self.lexeme.token == Token::LParen {
-            let lparen_source = self.lexeme.source.clone();
+        let lparen = self.expect(Token::LParen, "`('")?;
+        if self.lexeme.token == Token::RParen {
+            let rparen_source_end = self.lexeme.source.range.end;
             self.read_lexeme()?;
-            if self.lexeme.token == Token::RParen {
-                let rparen_source_end = self.lexeme.source.range.end;
-                self.read_lexeme()?;
-                parameters.push(Parameter {
-                    name: "_".to_string(),
-                    source: lparen_source.extend(rparen_source_end),
-                    type_: Type::Unit
-                });
-                break;
-            } else {
+            parameters.push(Parameter {
+                name: "_".to_string(),
+                source: lparen.source.extend(rparen_source_end),
+                type_: Type::Unit
+            });
+        } else {
+            let mut first = true;
+            while self.lexeme.token != Token::RParen {
+                if !first {
+                    self.expect(Token::Comma, "`,'")?;
+                }
                 let parameter = self.parse_parameter()?;
                 parameters.push(parameter);
+                first = false;
             }
+            self.read_lexeme()?
         }
+
         if parameters.is_empty() {
             error!(self, &format!("expected an argument list, found: {}", self.lexeme), &self.lexeme.source)
         } else {
@@ -366,13 +371,12 @@ impl Parser {
     }
 
     fn parse_parameter(&mut self) -> ParseResult<Parameter> {
-        let Lexeme { source, .. } = self.expect(Token::Id, "identifier")?;
+        let id = self.expect(Token::Id, "identifier")?;
         self.expect(Token::Colon, ":")?;
         let type_ = self.parse_type()?;
-        self.expect(Token::RParen, ")")?;
         Ok(Parameter {
-            name: source.text().to_string(),
-            source,
+            name: id.source.text().to_string(),
+            source: id.source.extend(self.previous_lexeme_end),
             type_
         })
     }
