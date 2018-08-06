@@ -8,6 +8,7 @@ use crate::source::Source;
 use crate::reduntant_bindings::{ RedundantBindings, Warnings };
 
 // TODO implement operation-specific optimizations, such as "x*1 = x", "x+0 = x" and so on
+// TODO get rid of unreachable()
 
 crate struct CFP {
     env: Environment<BindingPtr, ExprRef>
@@ -86,12 +87,9 @@ impl CFP {
                     expr.clone()
                 }
             },
-            TypedExpr::Assign(left, right, source) => {
-                match left as &TypedExpr {
-                    TypedExpr::Deref(binding, _) => binding.borrow_mut().assigned = true,
-                    _ => unreachable!()
-                };
-                ExprRef::new(TypedExpr::Assign(left.clone(), self.fold(right), source.clone()))
+            TypedExpr::Assign(binding, value, source) => {
+                binding.borrow_mut().assigned = true;
+                ExprRef::new(TypedExpr::Assign(binding.clone(), self.fold(value), source.clone()))
             },
             TypedExpr::Lambda(lambda, source) => {
                 self.env.push();

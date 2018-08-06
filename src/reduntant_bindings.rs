@@ -154,11 +154,13 @@ impl Reachability {
             TypedExpr::SubInt(left, right, _) |
             TypedExpr::MulInt(left, right, _) |
             TypedExpr::DivInt(left, right, _) |
-            TypedExpr::AddStr(left, right, _) |
-            TypedExpr::Assign(left, right, _) => {
+            TypedExpr::AddStr(left, right, _) => {
                 self.expr_reachability(left, origin);
                 self.expr_reachability(right, origin);
             },
+            TypedExpr::Assign(_, value, _) => {
+                self.expr_reachability(value, origin);
+            }
             TypedExpr::Conditional { condition, positive, negative, .. } => {
                 self.expr_reachability(condition, origin);
                 self.expr_reachability(positive, origin);

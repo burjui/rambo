@@ -77,15 +77,9 @@ impl<'a> Evaluator {
                     unreachable!()
                 }
             },
-            TypedExpr::Assign(left, right, _) => {
-                let left_binding;
-                if let TypedExpr::Deref(binding, _) = &left as &TypedExpr {
-                    left_binding = binding
-                } else {
-                    unreachable!()
-                };
-                let value = self.eval_expr(right)?;
-                self.env.bind_force(left_binding.ptr(), value.clone());
+            TypedExpr::Assign(binding, value, _) => {
+                let value = self.eval_expr(value)?;
+                self.env.bind_force(binding.ptr(), value.clone());
                 Ok(value)
             },
             TypedExpr::Deref(binding, _) => Ok(self.env.resolve(&binding.ptr()).unwrap()),

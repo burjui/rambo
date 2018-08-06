@@ -90,7 +90,7 @@ crate enum TypedExpr {
     MulInt(ExprRef, ExprRef, Source),
     DivInt(ExprRef, ExprRef, Source),
     AddStr(ExprRef, ExprRef, Source),
-    Assign(ExprRef, ExprRef, Source), // TODO turn first arg into binding
+    Assign(BindingRef, ExprRef, Source), // TODO turn first arg into binding
     Conditional {
         condition: ExprRef,
         positive: ExprRef,
@@ -144,7 +144,7 @@ impl TypedExpr {
             TypedExpr::AddStr(_, _, _) => Type::String,
 
             TypedExpr::Deref(binding, _) => binding.borrow().type_(),
-            TypedExpr::Assign(left, _, _) => left.type_(),
+            TypedExpr::Assign(binding, _, _) => binding.borrow().value.type_(),
             TypedExpr::Lambda(lambda, _) => Type::Function(lambda.type_.clone()),
             TypedExpr::Application { type_, .. } => type_.clone(),
             TypedExpr::Conditional { positive, negative, .. } => {
@@ -314,8 +314,8 @@ fn check_expr(env: &mut Environment, expr: &Expr) -> CheckResult<ExprRef> {
 
             match operation {
                 BinaryOperation::Assign => {
-                    if let TypedExpr::Deref(_, _) = *left_checked {
-                        Ok(ExprRef::new(TypedExpr::Assign(left_checked, right_checked, expr.source().clone())))
+                    if let TypedExpr::Deref(binding, _) = &*left_checked {
+                        Ok(ExprRef::new(TypedExpr::Assign(binding.clone(), right_checked, expr.source().clone())))
                     } else {
                         error!("a variable expected at the left side of assignment, but found: {:?}", left_checked)
                     }

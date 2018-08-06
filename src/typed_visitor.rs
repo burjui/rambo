@@ -40,7 +40,7 @@ crate trait TypedVisitor {
             TypedExpr::MulInt(left, right, source) => self.visit_mulint(expr, left, right, source),
             TypedExpr::DivInt(left, right, source) => self.visit_divint(expr, left, right, source),
             TypedExpr::AddStr(left, right, source) => self.visit_addstr(expr, left, right, source),
-            TypedExpr::Assign(left, right, source) => self.visit_assign(expr, left, right, source),
+            TypedExpr::Assign(binding, value, source) => self.visit_assign(expr, binding, value, source),
             TypedExpr::Conditional { condition, positive, negative, source } =>
                 self.visit_conditional(expr, condition, positive, negative, source),
             TypedExpr::Block(statements, source) => self.visit_block(expr, statements, source),
@@ -174,19 +174,15 @@ crate trait TypedVisitor {
         ExprRef::new(TypedExpr::AddStr(left.clone(), right.clone(), source.clone()))
     }
 
-    fn visit_assign(&mut self, expr: &ExprRef, left: &ExprRef, right: &ExprRef, source: &Source) -> ExprRef {
-        let left = if let TypedExpr::Deref(binding, source) = left as &TypedExpr {
-            ExprRef::new(TypedExpr::Deref(self.visit_binding(binding), source.clone()))
-        } else {
-            unreachable!()
-        };
-        let right = self.visit(right);
-        self.post_assign(expr, left, right, source)
+    fn visit_assign(&mut self, expr: &ExprRef, binding: &BindingRef, value: &ExprRef, source: &Source) -> ExprRef {
+        let binding = self.visit_binding(binding);
+        let value = self.visit(value);
+        self.post_assign(expr, binding, value, source)
     }
 
     #[allow(unused)]
-    fn post_assign(&mut self, expr: &ExprRef, left: ExprRef, right: ExprRef, source: &Source) -> ExprRef {
-        ExprRef::new(TypedExpr::Assign(left.clone(), right.clone(), source.clone()))
+    fn post_assign(&mut self, expr: &ExprRef, binding: BindingRef, value: ExprRef, source: &Source) -> ExprRef {
+        ExprRef::new(TypedExpr::Assign(binding, value, source.clone()))
     }
 
     fn visit_conditional(&mut self, expr: &ExprRef, condition: &ExprRef, positive: &ExprRef, negative: &Option<ExprRef>, source: &Source) -> ExprRef {
