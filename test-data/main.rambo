@@ -8,3 +8,4 @@ else {
     let a = (z x y)
     z a "/test"
 }
+let nn = 1

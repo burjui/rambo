@@ -14,6 +14,7 @@ mod constants;
 mod env;
 mod reduntant_bindings;
 mod typed_visitor;
+mod cfg;
 
 use getopts::Options;
 use std::env::{args as program_args};
@@ -27,6 +28,7 @@ use crate::semantics::*;
 use crate::constants::*;
 use crate::utils::*;
 use crate::reduntant_bindings::*;
+use crate::cfg::*;
 
 fn main() {
     let args: Vec<String> = program_args().collect();
@@ -82,6 +84,10 @@ fn process(path: &str, options: &ProcessOptions) -> Result<(), Box<dyn Error>> {
     if options.dump {
         println!("{}", hir0.iter().join_as_strings("\n"));
     }
+
+    println!(">> CFG");
+    let cfg = construct_cfg(hir0.as_slice());
+    display_graph(&cfg, "cfg.dot");
 
     println!(">> Redunant bindings");
     let hir1 = RedundantBindings::remove(hir0.as_slice(), if options.warnings { Warnings::On } else { Warnings::Off });
