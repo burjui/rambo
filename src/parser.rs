@@ -361,7 +361,7 @@ impl Parser {
             error!(self, &format!("expected an argument list, found: {}", self.lexeme), &self.lexeme.source)
         } else {
             self.expect(Token::Arrow, "arrow")?;
-            let body = self.parse_expression()?;
+            let body = self.parse_block_or_expr()?;
             Ok(Expr::Lambda {
                 source: start.extend(self.previous_lexeme_end),
                 parameters,

@@ -9,7 +9,7 @@ crate fn construct_cfg(code: &[TypedStatement]) -> CFG {
     let mut cfg = CFG::new();
     let entry_block = cfg.add_node(CFGNode::Entry);
     let exit_block = cfg.add_node(CFGNode::Exit);
-    let last_block = scan_basic_blocks(&mut cfg, entry_block, code);
+    let (_, last_block) = scan_basic_blocks(&mut cfg, entry_block, code);
     let last_block_length = if let CFGNode::BasicBlock(block) = cfg.node_weight(last_block).unwrap() {
         block.block.borrow().statements.len()
     } else {
@@ -27,37 +27,83 @@ crate fn construct_cfg(code: &[TypedStatement]) -> CFG {
     cfg
 }
 
-fn scan_basic_blocks(cfg: &mut CFG, entry: NodeIndex, code: &[TypedStatement]) -> NodeIndex {
+fn scan_basic_blocks_expr(cfg: &mut CFG, entry: NodeIndex, expr: &ExprRef) -> Option<(BasicBlockRef, NodeIndex)> {
+    match expr as &TypedExpr {
+        TypedExpr::Conditional { condition, positive, negative, .. } => {
+            let condition_node = if let Some((_, node)) = scan_basic_blocks_expr(cfg, entry, condition) {
+                node
+            } else {
+                let (block, node) = new_basic_block(cfg);
+                block.push(TypedStatement::Expr(condition.clone()));
+                node
+            };
+            cfg.add_edge(entry, condition_node, 0);
+
+            let positive_node = if let Some((_, node)) = scan_basic_blocks_expr(cfg, condition_node, positive) {
+                node
+            } else {
+                let (block, node) = new_basic_block(cfg);
+                block.push(TypedStatement::Expr(positive.clone()));
+                cfg.add_edge(condition_node, node, 0);
+                node
+            };
+
+            let negative_node = negative.as_ref().map(|clause| {
+                if let Some((_, node)) = scan_basic_blocks_expr(cfg, condition_node, clause) {
+                    node
+                } else {
+                    let (block, node) = new_basic_block(cfg);
+                    block.push(TypedStatement::Expr(clause.clone()));
+                    cfg.add_edge(condition_node, node, 0);
+                    node
+                }
+            });
+
+            let (exit_block, exit_node) = new_basic_block(cfg);
+            cfg.add_edge(positive_node, exit_node, 0);
+            negative_node.map(|negative_node| cfg.add_edge(negative_node, exit_node, 0));
+            Some((exit_block, exit_node))
+        },
+        TypedExpr::Application { function, .. } => {
+            let binding = if let TypedExpr::Deref(binding, _) = function as &TypedExpr {
+                binding
+            } else {
+                unreachable!()
+            };
+            let lambda = if let BindingValue::Var(value) = &binding.borrow().value {
+                if let TypedExpr::Lambda(lambda, _) = value as &TypedExpr {
+                    lambda.clone()
+                } else {
+                    unreachable!()
+                }
+            } else {
+                unreachable!()
+            };
+            println!("##### {:?}", lambda);
+            scan_basic_blocks_expr(cfg, entry, &lambda.body)
+        },
+        TypedExpr::Block(statements, _) => Some(scan_basic_blocks(cfg, entry, statements)),
+        _ => None
+    }
+}
+
+fn scan_basic_blocks(cfg: &mut CFG, entry: NodeIndex, code: &[TypedStatement]) -> (BasicBlockRef, NodeIndex) {
     let (mut current_block, mut current_node) = new_basic_block(cfg);
     cfg.add_edge(entry, current_node, 0);
     for statement in code {
         match statement {
             TypedStatement::Binding(_) => current_block.push(statement.clone()),
             TypedStatement::Expr(expr) => {
-                if let TypedExpr::Conditional { positive, negative, .. } = expr as &TypedExpr {
-                    current_block.push(statement.clone());
-                    let (positive_block, positive_node) = new_basic_block(cfg);
-                    positive_block.push(TypedStatement::Expr(positive.clone()));
-                    cfg.add_edge(current_node, positive_node, 0);
-                    let negative_node = negative.as_ref().map(|clause| {
-                        let (block, node) = new_basic_block(cfg);
-                        block.push(TypedStatement::Expr(clause.clone()));
-                        cfg.add_edge(current_node, node, 0);
-                        node
-                    });
-
-                    let (block, node) = new_basic_block(cfg);
+                if let Some((block, node)) = scan_basic_blocks_expr(cfg, current_node, expr) {
                     current_block = block;
                     current_node = node;
-                    cfg.add_edge(positive_node, current_node, 0);
-                    negative_node.map(|node| cfg.add_edge(node, current_node, 0));
                 } else {
                     current_block.push(statement.clone());
                 }
             }
         }
     }
-    current_node
+    (current_block, current_node)
 }
 
 fn new_basic_block(cfg: &mut CFG) -> (BasicBlockRef, NodeIndex) {

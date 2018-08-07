@@ -89,7 +89,7 @@ fn process(path: &str, options: &ProcessOptions) -> Result<(), Box<dyn Error>> {
     let cfg = construct_cfg(hir0.as_slice());
     display_graph(&cfg, "cfg.dot");
 
-    println!(">> Redunant bindings");
+    println!(">> Redunant bindings (pass 1)");
     let hir1 = RedundantBindings::remove(hir0.as_slice(), if options.warnings { Warnings::On } else { Warnings::Off });
     drop(hir0);
     if options.dump {
@@ -98,14 +98,29 @@ fn process(path: &str, options: &ProcessOptions) -> Result<(), Box<dyn Error>> {
 
     println!(">> CFP");
     let mut cfp = CFP::new();
-    let hir2 = cfp.fold_and_propagate_constants(hir1.as_slice());
+    let hir2 = cfp.fold_statements(hir1.as_slice());
     drop(hir1);
     if options.dump {
         println!("{}", hir2.iter().join_as_strings("\n"));
     }
 
+    println!(">> Redunant bindings (pass2)");
+    let hir3 = RedundantBindings::remove(hir2.as_slice(), Warnings::Off);
+    drop(hir2);
+    if options.dump {
+        println!("{}", hir3.iter().join_as_strings("\n"));
+    }
+
+    println!(">> CFP2");
+    let mut cfp = CFP::new();
+    let hir4 = cfp.fold_statements(hir3.as_slice());
+    drop(hir3);
+    if options.dump {
+        println!("{}", hir4.iter().join_as_strings("\n"));
+    }
+
     let mut evaluator = Evaluator::new();
-    let evalue = evaluator.eval_module(hir2.as_slice())?;
+    let evalue = evaluator.eval_module(hir4.as_slice())?;
     println!(">> Evaluated: {:?}", evalue);
 
     Ok(())

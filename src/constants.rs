@@ -21,8 +21,8 @@ impl CFP {
         }
     }
 
-    crate fn fold_and_propagate_constants(&mut self, code: &[TypedStatement]) -> Vec<TypedStatement> {
-        let code = code.into_iter()
+    crate fn fold_statements(&mut self, code: &[TypedStatement]) -> Vec<TypedStatement> {
+        code.into_iter()
             .map(|statement| match statement {
                 TypedStatement::Binding(binding) => {
                     self.process_binding(binding);
@@ -30,8 +30,7 @@ impl CFP {
                 },
                 TypedStatement::Expr(expr) => TypedStatement::Expr(self.fold(&expr))
             })
-            .collect::<Vec<_>>();
-        RedundantBindings::remove(code.as_slice(), Warnings::Off)
+            .collect::<Vec<_>>()
     }
 
     #[must_use]
@@ -119,10 +118,12 @@ impl CFP {
             },
             TypedExpr::Block(statements, source) => {
                 self.env.push();
-                let statements = self.fold_and_propagate_constants(statements);
+                let statements = self.fold_statements(statements);
                 self.env.pop();
                 if statements.iter().all(|statement| match statement {
-                    TypedStatement::Expr(expr) => is_primitive_constant(expr),
+                    TypedStatement::Expr(expr) => {
+                        is_primitive_constant(expr)
+                    },
                     _ => false
                 }) {
                     if let TypedStatement::Expr(expr) = &statements[statements.len() - 1] {
