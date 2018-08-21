@@ -73,7 +73,7 @@ impl Debug for Lambda {
 }
 
 crate enum TypedExpr {
-    Phantom,
+    Phantom, // TODO rename to PseudoArg
     Unit(Source),
     Int(BigInt, Source),
     String(String, Source),
