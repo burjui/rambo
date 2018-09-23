@@ -1,4 +1,4 @@
-#![feature(rust_2018_preview)]
+#![feature(crate_visibility_modifier)]
 #![warn(rust_2018_idioms)]
 #![feature(box_syntax)]
 #![feature(box_patterns)]
@@ -12,14 +12,12 @@ mod eval;
 mod semantics;
 mod constants;
 mod env;
-mod reduntant_bindings;
+mod redundant_bindings;
 mod typed_visitor;
 mod cfg;
 
-use getopts::Options;
 use std::env::{args as program_args};
 use std::error::Error;
-
 use crate::source::*;
 use crate::lexer::Lexer;
 use crate::parser::*;
@@ -27,8 +25,9 @@ use crate::eval::*;
 use crate::semantics::*;
 use crate::constants::*;
 use crate::utils::*;
-use crate::reduntant_bindings::*;
+use crate::redundant_bindings::*;
 use crate::cfg::*;
+use getopts::Options;
 
 fn main() {
     let args: Vec<String> = program_args().collect();
@@ -36,8 +35,10 @@ fn main() {
     opts.optflag("h", "help", "print this help menu");
     const WARNINGS_OPTION: &str = "w";
     const DUMP_OPTION: &str = "d";
+    const DUMP_CFG_OPTION: &str = "dump-cfg";
     opts.optflag(WARNINGS_OPTION, "", "suppress warnings");
     opts.optflag(DUMP_OPTION, "dump", "dump intermediate compilation results, e.g. AST");
+    opts.optflag("", DUMP_CFG_OPTION, "dump CFGs");
 
     let matches = opts.parse(&args[1..]).unwrap();
     if matches.opt_present("h") || matches.free.is_empty() {
@@ -46,7 +47,8 @@ fn main() {
         for path in &matches.free {
             let options = &ProcessOptions {
                 warnings: !matches.opt_present(WARNINGS_OPTION),
-                dump: matches.opt_present(DUMP_OPTION)
+                dump_intermediate: matches.opt_present(DUMP_OPTION),
+                dump_cfg: matches.opt_present(DUMP_CFG_OPTION)
             };
             match process(path, &options) {
                 Ok(_) => {},
@@ -58,7 +60,8 @@ fn main() {
 
 struct ProcessOptions {
     warnings: bool,
-    dump: bool // dump intermediate compilation results
+    dump_intermediate: bool,
+    dump_cfg: bool
 }
 
 fn process(path: &str, options: &ProcessOptions) -> Result<(), Box<dyn Error>> {
@@ -74,49 +77,57 @@ fn process(path: &str, options: &ProcessOptions) -> Result<(), Box<dyn Error>> {
     let ast = parser.parse()?;
     let stats = { parser.lexer_stats() };
     println!("{}, {} lines, {} lexemes", file_size_pretty(source_code_length), line_count, stats.lexeme_count);
-    if options.dump {
+    if options.dump_intermediate {
         println!(".. AST:\n{}", ast.iter().join_as_strings("\n"));
     }
 
     println!(">> Semantic check");
     let hir0 = check_module(ast.as_slice())?;
     drop(ast);
-    if options.dump {
+    if options.dump_intermediate {
         println!("{}", hir0.iter().join_as_strings("\n"));
     }
 
     println!(">> CFG");
     let cfg = construct_cfg(hir0.as_slice());
-    display_graph(&cfg, "cfg.dot");
+    if options.dump_cfg {
+        dump_graph(&cfg, "cfg.dot");
+    }
 
-    println!(">> Redunant bindings (pass 1)");
+    println!(">> Redundant bindings (pass 1)");
     let hir1 = RedundantBindings::remove(hir0.as_slice(), if options.warnings { Warnings::On } else { Warnings::Off });
     drop(hir0);
-    if options.dump {
+    if options.dump_intermediate {
         println!("{}", hir1.iter().join_as_strings("\n"));
     }
 
-    println!(">> CFP");
+    println!(">> CFP (pass 1)");
     let mut cfp = CFP::new();
     let hir2 = cfp.fold_statements(hir1.as_slice());
     drop(hir1);
-    if options.dump {
+    if options.dump_intermediate {
         println!("{}", hir2.iter().join_as_strings("\n"));
     }
 
-    println!(">> Redunant bindings (pass2)");
+    println!(">> Redundant bindings (pass 2)");
     let hir3 = RedundantBindings::remove(hir2.as_slice(), Warnings::Off);
     drop(hir2);
-    if options.dump {
+    if options.dump_intermediate {
         println!("{}", hir3.iter().join_as_strings("\n"));
     }
 
-    println!(">> CFP2");
+    println!(">> CFP (pass 2)");
     let mut cfp = CFP::new();
     let hir4 = cfp.fold_statements(hir3.as_slice());
     drop(hir3);
-    if options.dump {
+    if options.dump_intermediate {
         println!("{}", hir4.iter().join_as_strings("\n"));
+    }
+
+    println!(">> CFG (optimized)");
+    let cfg = construct_cfg(hir4.as_slice());
+    if options.dump_cfg {
+        dump_graph(&cfg, "cfg-optimized.dot");
     }
 
     let mut evaluator = Evaluator::new();

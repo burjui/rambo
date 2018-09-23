@@ -1,4 +1,4 @@
-use petgraph::{ Graph, Direction, visit::EdgeRef, graph::NodeIndex, dot::{ Dot, Config } };
+use petgraph::{ Graph, Direction, visit::EdgeRef, graph::NodeIndex };
 use crate::semantics::*;
 use crate::source::Source;
 use std::collections::{ hash_map::HashMap, hash_set::HashSet };
@@ -194,18 +194,4 @@ impl fmt::Display for SourcePrinter {
         let source = &self.0;
         write!(f, "{} [{:?}]", source.text(), source.file.position(source.range.start).unwrap())
     }
-}
-
-#[allow(unused)]
-fn display_graph(graph: &ReachabilityGraph, filename: &str) {
-    use std::fs::File;
-    use std::io::BufWriter;
-    use std::io::Write;
-    use std::process::Command;
-    {
-        let file = File::create(filename).unwrap();
-        let x = Dot::with_config(graph, &[Config::EdgeNoLabel]);
-        writeln!(BufWriter::new(file), "{}", x);
-    }
-    let _ = Command::new("dot").arg("-Txlib").arg(filename).spawn();
 }

@@ -5,7 +5,6 @@ use std::ops::{Add, Sub, Mul, Div};
 use crate::semantics::*;
 use crate::env::Environment;
 use crate::source::Source;
-use crate::reduntant_bindings::{ RedundantBindings, Warnings };
 
 // TODO implement operation-specific optimizations, such as "x*1 = x", "x+0 = x" and so on
 // TODO get rid of unreachable()

@@ -16,15 +16,36 @@ crate fn construct_cfg(code: &[TypedStatement]) -> CFG {
         unreachable!()
     };
     if last_block_length == 0 {
-        let incoming = cfg.edges_directed(last_block, Direction::Incoming).collect::<Vec<_>>();
-        for edge in incoming {
-            cfg.add_edge(edge.source(), exit_block, 0);
-            cfg.remove_edge(edge.id());
+        let incoming = cfg.edges_directed(last_block, Direction::Incoming)
+            .map(|edge| (edge.source(), edge.id()))
+            .collect::<Vec<_>>();
+        for (source, id) in incoming {
+            cfg.add_edge(source, exit_block, 0);
+            cfg.remove_edge(id);
         }
     } else {
         cfg.add_edge(last_block, exit_block, 0);
     }
     cfg
+}
+
+fn scan_basic_blocks(cfg: &mut CFG, entry: NodeIndex, code: &[TypedStatement]) -> (BasicBlockRef, NodeIndex) {
+    let (mut current_block, mut current_node) = new_basic_block(cfg);
+    cfg.add_edge(entry, current_node, 0);
+    for statement in code {
+        match statement {
+            TypedStatement::Binding(_) => current_block.push(statement.clone()),
+            TypedStatement::Expr(expr) => {
+                if let Some((block, node)) = scan_basic_blocks_expr(cfg, current_node, expr) {
+                    current_block = block;
+                    current_node = node;
+                } else {
+                    current_block.push(statement.clone());
+                }
+            }
+        }
+    }
+    (current_block, current_node)
 }
 
 fn scan_basic_blocks_expr(cfg: &mut CFG, entry: NodeIndex, expr: &ExprRef) -> Option<(BasicBlockRef, NodeIndex)> {
@@ -79,31 +100,11 @@ fn scan_basic_blocks_expr(cfg: &mut CFG, entry: NodeIndex, expr: &ExprRef) -> Op
             } else {
                 unreachable!()
             };
-            println!("##### {:?}", lambda);
             scan_basic_blocks_expr(cfg, entry, &lambda.body)
         },
         TypedExpr::Block(statements, _) => Some(scan_basic_blocks(cfg, entry, statements)),
         _ => None
     }
-}
-
-fn scan_basic_blocks(cfg: &mut CFG, entry: NodeIndex, code: &[TypedStatement]) -> (BasicBlockRef, NodeIndex) {
-    let (mut current_block, mut current_node) = new_basic_block(cfg);
-    cfg.add_edge(entry, current_node, 0);
-    for statement in code {
-        match statement {
-            TypedStatement::Binding(_) => current_block.push(statement.clone()),
-            TypedStatement::Expr(expr) => {
-                if let Some((block, node)) = scan_basic_blocks_expr(cfg, current_node, expr) {
-                    current_block = block;
-                    current_node = node;
-                } else {
-                    current_block.push(statement.clone());
-                }
-            }
-        }
-    }
-    (current_block, current_node)
 }
 
 fn new_basic_block(cfg: &mut CFG) -> (BasicBlockRef, NodeIndex) {
@@ -172,15 +173,11 @@ impl fmt::Display for CFGNode {
 type CFG = Graph<CFGNode, u8>;
 
 #[allow(unused)]
-crate fn display_graph(graph: &CFG, filename: &str) {
+crate fn dump_graph(graph: &CFG, filename: &str) {
     use std::fs::File;
     use std::io::BufWriter;
     use std::io::Write;
-    use std::process::Command;
-    {
-        let file = File::create(filename).unwrap();
-        let x = Dot::with_config(graph, &[Config::EdgeNoLabel]);
-        writeln!(BufWriter::new(file), "{}", x);
-    }
-    let _ = Command::new("dot").arg("-Txlib").arg(filename).spawn();
+    let file = File::create(filename).unwrap();
+    let x = Dot::with_config(graph, &[Config::EdgeNoLabel]);
+    writeln!(BufWriter::new(file), "{}", x);
 }
