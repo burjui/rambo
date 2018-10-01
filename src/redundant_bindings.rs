@@ -25,21 +25,21 @@ impl RedundantBindings {
         let binding_nodes = self.map.values().map(|v| *v).collect::<Vec<_>>();
         binding_nodes.into_iter().for_each(|node| Self::process_node(&mut self.graph, node, &mut disconnected_nodes));
         {
-            let mut reduntant_sources = disconnected_nodes.iter()
+            let mut redundant_sources = disconnected_nodes.iter()
                 .filter_map(|node| self.graph.node_weight(*node))
                 .map(|SourcePrinter(source)| source)
                 .collect::<Vec<_>>();
-            reduntant_sources.sort_by_key(|source| source.range.start);
+            redundant_sources.sort_by_key(|source| source.range.start);
             if self.warnings == Warnings::On {
-                for source in reduntant_sources {
+                for source in redundant_sources {
                     warning_at!(source, "redundant definition: {}", source.text());
                 }
             }
         }
-        let reduntant_bindings = self.map.into_iter()
+        let redundant_bindings = self.map.into_iter()
             .filter_map(|(binding, node)| if disconnected_nodes.contains(&node) { Some(binding) } else { None })
             .collect::<HashSet<_>>();
-        ReduntantBindingRemover::new(reduntant_bindings).visit_statements(code)
+        RedundantBindingRemover::new(redundant_bindings).visit_statements(code)
     }
 
     fn process_node(graph: &mut ReachabilityGraph, node: NodeIndex, disconnected_nodes: &mut HashSet<NodeIndex>) {
@@ -63,17 +63,17 @@ struct Reachability {
     map: BindingToNodeMap
 }
 
-struct ReduntantBindingRemover {
-    reduntant_bindings: HashSet<BindingPtr>
+struct RedundantBindingRemover {
+    redundant_bindings: HashSet<BindingPtr>
 }
 
-impl ReduntantBindingRemover {
-    fn new(reduntant_bindings: HashSet<BindingPtr>) -> Self {
-        Self { reduntant_bindings }
+impl RedundantBindingRemover {
+    fn new(redundant_bindings: HashSet<BindingPtr>) -> Self {
+        Self { redundant_bindings }
     }
 }
 
-impl TypedVisitor for ReduntantBindingRemover {
+impl TypedVisitor for RedundantBindingRemover {
     fn post_statements(&mut self, statements: Vec<TypedStatement>) -> Vec<TypedStatement> {
         // Remove consecutive `()' left from redundant bindings
         let mut previous_expr_is_unit = false;
@@ -99,7 +99,7 @@ impl TypedVisitor for ReduntantBindingRemover {
     fn visit_statement(&mut self, statement: &TypedStatement) -> Option<TypedStatement> {
         match statement {
             TypedStatement::Binding(binding) =>
-                if self.reduntant_bindings.contains(&binding.ptr()) {
+                if self.redundant_bindings.contains(&binding.ptr()) {
                     let unit = TypedExpr::Unit(binding.borrow().source.clone());
                     Some(TypedStatement::Expr(ExprRef::new(unit)))
                 } else {

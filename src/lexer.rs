@@ -94,7 +94,7 @@ impl Lexer {
 
     /// Returns (Lexeme, line) pair
     crate fn read(&mut self) -> LexerResult<(Lexeme, usize)> {
-        self.skip_whitepace()?;
+        self.skip_whitespace()?;
         self.lexeme_offset = self.current_offset;
         self.lexeme_line = self.current_line;
         match self.current_character {
@@ -228,7 +228,7 @@ impl Lexer {
         Lexeme { token, source }
     }
 
-    fn skip_whitepace(&mut self) -> LexerResult<()> {
+    fn skip_whitespace(&mut self) -> LexerResult<()> {
         while let Some(c) = self.current_character {
             if c.is_whitespace() {
                 self.read_char();
