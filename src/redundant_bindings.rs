@@ -22,18 +22,16 @@ impl RedundantBindings {
 
     fn remove_unreachable(mut self, code: &[TypedStatement]) -> Vec<TypedStatement> {
         let mut disconnected_nodes = HashSet::<NodeIndex>::new();
-        let binding_nodes = self.map.values().map(|v| *v).collect::<Vec<_>>();
+        let binding_nodes = self.map.values().cloned().collect::<Vec<_>>();
         binding_nodes.into_iter().for_each(|node| Self::process_node(&mut self.graph, node, &mut disconnected_nodes));
-        {
-            let mut redundant_sources = disconnected_nodes.iter()
-                .filter_map(|node| self.graph.node_weight(*node))
-                .map(|SourcePrinter(source)| source)
-                .collect::<Vec<_>>();
-            redundant_sources.sort_by_key(|source| source.range.start);
-            if self.warnings == Warnings::On {
-                for source in redundant_sources {
-                    warning_at!(source, "redundant definition: {}", source.text());
-                }
+        let mut redundant_sources = disconnected_nodes.iter()
+            .filter_map(|node| self.graph.node_weight(*node))
+            .map(|SourcePrinter(source)| source)
+            .collect::<Vec<_>>();
+        redundant_sources.sort_by_key(|source| source.range.start);
+        if self.warnings == Warnings::On {
+            for source in redundant_sources {
+                warning_at!(source, "redundant definition: {}", source.text());
             }
         }
         let redundant_bindings = self.map.into_iter()
@@ -137,10 +135,10 @@ impl Reachability {
             TypedExpr::String(_, _) => {},
             TypedExpr::Deref(binding, source) => {
                 let src = origin.as_ref()
-                    .map(|origin| *self.map.get(&origin.ptr()).unwrap())
+                    .map(|origin| self.map[&origin.ptr()])
                     .unwrap_or_else(|| self.graph.add_node(SourcePrinter(source.clone())));
-                let dst = self.map.get(&binding.ptr()).unwrap();
-                self.graph.add_edge(src, *dst, 0);
+                let dst = self.map[&binding.ptr()];
+                self.graph.add_edge(src, dst, 0);
             },
             TypedExpr::Lambda(lambda, _) => {
                 lambda.parameters.iter().for_each(|parameter| self.register(parameter));
@@ -164,7 +162,9 @@ impl Reachability {
             TypedExpr::Conditional { condition, positive, negative, .. } => {
                 self.expr_reachability(condition, origin);
                 self.expr_reachability(positive, origin);
-                negative.as_ref().map(|clause| self.expr_reachability(clause, origin));
+                if let Some(clause) = negative.as_ref() {
+                    self.expr_reachability(clause, origin)
+                }
             },
             TypedExpr::Block(statements, _) => self.compute_reachability(statements.as_slice(), origin)
         }

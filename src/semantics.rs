@@ -283,7 +283,7 @@ fn check_statement(env: &mut Environment, statement: &Statement) -> CheckResult<
                 dirty: false,
                 source: source.clone()
             }));
-            env.bind(binding.clone())?;
+            env.bind(&binding)?;
             Ok(TypedStatement::Binding(binding))
         }
     }
@@ -365,7 +365,7 @@ fn check_expr(env: &mut Environment, expr: &Expr) -> CheckResult<ExprRef> {
                 for (parameter, argument) in function_parameters.iter().zip(arguments.iter()) {
                     let argument_checked = check_expr(env, argument)?;
                     let argument_type = argument_checked.type_();
-                    if &argument_type != &parameter.type_ {
+                    if argument_type != parameter.type_ {
                         return error!("argument type mismatch for {}: expected `{:?}', found `{:?}'\n  {:?}",
                             parameter.name, parameter.type_, argument_type, argument);
                     }
@@ -445,7 +445,7 @@ fn check_function(env: &mut Environment, parameters: &[ParsedParameter], body: &
             source: parameter.source.clone()
         }));
         parameter_bindings.push(binding.clone());
-        env.bind(binding)?;
+        env.bind(&binding)?;
     }
     let body = check_expr(env, body)?;
     env.pop();
@@ -484,9 +484,9 @@ impl Environment {
         }
     }
 
-    crate fn bind(&self, binding: BindingRef) -> Result<(), Box<dyn Error>> {
+    crate fn bind(&self, binding: &BindingRef) -> Result<(), Box<dyn Error>> {
         let name = &binding.borrow().name;
-        if let &BindingValue::Arg(_) = &binding.borrow().value {
+        if let BindingValue::Arg(_) = &binding.borrow().value {
             if self.last().borrow().contains_key(name) {
                 return error!("redefinition of parameter {}", name)
             }

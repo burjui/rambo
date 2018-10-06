@@ -103,7 +103,7 @@ impl<'a> Evaluator {
             TypedExpr::Conditional { condition, positive, negative, .. } => {
                 let condition = match self.eval_expr(condition)? {
                     Evalue::Int(value) => !value.is_zero(),
-                    Evalue::String(value) => value.len() > 0,
+                    Evalue::String(value) => value.is_empty(),
                     _ => unreachable!()
                 };
                 let clause = if condition {

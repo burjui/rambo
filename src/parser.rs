@@ -431,14 +431,14 @@ enum Precedence {
 }
 
 impl Precedence {
-    fn next_binary_precedence(&self) -> Option<Precedence> {
-        let next_precedence = match *self {
+    fn next_binary_precedence(self) -> Option<Precedence> {
+        let next_precedence = match self {
             Precedence::Assignment => Some(Precedence::Additive),
             Precedence::Additive => Some(Precedence::Multiplicative),
             _ => None
         };
         if let Some(next_precedence) = next_precedence {
-            assert!(next_precedence > *self)
+            assert!(next_precedence > self)
         }
         next_precedence
     }

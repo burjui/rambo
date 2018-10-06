@@ -39,7 +39,7 @@ impl CFP {
                 match &binding.borrow().value {
                     BindingValue::Var(value) => {
                         if is_primitive_constant(&value) {
-                            return value.clone_at(source.clone())
+                            value.clone_at(source.clone())
                         } else {
                             expr.clone()
                         }

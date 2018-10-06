@@ -42,7 +42,7 @@ fn main() {
 
     let matches = opts.parse(&args[1..]).unwrap();
     if matches.opt_present("h") || matches.free.is_empty() {
-        print_usage(&args[0], opts);
+        print_usage(&args[0], &opts);
     } else {
         for path in &matches.free {
             let options = &ProcessOptions {
@@ -137,7 +137,7 @@ fn process(path: &str, options: &ProcessOptions) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn print_usage(program: &str, opts: Options) {
+fn print_usage(program: &str, opts: &Options) {
     let brief = format!("Usage: {} FILES [options]", program);
     print!("{}", opts.usage(&brief));
 }
