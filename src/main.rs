@@ -143,11 +143,11 @@ fn print_usage(program: &str, opts: &Options) {
 }
 
 fn file_size_pretty(size: usize) -> String {
-    [(usize::pow(2, 30), "GiB"),
-     (usize::pow(2, 20), "MiB"),
-     (usize::pow(2, 10), "KiB")]
+    [(usize::pow(2, 30), "G"),
+     (usize::pow(2, 20), "M"),
+     (usize::pow(2, 10), "K")]
     .iter()
     .find(|(unit, _)| size >= *unit)
-    .map(|&(unit, name)| format!("{:.2} {}", size as f32 / unit as f32, name))
+    .map(|&(unit, name)| format!("{:.2} {}iB", size as f32 / unit as f32, name))
     .unwrap_or_else(|| format!("{} bytes", size))
 }
