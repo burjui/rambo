@@ -69,41 +69,18 @@ fn process(path: &str, options: &ProcessOptions) -> Result<(), Box<dyn Error>> {
     let source_file = load_source_file_pass(path)?;
     let ast = parse_source_file_pass(source_file, options)?;
     let hir0 = semantic_check_pass(ast, options)?;
-    let hir1 = construct_cfg_pass(hir0, options)?;
+    let hir1 = construct_cfg_pass(hir0, "cfg.dot", "", options);
     let mut redundant_bindings_pass_count: u8 = 0;
-    let hir2 = redundant_bindings_pass(hir1, &mut redundant_bindings_pass_count, options)?;
-
-    println!(">> CFP (pass 1)");
-    let mut cfp = CFP::new();
-    let hir3 = cfp.fold_statements(hir2.as_slice());
-    drop(hir2);
-    if options.dump_intermediate {
-        println!("{}", hir3.iter().join_as_strings("\n"));
-    }
-
+    let hir2 = redundant_bindings_pass(hir1, &mut redundant_bindings_pass_count, options);
+    let mut cfp_pass_count: u8 = 0;
+    let hir3 = cfp_pass(hir2, &mut cfp_pass_count, options);
     let hir4 = redundant_bindings_pass(hir3, &mut redundant_bindings_pass_count, &ProcessOptions {
         warnings: false,
         ..*options
-    })?;
-
-    println!(">> CFP (pass 2)");
-    let mut cfp = CFP::new();
-    let hir5 = cfp.fold_statements(hir4.as_slice());
-    drop(hir4);
-    if options.dump_intermediate {
-        println!("{}", hir5.iter().join_as_strings("\n"));
-    }
-
-    println!(">> CFG (optimized)");
-    let cfg = construct_cfg(hir5.as_slice());
-    if options.dump_cfg {
-        dump_graph(&cfg, "cfg-optimized.dot");
-    }
-
-    let mut evaluator = Evaluator::new();
-    let evalue = evaluator.eval_module(hir5.as_slice())?;
-    println!(">> Evaluated: {:?}", evalue);
-
+    });
+    let hir5 = cfp_pass(hir4, &mut cfp_pass_count, options);
+    let hir6 = construct_cfg_pass(hir5, "cfg-optimized.dot", " (optimized)", options);
+    let _ = eval_pass(hir6)?;
     Ok(())
 }
 
@@ -138,23 +115,42 @@ fn semantic_check_pass(ast: Vec<Statement>, options: &ProcessOptions) -> Result<
     Ok(hir)
 }
 
-fn construct_cfg_pass(hir: Vec<TypedStatement>, options: &ProcessOptions) -> Result<Vec<TypedStatement>, Box<dyn Error>> {
-    println!(">> CFG");
+fn construct_cfg_pass(hir: Vec<TypedStatement>, filename: &str, postfix: &str, options: &ProcessOptions) -> Vec<TypedStatement> {
+    println!(">> CFG{}", postfix);
     let cfg = construct_cfg(hir.as_slice());
     if options.dump_cfg {
-        dump_graph(&cfg, "cfg.dot");
+        dump_graph(&cfg, filename);
     }
-    Ok(hir)
+    hir
 }
 
-fn redundant_bindings_pass(hir: Vec<TypedStatement>, pass_count: &mut u8, options: &ProcessOptions) -> Result<Vec<TypedStatement>, Box<dyn Error>> {
+fn redundant_bindings_pass(hir: Vec<TypedStatement>, pass_count: &mut u8, options: &ProcessOptions) -> Vec<TypedStatement> {
     println!(">> Redundant bindings (pass {})", *pass_count + 1);
     *pass_count += 1;
     let hir = RedundantBindings::remove(hir.as_slice(), if options.warnings { Warnings::On } else { Warnings::Off });
     if options.dump_intermediate {
         println!("{}", hir.iter().join_as_strings("\n"));
     }
-    Ok(hir)
+    hir
+}
+
+fn cfp_pass(hir: Vec<TypedStatement>, pass_count: &mut u8, options: &ProcessOptions) -> Vec<TypedStatement> {
+    println!(">> CFP (pass {})", *pass_count + 1);
+    *pass_count += 1;
+    let mut cfp = CFP::new();
+    let hir = cfp.fold_statements(hir.as_slice());
+    if options.dump_intermediate {
+        println!("{}", hir.iter().join_as_strings("\n"));
+    }
+    hir
+}
+
+fn eval_pass(hir: Vec<TypedStatement>) -> Result<Evalue, Box<dyn Error>> {
+    println!(">> Evaluating");
+    let mut evaluator = Evaluator::new();
+    let evalue = evaluator.eval_module(hir.as_slice())?;
+    println!("{:?}", evalue);
+    Ok(evalue)
 }
 
 fn print_usage(program: &str, opts: &Options) {
