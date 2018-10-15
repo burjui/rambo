@@ -72,17 +72,16 @@ impl Lexer {
                 }
             }
         };
-        let initial_offset = file.bom_length;
         let mut lexer = Lexer {
             eof_lexeme,
             eof_offset,
             file: file.clone(),
-            lexeme_offset: initial_offset,
+            lexeme_offset: 0,
             lexeme_line: 0,
-            current_offset: initial_offset,
+            current_offset: 0,
             current_line: 0,
             current_character: None,
-            next_character_offset: initial_offset,
+            next_character_offset: 0,
             next_character: None,
             stats: LexerStats {
                 lexeme_count: 0

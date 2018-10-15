@@ -52,7 +52,7 @@ fn main() {
             };
             match process(path, &options) {
                 Ok(_) => {},
-                Err(error) => println!("error: {}", error.description())
+                Err(error) => println!("error: {}", error)
             }
         }
     }
@@ -68,7 +68,7 @@ fn process(path: &str, options: &ProcessOptions) -> Result<(), Box<dyn Error>> {
     println!(">> Processing {}...", path);
     let source_code = SourceFile::read(&path)?;
     let source_code_length = source_code.len();
-    let file = SourceFile::new(source_code, path)?;
+    let file = SourceFile::new(path, &source_code)?;
     let line_count = file.lines.len();
     let lexer = Lexer::new(file);
 
