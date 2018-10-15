@@ -70,13 +70,8 @@ fn process(path: &str, options: &ProcessOptions) -> Result<(), Box<dyn Error>> {
     let ast = parse_source_file_pass(source_file, options)?;
     let hir0 = semantic_check_pass(ast, options)?;
     let hir1 = construct_cfg_pass(hir0, options)?;
-
-    println!(">> Redundant bindings (pass 1)");
-    let hir2 = RedundantBindings::remove(hir1.as_slice(), if options.warnings { Warnings::On } else { Warnings::Off });
-    drop(hir1);
-    if options.dump_intermediate {
-        println!("{}", hir2.iter().join_as_strings("\n"));
-    }
+    let mut redundant_bindings_pass_count: u8 = 0;
+    let hir2 = redundant_bindings_pass(hir1, &mut redundant_bindings_pass_count, options)?;
 
     println!(">> CFP (pass 1)");
     let mut cfp = CFP::new();
@@ -86,12 +81,10 @@ fn process(path: &str, options: &ProcessOptions) -> Result<(), Box<dyn Error>> {
         println!("{}", hir3.iter().join_as_strings("\n"));
     }
 
-    println!(">> Redundant bindings (pass 2)");
-    let hir4 = RedundantBindings::remove(hir3.as_slice(), Warnings::Off);
-    drop(hir3);
-    if options.dump_intermediate {
-        println!("{}", hir4.iter().join_as_strings("\n"));
-    }
+    let hir4 = redundant_bindings_pass(hir3, &mut redundant_bindings_pass_count, &ProcessOptions {
+        warnings: false,
+        ..*options
+    })?;
 
     println!(">> CFP (pass 2)");
     let mut cfp = CFP::new();
@@ -150,6 +143,16 @@ fn construct_cfg_pass(hir: Vec<TypedStatement>, options: &ProcessOptions) -> Res
     let cfg = construct_cfg(hir.as_slice());
     if options.dump_cfg {
         dump_graph(&cfg, "cfg.dot");
+    }
+    Ok(hir)
+}
+
+fn redundant_bindings_pass(hir: Vec<TypedStatement>, pass_count: &mut u8, options: &ProcessOptions) -> Result<Vec<TypedStatement>, Box<dyn Error>> {
+    println!(">> Redundant bindings (pass {})", *pass_count + 1);
+    *pass_count += 1;
+    let hir = RedundantBindings::remove(hir.as_slice(), if options.warnings { Warnings::On } else { Warnings::Off });
+    if options.dump_intermediate {
+        println!("{}", hir.iter().join_as_strings("\n"));
     }
     Ok(hir)
 }
