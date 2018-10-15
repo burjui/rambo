@@ -66,17 +66,14 @@ struct ProcessOptions {
 
 fn process(path: &str, options: &ProcessOptions) -> Result<(), Box<dyn Error>> {
     println!(">> Processing {}...", path);
-    let source_code = SourceFile::read(&path)?;
-    let source_code_length = source_code.len();
-    let file = SourceFile::new(path, &source_code)?;
-    let line_count = file.lines.len();
-    let lexer = Lexer::new(file);
+    let source_file = load_source_file(path)?;
 
     println!(">> Parsing");
+    let lexer = Lexer::new(source_file);
     let mut parser = Parser::new(lexer);
     let ast = parser.parse()?;
     let stats = { parser.lexer_stats() };
-    println!("{}, {} lines, {} lexemes", file_size_pretty(source_code_length), line_count, stats.lexeme_count);
+    println!("{} lexemes", stats.lexeme_count);
     if options.dump_intermediate {
         println!(".. AST:\n{}", ast.iter().join_as_strings("\n"));
     }
@@ -135,6 +132,15 @@ fn process(path: &str, options: &ProcessOptions) -> Result<(), Box<dyn Error>> {
     println!(">> Evaluated: {:?}", evalue);
 
     Ok(())
+}
+
+fn load_source_file(path: &str) -> Result<SourceFile, Box<dyn Error>> {
+    let source_code = SourceFile::read(&path)?;
+    let source_code_length = source_code.len();
+    let source_file = SourceFile::new(path, &source_code)?;
+    let line_count = source_file.lines.len();
+    println!("{}, {} lines", file_size_pretty(source_code_length), line_count);
+    Ok(source_file)
 }
 
 fn print_usage(program: &str, opts: &Options) {
