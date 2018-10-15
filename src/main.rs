@@ -68,12 +68,7 @@ fn process(path: &str, options: &ProcessOptions) -> Result<(), Box<dyn Error>> {
     println!(">> Processing {}...", path);
     let source_file = load_source_file(path)?;
     let ast = parse_source_file(source_file, options)?;
-    println!(">> Semantic check");
-    let hir0 = check_module(ast.as_slice())?;
-    drop(ast);
-    if options.dump_intermediate {
-        println!("{}", hir0.iter().join_as_strings("\n"));
-    }
+    let hir0 = semantic_check(&ast, options)?;
 
     println!(">> CFG");
     let cfg = construct_cfg(hir0.as_slice());
@@ -144,6 +139,15 @@ fn parse_source_file(source_file: SourceFile, options: &ProcessOptions) -> Resul
         println!(".. AST:\n{}", ast.iter().join_as_strings("\n"));
     }
     Ok(ast)
+}
+
+fn semantic_check(ast: &[Statement], options: &ProcessOptions) -> Result<Vec<TypedStatement>, Box<dyn Error>> {
+    println!(">> Semantic check");
+    let hir = check_module(ast)?;
+    if options.dump_intermediate {
+        println!("{}", hir.iter().join_as_strings("\n"));
+    }
+    Ok(hir)
 }
 
 fn print_usage(program: &str, opts: &Options) {
