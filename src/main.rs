@@ -66,60 +66,55 @@ struct ProcessOptions {
 
 fn process(path: &str, options: &ProcessOptions) -> Result<(), Box<dyn Error>> {
     println!(">> Processing {}...", path);
-    let source_file = load_source_file(path)?;
-    let ast = parse_source_file(source_file, options)?;
-    let hir0 = semantic_check(&ast, options)?;
-
-    println!(">> CFG");
-    let cfg = construct_cfg(hir0.as_slice());
-    if options.dump_cfg {
-        dump_graph(&cfg, "cfg.dot");
-    }
+    let source_file = load_source_file_pass(path)?;
+    let ast = parse_source_file_pass(source_file, options)?;
+    let hir0 = semantic_check_pass(ast, options)?;
+    let hir1 = construct_cfg_pass(hir0, options)?;
 
     println!(">> Redundant bindings (pass 1)");
-    let hir1 = RedundantBindings::remove(hir0.as_slice(), if options.warnings { Warnings::On } else { Warnings::Off });
-    drop(hir0);
-    if options.dump_intermediate {
-        println!("{}", hir1.iter().join_as_strings("\n"));
-    }
-
-    println!(">> CFP (pass 1)");
-    let mut cfp = CFP::new();
-    let hir2 = cfp.fold_statements(hir1.as_slice());
+    let hir2 = RedundantBindings::remove(hir1.as_slice(), if options.warnings { Warnings::On } else { Warnings::Off });
     drop(hir1);
     if options.dump_intermediate {
         println!("{}", hir2.iter().join_as_strings("\n"));
     }
 
-    println!(">> Redundant bindings (pass 2)");
-    let hir3 = RedundantBindings::remove(hir2.as_slice(), Warnings::Off);
+    println!(">> CFP (pass 1)");
+    let mut cfp = CFP::new();
+    let hir3 = cfp.fold_statements(hir2.as_slice());
     drop(hir2);
     if options.dump_intermediate {
         println!("{}", hir3.iter().join_as_strings("\n"));
     }
 
-    println!(">> CFP (pass 2)");
-    let mut cfp = CFP::new();
-    let hir4 = cfp.fold_statements(hir3.as_slice());
+    println!(">> Redundant bindings (pass 2)");
+    let hir4 = RedundantBindings::remove(hir3.as_slice(), Warnings::Off);
     drop(hir3);
     if options.dump_intermediate {
         println!("{}", hir4.iter().join_as_strings("\n"));
     }
 
+    println!(">> CFP (pass 2)");
+    let mut cfp = CFP::new();
+    let hir5 = cfp.fold_statements(hir4.as_slice());
+    drop(hir4);
+    if options.dump_intermediate {
+        println!("{}", hir5.iter().join_as_strings("\n"));
+    }
+
     println!(">> CFG (optimized)");
-    let cfg = construct_cfg(hir4.as_slice());
+    let cfg = construct_cfg(hir5.as_slice());
     if options.dump_cfg {
         dump_graph(&cfg, "cfg-optimized.dot");
     }
 
     let mut evaluator = Evaluator::new();
-    let evalue = evaluator.eval_module(hir4.as_slice())?;
+    let evalue = evaluator.eval_module(hir5.as_slice())?;
     println!(">> Evaluated: {:?}", evalue);
 
     Ok(())
 }
 
-fn load_source_file(path: &str) -> Result<SourceFile, Box<dyn Error>> {
+fn load_source_file_pass(path: &str) -> Result<SourceFile, Box<dyn Error>> {
     let source_code = SourceFile::read(&path)?;
     let source_code_length = source_code.len();
     let source_file = SourceFile::new(path, &source_code)?;
@@ -128,7 +123,7 @@ fn load_source_file(path: &str) -> Result<SourceFile, Box<dyn Error>> {
     Ok(source_file)
 }
 
-fn parse_source_file(source_file: SourceFile, options: &ProcessOptions) -> Result<Vec<Statement>, Box<dyn Error>> {
+fn parse_source_file_pass(source_file: SourceFile, options: &ProcessOptions) -> Result<Vec<Statement>, Box<dyn Error>> {
     println!(">> Parsing");
     let lexer = Lexer::new(source_file);
     let mut parser = Parser::new(lexer);
@@ -141,11 +136,20 @@ fn parse_source_file(source_file: SourceFile, options: &ProcessOptions) -> Resul
     Ok(ast)
 }
 
-fn semantic_check(ast: &[Statement], options: &ProcessOptions) -> Result<Vec<TypedStatement>, Box<dyn Error>> {
+fn semantic_check_pass(ast: Vec<Statement>, options: &ProcessOptions) -> Result<Vec<TypedStatement>, Box<dyn Error>> {
     println!(">> Semantic check");
-    let hir = check_module(ast)?;
+    let hir = check_module(ast.as_slice())?;
     if options.dump_intermediate {
         println!("{}", hir.iter().join_as_strings("\n"));
+    }
+    Ok(hir)
+}
+
+fn construct_cfg_pass(hir: Vec<TypedStatement>, options: &ProcessOptions) -> Result<Vec<TypedStatement>, Box<dyn Error>> {
+    println!(">> CFG");
+    let cfg = construct_cfg(hir.as_slice());
+    if options.dump_cfg {
+        dump_graph(&cfg, "cfg.dot");
     }
     Ok(hir)
 }
