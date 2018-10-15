@@ -67,17 +67,7 @@ struct ProcessOptions {
 fn process(path: &str, options: &ProcessOptions) -> Result<(), Box<dyn Error>> {
     println!(">> Processing {}...", path);
     let source_file = load_source_file(path)?;
-
-    println!(">> Parsing");
-    let lexer = Lexer::new(source_file);
-    let mut parser = Parser::new(lexer);
-    let ast = parser.parse()?;
-    let stats = { parser.lexer_stats() };
-    println!("{} lexemes", stats.lexeme_count);
-    if options.dump_intermediate {
-        println!(".. AST:\n{}", ast.iter().join_as_strings("\n"));
-    }
-
+    let ast = parse_source_file(source_file, options)?;
     println!(">> Semantic check");
     let hir0 = check_module(ast.as_slice())?;
     drop(ast);
@@ -141,6 +131,19 @@ fn load_source_file(path: &str) -> Result<SourceFile, Box<dyn Error>> {
     let line_count = source_file.lines.len();
     println!("{}, {} lines", file_size_pretty(source_code_length), line_count);
     Ok(source_file)
+}
+
+fn parse_source_file(source_file: SourceFile, options: &ProcessOptions) -> Result<Vec<Statement>, Box<dyn Error>> {
+    println!(">> Parsing");
+    let lexer = Lexer::new(source_file);
+    let mut parser = Parser::new(lexer);
+    let ast = parser.parse()?;
+    let stats = { parser.lexer_stats() };
+    println!("{} lexemes", stats.lexeme_count);
+    if options.dump_intermediate {
+        println!(".. AST:\n{}", ast.iter().join_as_strings("\n"));
+    }
+    Ok(ast)
 }
 
 fn print_usage(program: &str, opts: &Options) {
