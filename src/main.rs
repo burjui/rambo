@@ -143,11 +143,11 @@ fn process(path: &str, options: &ProcessOptions) -> Result<(), Box<dyn Error>> {
     Some(source_file)
         .filter(|_| options.last_pass >= Pass::Parse)
         .map(|source_file| parse_source_file_pass(source_file, options))
+        .transpose()?
         .filter(|_| options.last_pass >= Pass::Semantics)
-        .transpose()?
         .map(|ast| semantic_check_pass(ast, options))
-        .filter(|_| options.last_pass >= Pass::CFG)
         .transpose()?
+        .filter(|_| options.last_pass >= Pass::CFG)
         .map(|hir| construct_cfg_pass(hir, "cfg.dot", "", options))
         .filter(|_| options.last_pass >= Pass::RedundantBindings1)
         .map(|hir| redundant_bindings_pass(hir, &mut redundant_bindings_pass_count, options))
