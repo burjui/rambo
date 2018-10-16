@@ -3,8 +3,6 @@
 #![feature(box_syntax)]
 #![feature(box_patterns)]
 #![feature(transpose_result)]
-#![feature(associated_type_defaults)]
-#![feature(try_trait)]
 
 use crate::pipeline::ConstructCFG;
 use crate::pipeline::ConstructCFGOptimized;
@@ -25,7 +23,11 @@ use itertools::join;
 use std::env::args as program_args;
 use std::error::Error;
 use std::io::Write;
-use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
+use termcolor::Color;
+use termcolor::ColorChoice;
+use termcolor::ColorSpec;
+use termcolor::StandardStream;
+use termcolor::WriteColor;
 
 #[macro_use]
 mod utils;
