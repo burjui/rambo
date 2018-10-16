@@ -2,6 +2,7 @@
 #![warn(rust_2018_idioms)]
 #![feature(box_syntax)]
 #![feature(box_patterns)]
+#![feature(min_const_fn)]
 
 #[macro_use]
 mod utils;
@@ -28,60 +29,140 @@ use crate::utils::*;
 use crate::redundant_bindings::*;
 use crate::cfg::*;
 use getopts::Options;
+use itertools::join;
 
-fn main() {
-    let args: Vec<String> = program_args().collect();
-    let mut opts = Options::new();
-    opts.optflag("h", "help", "print this help menu");
-    const WARNINGS_OPTION: &str = "w";
-    const DUMP_OPTION: &str = "d";
-    const DUMP_CFG_OPTION: &str = "dump-cfg";
-    opts.optflag(WARNINGS_OPTION, "", "suppress warnings");
-    opts.optflag(DUMP_OPTION, "dump", "dump intermediate compilation results, e.g. AST");
-    opts.optflag("", DUMP_CFG_OPTION, "dump CFGs");
+#[derive(PartialOrd, PartialEq, Copy, Clone)]
+enum Pass {
+    Load, Parse, Semantics, CFG, RedundantBindings1, CFP1, RedundantBindings2, CFP2, CFGOptimized, Eval
+}
 
-    let matches = opts.parse(&args[1..]).unwrap();
-    if matches.opt_present("h") || matches.free.is_empty() {
-        print_usage(&args[0], &opts);
-    } else {
-        for path in &matches.free {
-            let options = &ProcessOptions {
-                warnings: !matches.opt_present(WARNINGS_OPTION),
-                dump_intermediate: matches.opt_present(DUMP_OPTION),
-                dump_cfg: matches.opt_present(DUMP_CFG_OPTION)
-            };
-            match process(path, &options) {
-                Ok(_) => {},
-                Err(error) => println!("error: {}", error)
-            }
+impl Pass {
+    const fn all() -> &'static [Pass] {&[
+        Pass::Load,
+        Pass::Parse,
+        Pass::Semantics,
+        Pass::CFG,
+        Pass::RedundantBindings1,
+        Pass::CFP1,
+        Pass::RedundantBindings2,
+        Pass::CFP2,
+        Pass::CFGOptimized,
+        Pass::Eval
+    ]}
+
+    fn name(&self) -> &str {
+        match self {
+            Pass::Load => "load",
+            Pass::Parse => "parse",
+            Pass::Semantics => "sem",
+            Pass::CFG => "cfg",
+            Pass::RedundantBindings1 => "rb1",
+            Pass::CFP1 => "cfp1",
+            Pass::RedundantBindings2 => "rb2",
+            Pass::CFP2 => "cfp2",
+            Pass::CFGOptimized => "cfgopt",
+            Pass::Eval => "eval"
         }
     }
 }
 
+#[derive(Clone)]
 struct ProcessOptions {
+    program_name: String,
     warnings: bool,
     dump_intermediate: bool,
-    dump_cfg: bool
+    dump_cfg: bool,
+    last_pass: Pass
+}
+
+fn main() {
+    let result = parse_command_line()
+        .and_then(|(input_files, options)|
+            if input_files.is_empty() {
+                println!("{}: no input files", options.program_name);
+                std::process::exit(1)
+            } else {
+                input_files.iter()
+                    .map(|path| process(path, &options))
+                    .collect::<Result<(), Box<dyn Error>>>()
+            });
+    match result {
+        Ok(_) => {},
+        Err(error) => println!("error: {}", error)
+    }
+}
+
+fn parse_command_line() -> Result<(Vec<String>, ProcessOptions), Box<dyn Error>> {
+    const HELP_OPTION: &str = "h";
+    const WARNINGS_OPTION: &str = "w";
+    const DUMP_OPTION: &str = "d";
+    const DUMP_CFG_OPTION: &str = "dump-cfg";
+    const PASS_OPTION: &str = "p";
+
+    let args: Vec<String> = program_args().collect();
+    let mut spec = Options::new();
+    spec.optflag(HELP_OPTION, "help", "print this help menu");
+    spec.optflag(WARNINGS_OPTION, "", "suppress warnings");
+    spec.optflag(DUMP_OPTION, "dump", "dump intermediate compilation results, e.g. AST");
+    spec.optflag("", DUMP_CFG_OPTION, "dump CFGs");
+
+    let pass_name_list: String = join(Pass::all().iter().map(Pass::name), ", ");
+    spec.optopt(PASS_OPTION, "pass", &format!("last compiler pass to be executed;\nfollowing pass names are recognized: {}", pass_name_list), "PASS");
+
+    let matches = spec.parse(&args[1..])?;
+    let program_name = &args[0];
+    if matches.opt_present(HELP_OPTION) {
+        let brief = format!("Usage: {} [options] file...", program_name);
+        print!("{}", spec.usage(&brief));
+        std::process::exit(0);
+    }
+    let options = ProcessOptions {
+        program_name: args[0].clone(),
+        warnings: !matches.opt_present(WARNINGS_OPTION),
+        dump_intermediate: matches.opt_present(DUMP_OPTION),
+        dump_cfg: matches.opt_present(DUMP_CFG_OPTION),
+        last_pass: {
+            *matches.opt_str(PASS_OPTION)
+                .map(|last_pass_name|
+                    Pass::all().iter()
+                        .find(|pass| pass.name() == last_pass_name)
+                        .ok_or_else(|| format!("invalid pass name: {}", last_pass_name)))
+                .unwrap_or(Ok(&Pass::Eval))?
+        }
+    };
+    let input_files = matches.free;
+    Ok((input_files, options))
 }
 
 fn process(path: &str, options: &ProcessOptions) -> Result<(), Box<dyn Error>> {
     println!(">> Processing {}...", path);
     let source_file = load_source_file_pass(path)?;
-    let ast = parse_source_file_pass(source_file, options)?;
-    let hir0 = semantic_check_pass(ast, options)?;
-    let hir1 = construct_cfg_pass(hir0, "cfg.dot", "", options);
     let mut redundant_bindings_pass_count: u8 = 0;
-    let hir2 = redundant_bindings_pass(hir1, &mut redundant_bindings_pass_count, options);
     let mut cfp_pass_count: u8 = 0;
-    let hir3 = cfp_pass(hir2, &mut cfp_pass_count, options);
-    let hir4 = redundant_bindings_pass(hir3, &mut redundant_bindings_pass_count, &ProcessOptions {
-        warnings: false,
-        ..*options
-    });
-    let hir5 = cfp_pass(hir4, &mut cfp_pass_count, options);
-    let hir6 = construct_cfg_pass(hir5, "cfg-optimized.dot", " (optimized)", options);
-    let _ = eval_pass(hir6)?;
-    Ok(())
+    Some(source_file)
+        .filter(|_| options.last_pass >= Pass::Parse)
+        .map(|source_file| parse_source_file_pass(source_file, options))
+        .filter(|_| options.last_pass >= Pass::Semantics)
+        .map(|ast| semantic_check_pass(ast?, options))
+        .filter(|_| options.last_pass >= Pass::CFG)
+        .map(|hir| construct_cfg_pass(hir?, "cfg.dot", "", options))
+        .filter(|_| options.last_pass >= Pass::RedundantBindings1)
+        .map(|hir| redundant_bindings_pass(hir?, &mut redundant_bindings_pass_count, options))
+        .filter(|_| options.last_pass >= Pass::CFP1)
+        .map(|hir| cfp_pass(hir?, &mut cfp_pass_count, options))
+        .filter(|_| options.last_pass >= Pass::RedundantBindings2)
+        .map(|hir| redundant_bindings_pass(hir?, &mut redundant_bindings_pass_count, &ProcessOptions {
+            warnings: false,
+            ..options.clone()
+        }))
+        .filter(|_| options.last_pass >= Pass::CFP2)
+        .map(|hir| cfp_pass(hir?, &mut cfp_pass_count, options))
+        .filter(|_| options.last_pass >= Pass::CFGOptimized)
+        .map(|hir| construct_cfg_pass(hir?, "cfg-optimized.dot", " (optimized)", options))
+        .filter(|_| options.last_pass >= Pass::Eval)
+        .map(|hir| eval_pass(hir?))
+        .map(|_| Ok(()))
+        .unwrap_or(Ok(()))
 }
 
 fn load_source_file_pass(path: &str) -> Result<SourceFile, Box<dyn Error>> {
@@ -115,26 +196,26 @@ fn semantic_check_pass(ast: Vec<Statement>, options: &ProcessOptions) -> Result<
     Ok(hir)
 }
 
-fn construct_cfg_pass(hir: Vec<TypedStatement>, filename: &str, postfix: &str, options: &ProcessOptions) -> Vec<TypedStatement> {
+fn construct_cfg_pass(hir: Vec<TypedStatement>, filename: &str, postfix: &str, options: &ProcessOptions) -> Result<Vec<TypedStatement>, Box<dyn Error>> {
     println!(">> CFG{}", postfix);
     let cfg = construct_cfg(hir.as_slice());
     if options.dump_cfg {
         dump_graph(&cfg, filename);
     }
-    hir
+    Ok(hir)
 }
 
-fn redundant_bindings_pass(hir: Vec<TypedStatement>, pass_count: &mut u8, options: &ProcessOptions) -> Vec<TypedStatement> {
+fn redundant_bindings_pass(hir: Vec<TypedStatement>, pass_count: &mut u8, options: &ProcessOptions) -> Result<Vec<TypedStatement>, Box<dyn Error>> {
     println!(">> Redundant bindings (pass {})", *pass_count + 1);
     *pass_count += 1;
     let hir = RedundantBindings::remove(hir.as_slice(), if options.warnings { Warnings::On } else { Warnings::Off });
     if options.dump_intermediate {
         println!("{}", hir.iter().join_as_strings("\n"));
     }
-    hir
+    Ok(hir)
 }
 
-fn cfp_pass(hir: Vec<TypedStatement>, pass_count: &mut u8, options: &ProcessOptions) -> Vec<TypedStatement> {
+fn cfp_pass(hir: Vec<TypedStatement>, pass_count: &mut u8, options: &ProcessOptions) -> Result<Vec<TypedStatement>, Box<dyn Error>> {
     println!(">> CFP (pass {})", *pass_count + 1);
     *pass_count += 1;
     let mut cfp = CFP::new();
@@ -142,7 +223,7 @@ fn cfp_pass(hir: Vec<TypedStatement>, pass_count: &mut u8, options: &ProcessOpti
     if options.dump_intermediate {
         println!("{}", hir.iter().join_as_strings("\n"));
     }
-    hir
+    Ok(hir)
 }
 
 fn eval_pass(hir: Vec<TypedStatement>) -> Result<Evalue, Box<dyn Error>> {
@@ -151,11 +232,6 @@ fn eval_pass(hir: Vec<TypedStatement>) -> Result<Evalue, Box<dyn Error>> {
     let evalue = evaluator.eval_module(hir.as_slice())?;
     println!("{:?}", evalue);
     Ok(evalue)
-}
-
-fn print_usage(program: &str, opts: &Options) {
-    let brief = format!("Usage: {} FILES [options]", program);
-    print!("{}", opts.usage(&brief));
 }
 
 fn file_size_pretty(size: usize) -> String {
