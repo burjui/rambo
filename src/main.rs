@@ -175,17 +175,17 @@ impl<'a, T> Pipeline<'a, Result<T, Box<dyn Error>>> {
 }
 
 fn process(path: &str, options: &ProcessOptions) -> Result<(), Box<dyn Error>> {
-    println!(">> Processing {}...", path);
+    println!(">> Processing {}...", path); // TODO colored output using termcolor
     let source_file = load_source_file_pass(path)?;
-    let mut redundant_bindings_pass_count: u8 = 0;
+    let mut rb_pass_count: u8 = 0;
     let mut cfp_pass_count: u8 = 0;
     Pipeline::new(options, Some(source_file))
         .map_result(Pass::Parse, |source_file| parse_source_file_pass(source_file, options))?
         .map_result(Pass::Semantics, |ast| semantic_check_pass(ast, options))?
         .map(Pass::CFG, |hir| construct_cfg_pass(hir, "cfg.dot", "", options))
-        .map(Pass::RedundantBindings1, |hir| redundant_bindings_pass(hir, &mut redundant_bindings_pass_count, options))
+        .map(Pass::RedundantBindings1, |hir| redundant_bindings_pass(hir, &mut rb_pass_count, options))
         .map(Pass::CFP1, |hir| cfp_pass(hir, &mut cfp_pass_count, options))
-        .map(Pass::RedundantBindings2, |hir| redundant_bindings_pass(hir, &mut redundant_bindings_pass_count, &ProcessOptions {
+        .map(Pass::RedundantBindings2, |hir| redundant_bindings_pass(hir, &mut rb_pass_count, &ProcessOptions {
             warnings: false,
             ..options.clone()
         }))
