@@ -78,8 +78,8 @@ crate trait TypedVisitor {
 
     fn visit_binding(&mut self, binding: &BindingRef) -> BindingRef {
         let mut binding_mut = binding.borrow_mut();
-        if let BindingValue::Var(value) = &binding_mut.value {
-            binding_mut.value = BindingValue::Var(self.visit(value))
+        if let BindingValue::Var(value) = &binding_mut.data {
+            binding_mut.data = BindingValue::Var(self.visit(value))
         }
         binding.clone()
     }
