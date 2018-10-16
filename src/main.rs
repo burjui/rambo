@@ -3,6 +3,7 @@
 #![feature(box_syntax)]
 #![feature(box_patterns)]
 #![feature(min_const_fn)]
+#![feature(transpose_result)]
 
 #[macro_use]
 mod utils;
@@ -143,26 +144,28 @@ fn process(path: &str, options: &ProcessOptions) -> Result<(), Box<dyn Error>> {
         .filter(|_| options.last_pass >= Pass::Parse)
         .map(|source_file| parse_source_file_pass(source_file, options))
         .filter(|_| options.last_pass >= Pass::Semantics)
-        .map(|ast| semantic_check_pass(ast?, options))
+        .transpose()?
+        .map(|ast| semantic_check_pass(ast, options))
         .filter(|_| options.last_pass >= Pass::CFG)
-        .map(|hir| construct_cfg_pass(hir?, "cfg.dot", "", options))
+        .transpose()?
+        .map(|hir| construct_cfg_pass(hir, "cfg.dot", "", options))
         .filter(|_| options.last_pass >= Pass::RedundantBindings1)
-        .map(|hir| redundant_bindings_pass(hir?, &mut redundant_bindings_pass_count, options))
+        .map(|hir| redundant_bindings_pass(hir, &mut redundant_bindings_pass_count, options))
         .filter(|_| options.last_pass >= Pass::CFP1)
-        .map(|hir| cfp_pass(hir?, &mut cfp_pass_count, options))
+        .map(|hir| cfp_pass(hir, &mut cfp_pass_count, options))
         .filter(|_| options.last_pass >= Pass::RedundantBindings2)
-        .map(|hir| redundant_bindings_pass(hir?, &mut redundant_bindings_pass_count, &ProcessOptions {
+        .map(|hir| redundant_bindings_pass(hir, &mut redundant_bindings_pass_count, &ProcessOptions {
             warnings: false,
             ..options.clone()
         }))
         .filter(|_| options.last_pass >= Pass::CFP2)
-        .map(|hir| cfp_pass(hir?, &mut cfp_pass_count, options))
+        .map(|hir| cfp_pass(hir, &mut cfp_pass_count, options))
         .filter(|_| options.last_pass >= Pass::CFGOptimized)
-        .map(|hir| construct_cfg_pass(hir?, "cfg-optimized.dot", " (optimized)", options))
+        .map(|hir| construct_cfg_pass(hir, "cfg-optimized.dot", " (optimized)", options))
         .filter(|_| options.last_pass >= Pass::Eval)
-        .map(|hir| eval_pass(hir?))
-        .map(|_| Ok(()))
-        .unwrap_or(Ok(()))
+        .map(|hir| eval_pass(hir))
+        .transpose()
+        .map(|_| ())
 }
 
 fn load_source_file_pass(path: &str) -> Result<SourceFile, Box<dyn Error>> {
@@ -196,26 +199,26 @@ fn semantic_check_pass(ast: Vec<Statement>, options: &ProcessOptions) -> Result<
     Ok(hir)
 }
 
-fn construct_cfg_pass(hir: Vec<TypedStatement>, filename: &str, postfix: &str, options: &ProcessOptions) -> Result<Vec<TypedStatement>, Box<dyn Error>> {
+fn construct_cfg_pass(hir: Vec<TypedStatement>, filename: &str, postfix: &str, options: &ProcessOptions) -> Vec<TypedStatement> {
     println!(">> CFG{}", postfix);
     let cfg = construct_cfg(hir.as_slice());
     if options.dump_cfg {
         dump_graph(&cfg, filename);
     }
-    Ok(hir)
+    hir
 }
 
-fn redundant_bindings_pass(hir: Vec<TypedStatement>, pass_count: &mut u8, options: &ProcessOptions) -> Result<Vec<TypedStatement>, Box<dyn Error>> {
+fn redundant_bindings_pass(hir: Vec<TypedStatement>, pass_count: &mut u8, options: &ProcessOptions) -> Vec<TypedStatement> {
     println!(">> Redundant bindings (pass {})", *pass_count + 1);
     *pass_count += 1;
     let hir = RedundantBindings::remove(hir.as_slice(), if options.warnings { Warnings::On } else { Warnings::Off });
     if options.dump_intermediate {
         println!("{}", hir.iter().join_as_strings("\n"));
     }
-    Ok(hir)
+    hir
 }
 
-fn cfp_pass(hir: Vec<TypedStatement>, pass_count: &mut u8, options: &ProcessOptions) -> Result<Vec<TypedStatement>, Box<dyn Error>> {
+fn cfp_pass(hir: Vec<TypedStatement>, pass_count: &mut u8, options: &ProcessOptions) -> Vec<TypedStatement> {
     println!(">> CFP (pass {})", *pass_count + 1);
     *pass_count += 1;
     let mut cfp = CFP::new();
@@ -223,7 +226,7 @@ fn cfp_pass(hir: Vec<TypedStatement>, pass_count: &mut u8, options: &ProcessOpti
     if options.dump_intermediate {
         println!("{}", hir.iter().join_as_strings("\n"));
     }
-    Ok(hir)
+    hir
 }
 
 fn eval_pass(hir: Vec<TypedStatement>) -> Result<Evalue, Box<dyn Error>> {
