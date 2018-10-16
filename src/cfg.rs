@@ -91,7 +91,7 @@ fn scan_basic_blocks_expr(cfg: &mut CFG, entry: NodeIndex, expr: &ExprRef) -> Op
             } else {
                 unreachable!()
             };
-            let lambda = if let BindingValue::Var(value) = &binding.borrow().value {
+            let lambda = if let BindingValue::Var(value) = &binding.borrow().data {
                 if let TypedExpr::Lambda(lambda, _) = value as &TypedExpr {
                     lambda.clone()
                 } else {

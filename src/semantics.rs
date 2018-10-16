@@ -144,7 +144,7 @@ impl TypedExpr {
             TypedExpr::AddStr(_, _, _) => Type::String,
 
             TypedExpr::Deref(binding, _) => binding.borrow().type_(),
-            TypedExpr::Assign(binding, _, _) => binding.borrow().value.type_(),
+            TypedExpr::Assign(binding, _, _) => binding.borrow().data.type_(),
             TypedExpr::Lambda(lambda, _) => Type::Function(lambda.type_.clone()),
             TypedExpr::Application { type_, .. } => type_.clone(),
             TypedExpr::Conditional { positive, negative, .. } => {
@@ -203,7 +203,7 @@ crate type BindingRef = Rc<BindingCell>;
 
 crate struct Binding {
     crate name: String,
-    crate value: BindingValue,
+    crate data: BindingValue,
     crate assigned: bool,
     crate dirty: bool,
     crate source: Source
@@ -211,13 +211,13 @@ crate struct Binding {
 
 impl Binding {
     crate fn type_(&self) -> Type {
-        self.value.type_()
+        self.data.type_()
     }
 }
 
 impl Debug for Binding {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> FmtResult {
-        write!(formatter, "let {} = {:?}", self.name, self.value)
+        write!(formatter, "let {} = {:?}", self.name, self.data)
     }
 }
 
@@ -278,7 +278,7 @@ fn check_statement(env: &mut Environment, statement: &Statement) -> CheckResult<
             let value = check_expr(env, &value)?;
             let binding = Rc::new(RefCell::new(Binding {
                 name: name.text().to_string(),
-                value: BindingValue::Var(value),
+                data: BindingValue::Var(value),
                 assigned: false,
                 dirty: false,
                 source: source.clone()
@@ -439,7 +439,7 @@ fn check_function(env: &mut Environment, parameters: &[ParsedParameter], body: &
     for parameter in parameters.iter() {
         let binding = Rc::new(RefCell::new(Binding {
             name: parameter.name.to_string(),
-            value: BindingValue::Arg(parameter.type_.clone()),
+            data: BindingValue::Arg(parameter.type_.clone()),
             assigned: false,
             dirty: false,
             source: parameter.source.clone()
@@ -486,7 +486,7 @@ impl Environment {
 
     crate fn bind(&self, binding: &BindingRef) -> Result<(), Box<dyn Error>> {
         let name = &binding.borrow().name;
-        if let BindingValue::Arg(_) = &binding.borrow().value {
+        if let BindingValue::Arg(_) = &binding.borrow().data {
             if self.last().borrow().contains_key(name) {
                 return error!("redefinition of parameter {}", name)
             }

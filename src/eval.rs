@@ -32,9 +32,9 @@ impl<'a> Evaluator {
         match statement {
             TypedStatement::Expr(expr) => Ok(self.eval_expr(expr)?),
             TypedStatement::Binding(binding) => {
-                let value = match &binding.borrow().value {
+                let value = match &binding.borrow().data {
                     BindingValue::Var(expr) => self.eval_expr(expr)?,
-                    BindingValue::Arg(_) => panic!("{:?}", binding.borrow().value)
+                    BindingValue::Arg(_) => panic!("{:?}", binding.borrow().data)
                 };
                 self.env.bind_force(binding.ptr(), value);
                 Ok(Evalue::Unit)

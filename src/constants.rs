@@ -36,7 +36,7 @@ impl CFP {
     fn fold(&mut self, expr: &ExprRef) -> ExprRef {
         match expr as &TypedExpr {
             TypedExpr::Deref(binding, source) => {
-                match &binding.borrow().value {
+                match &binding.borrow().data {
                     BindingValue::Var(value) => {
                         if is_primitive_constant(&value) {
                             value.clone_at(source.clone())
@@ -67,7 +67,7 @@ impl CFP {
                     let arguments = arguments.iter().map(|argument| self.fold(argument)).collect::<Vec<_>>();
                     if arguments.iter().all(is_constant) {
                         while let TypedExpr::Deref(binding, _) = &function.clone() as &TypedExpr {
-                            function = match &binding.borrow().value {
+                            function = match &binding.borrow().data {
                                 BindingValue::Var(value) => value.clone(),
                                 _ => unreachable!()
                             };
@@ -139,7 +139,7 @@ impl CFP {
     }
 
     fn process_binding(&mut self, binding: &BindingRef) {
-        let value = binding.borrow().value.clone();
+        let value = binding.borrow().data.clone();
         if let BindingValue::Var(value) = value {
             if !binding.borrow().assigned {
                 let mut value = value.clone();
@@ -147,7 +147,7 @@ impl CFP {
                     let mut binding = binding.borrow_mut();
                     binding.dirty = true;
                     value = self.fold(&value);
-                    binding.value = BindingValue::Var(value.clone());
+                    binding.data = BindingValue::Var(value.clone());
                 }
             }
         }
