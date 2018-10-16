@@ -68,6 +68,21 @@ impl Pass {
             Pass::Eval => "eval"
         }
     }
+
+    fn title(&self) -> &str {
+        match self {
+            Pass::Load => "Loading",
+            Pass::Parse => "Parsing",
+            Pass::Semantics => "Verifying semantics",
+            Pass::CFG => "Constructing CFG",
+            Pass::RedundantBindings1 => "Removing redundant bindings (pass 1)",
+            Pass::CFP1 => "Propagating constants (pass 1)",
+            Pass::RedundantBindings2 => "Removing redundant bindings (pass 2)",
+            Pass::CFP2 => "Propagating constants (pass 2)",
+            Pass::CFGOptimized => "Constructing CFG (optimized)",
+            Pass::Eval => "Evaluating"
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -159,7 +174,10 @@ impl<'a, T> Pipeline<'a, T> {
         let max_pass = self.max_pass;
         self.data
             .filter(|_| max_pass >= pass)
-            .map(|(data, stdout)| f(data, stdout))
+            .map(|(data, stdout)| {
+                stdout.write_title(pass.title())?;
+                f(data, stdout)
+            })
             .transpose()
             .map(|data| Pipeline::new(max_pass, data))
     }
@@ -168,21 +186,21 @@ impl<'a, T> Pipeline<'a, T> {
 fn process(path: &str, options: &ProcessOptions) -> Result<(), Box<dyn Error>> {
     let is_tty = unsafe { libc::isatty(libc::STDOUT_FILENO as i32) } != 0;
     let mut stdout = StandardStream::stdout(if is_tty { ColorChoice::Always } else { ColorChoice::Never });
-    let mut rb_pass_count: u8 = 0;
-    let mut cfp_pass_count: u8 = 0;
+    stdout.write_title(&format!("Processing {}", path))?;
+
     Pipeline::new(options.max_pass, Some((path, &mut stdout)))
         .map(Pass::Load, |path, stdout| load_source_file_pass(path, stdout))?
         .map(Pass::Parse, |source_file, stdout| parse_source_file_pass(source_file, stdout, options))?
-        .map(Pass::Semantics, |ast, stdout| semantic_check_pass(ast, stdout, options))?
-        .map(Pass::CFG, |hir, stdout| construct_cfg_pass(hir, stdout, "cfg.dot", "", options))?
-        .map(Pass::RedundantBindings1, |hir, stdout| redundant_bindings_pass(hir, stdout, &mut rb_pass_count, options))?
-        .map(Pass::CFP1, |hir, stdout| cfp_pass(hir, stdout, &mut cfp_pass_count, options))?
-        .map(Pass::RedundantBindings2, |hir, stdout| redundant_bindings_pass(hir, stdout, &mut rb_pass_count, &ProcessOptions {
+        .map(Pass::Semantics, |ast, stdout| verify_semantics_pass(ast, stdout, options))?
+        .map(Pass::CFG, |hir, stdout| construct_cfg_pass(hir, stdout, "cfg.dot", options))?
+        .map(Pass::RedundantBindings1, |hir, stdout| redundant_bindings_pass(hir, stdout, options))?
+        .map(Pass::CFP1, |hir, stdout| cfp_pass(hir, stdout, options))?
+        .map(Pass::RedundantBindings2, |hir, stdout| redundant_bindings_pass(hir, stdout, &ProcessOptions {
             warnings: false,
             ..options.clone()
         }))?
-        .map(Pass::CFP2, |hir, stdout| cfp_pass(hir, stdout, &mut cfp_pass_count, options))?
-        .map(Pass::CFGOptimized, |hir, stdout| construct_cfg_pass(hir, stdout, "cfg-optimized.dot", " (optimized)", options))?
+        .map(Pass::CFP2, |hir, stdout| cfp_pass(hir, stdout, options))?
+        .map(Pass::CFGOptimized, |hir, stdout| construct_cfg_pass(hir, stdout, "cfg-optimized.dot", options))?
         .map(Pass::Eval, |hir, stdout| eval_pass(hir, stdout)).map(|_| ())
 }
 
@@ -209,7 +227,6 @@ impl StandardStreamUtils for StandardStream {
 }
 
 fn load_source_file_pass<'a>(path: &str, stdout: &'a mut StandardStream) -> Result<(SourceFile, &'a mut StandardStream), Box<dyn Error>> {
-    stdout.write_title(&format!("Loading {}", path))?;
     let source_code = SourceFile::read(&path)?;
     let source_code_length = source_code.len();
     let source_file = SourceFile::new(path, &source_code)?;
@@ -219,7 +236,6 @@ fn load_source_file_pass<'a>(path: &str, stdout: &'a mut StandardStream) -> Resu
 }
 
 fn parse_source_file_pass<'a>(source_file: SourceFile, stdout: &'a mut StandardStream, options: &ProcessOptions) -> Result<(Vec<Statement>, &'a mut StandardStream), Box<dyn Error>> {
-    stdout.write_title("Parsing")?;
     let lexer = Lexer::new(source_file);
     let mut parser = Parser::new(lexer);
     let ast = parser.parse()?;
@@ -231,8 +247,7 @@ fn parse_source_file_pass<'a>(source_file: SourceFile, stdout: &'a mut StandardS
     Ok((ast, stdout))
 }
 
-fn semantic_check_pass<'a>(ast: Vec<Statement>, stdout: &'a mut StandardStream, options: &ProcessOptions) -> Result<(Vec<TypedStatement>, &'a mut StandardStream), Box<dyn Error>> {
-    stdout.write_title("Semantic check")?;
+fn verify_semantics_pass<'a>(ast: Vec<Statement>, stdout: &'a mut StandardStream, options: &ProcessOptions) -> Result<(Vec<TypedStatement>, &'a mut StandardStream), Box<dyn Error>> {
     let hir = check_module(ast.as_slice())?;
     if options.dump_intermediate {
         println!("{}", hir.iter().join_as_strings("\n"));
@@ -240,8 +255,7 @@ fn semantic_check_pass<'a>(ast: Vec<Statement>, stdout: &'a mut StandardStream, 
     Ok((hir, stdout))
 }
 
-fn construct_cfg_pass<'a>(hir: Vec<TypedStatement>, stdout: &'a mut StandardStream, filename: &str, postfix: &str, options: &ProcessOptions) -> Result<(Vec<TypedStatement>, &'a mut StandardStream), Box<dyn Error>> {
-    stdout.write_title(&format!("CFG{}", postfix))?;
+fn construct_cfg_pass<'a>(hir: Vec<TypedStatement>, stdout: &'a mut StandardStream, filename: &str, options: &ProcessOptions) -> Result<(Vec<TypedStatement>, &'a mut StandardStream), Box<dyn Error>> {
     let cfg = construct_cfg(hir.as_slice());
     if options.dump_cfg {
         dump_graph(&cfg, filename);
@@ -249,9 +263,7 @@ fn construct_cfg_pass<'a>(hir: Vec<TypedStatement>, stdout: &'a mut StandardStre
     Ok((hir, stdout))
 }
 
-fn redundant_bindings_pass<'a>(hir: Vec<TypedStatement>, stdout: &'a mut StandardStream, pass_count: &mut u8, options: &ProcessOptions) -> Result<(Vec<TypedStatement>, &'a mut StandardStream), Box<dyn Error>> {
-    stdout.write_title(&format!("Redundant bindings (pass {})", *pass_count + 1))?;
-    *pass_count += 1;
+fn redundant_bindings_pass<'a>(hir: Vec<TypedStatement>, stdout: &'a mut StandardStream, options: &ProcessOptions) -> Result<(Vec<TypedStatement>, &'a mut StandardStream), Box<dyn Error>> {
     let hir = RedundantBindings::remove(hir.as_slice(), if options.warnings { Warnings::On } else { Warnings::Off });
     if options.dump_intermediate {
         println!("{}", hir.iter().join_as_strings("\n"));
@@ -259,9 +271,7 @@ fn redundant_bindings_pass<'a>(hir: Vec<TypedStatement>, stdout: &'a mut Standar
     Ok((hir, stdout))
 }
 
-fn cfp_pass<'a>(hir: Vec<TypedStatement>, stdout: &'a mut StandardStream, pass_count: &mut u8, options: &ProcessOptions) -> Result<(Vec<TypedStatement>, &'a mut StandardStream), Box<dyn Error>> {
-    stdout.write_title(&format!("CFP (pass {})", *pass_count + 1))?;
-    *pass_count += 1;
+fn cfp_pass<'a>(hir: Vec<TypedStatement>, stdout: &'a mut StandardStream, options: &ProcessOptions) -> Result<(Vec<TypedStatement>, &'a mut StandardStream), Box<dyn Error>> {
     let mut cfp = CFP::new();
     let hir = cfp.fold_statements(hir.as_slice());
     if options.dump_intermediate {
@@ -270,8 +280,8 @@ fn cfp_pass<'a>(hir: Vec<TypedStatement>, stdout: &'a mut StandardStream, pass_c
     Ok((hir, stdout))
 }
 
-fn eval_pass<'a>(hir: Vec<TypedStatement>, stdout: &'a mut StandardStream) -> Result<(Evalue, &'a mut StandardStream), Box<dyn Error>> {
-    stdout.write_title("Evaluating")?;
+
+fn eval_pass(hir: Vec<TypedStatement>, stdout: &mut StandardStream) -> Result<(Evalue, &mut StandardStream), Box<dyn Error>> {
     let mut evaluator = Evaluator::new();
     let evalue = evaluator.eval_module(hir.as_slice())?;
     println!("{:?}", evalue);
