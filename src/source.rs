@@ -1,5 +1,5 @@
-use std::fmt::{Display, Debug, Formatter, Result as FmtResult};
 use std::error::Error;
+use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
 use std::rc::Rc;
 
 #[derive(Copy, Clone)]
@@ -101,7 +101,7 @@ impl<'a> SourceFile {
         Ok(data)
     }
 
-    crate fn new(path: &str, data: &[u8]) -> Result<SourceFile, Box<dyn Error>> {
+    crate fn from(path: &str, data: &[u8]) -> Result<SourceFile, Box<dyn Error>> {
         let text = Self::decode(&data, path)?;
         let lines = Self::collect_lines(&text);
         Ok(SourceFile {
