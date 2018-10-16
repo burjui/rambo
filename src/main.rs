@@ -166,8 +166,8 @@ impl<'a, T> Pipeline<'a, T> {
 }
 
 fn process(path: &str, options: &ProcessOptions) -> Result<(), Box<dyn Error>> {
-    // TODO use isatty() to choose coloring scheme
-    let mut stdout = StandardStream::stdout(ColorChoice::Auto);
+    let is_tty = unsafe { libc::isatty(libc::STDOUT_FILENO as i32) } != 0;
+    let mut stdout = StandardStream::stdout(if is_tty { ColorChoice::Always } else { ColorChoice::Never });
     let mut rb_pass_count: u8 = 0;
     let mut cfp_pass_count: u8 = 0;
     Pipeline::new(options.max_pass, Some((path, &mut stdout)))
