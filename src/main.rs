@@ -33,6 +33,7 @@ use getopts::Options;
 use itertools::join;
 
 #[derive(PartialOrd, PartialEq, Copy, Clone)]
+// TODO separate types
 enum Pass {
     Load, Parse, Semantics, CFG, RedundantBindings1, CFP1, RedundantBindings2, CFP2, CFGOptimized, Eval
 }
@@ -73,7 +74,7 @@ struct ProcessOptions {
     warnings: bool,
     dump_intermediate: bool,
     dump_cfg: bool,
-    last_pass: Pass
+    max_pass: Pass
 }
 
 fn main() {
@@ -122,12 +123,12 @@ fn parse_command_line() -> Result<(Vec<String>, ProcessOptions), Box<dyn Error>>
         warnings: !matches.opt_present(WARNINGS_OPTION),
         dump_intermediate: matches.opt_present(DUMP_OPTION),
         dump_cfg: matches.opt_present(DUMP_CFG_OPTION),
-        last_pass: {
+        max_pass: {
             *matches.opt_str(PASS_OPTION)
-                .map(|last_pass_name|
+                .map(|max_pass_name|
                     Pass::all().iter()
-                        .find(|pass| pass.name() == last_pass_name)
-                        .ok_or_else(|| format!("invalid pass name: {}", last_pass_name)))
+                        .find(|pass| pass.name() == max_pass_name)
+                        .ok_or_else(|| format!("invalid pass name: {}", max_pass_name)))
                 .unwrap_or(Ok(&Pass::Eval))?
         }
     };
@@ -135,40 +136,40 @@ fn parse_command_line() -> Result<(Vec<String>, ProcessOptions), Box<dyn Error>>
     Ok((input_files, options))
 }
 
-struct Pipeline<'a, T> {
-    options: &'a ProcessOptions,
+struct Pipeline<T> {
+    max_pass: Pass,
     data: Option<T>
 }
 
-impl<'a, T> Pipeline<'a, T> {
-    fn new(options: &'a ProcessOptions, data: Option<T>) -> Self {
+impl<T> Pipeline<T> {
+    fn new(max_pass: Pass, data: Option<T>) -> Self {
         Self {
-            options,
+            max_pass,
             data
         }
     }
 
-    fn map<U, F: FnOnce(T) -> U>(self, pass: Pass, f: F) -> Pipeline<'a, U> {
-        let (options, data) = self.map_internal(pass, f);
-        Pipeline::new(options, data)
+    fn map<U, F: FnOnce(T) -> U>(self, pass: Pass, f: F) -> Pipeline<U> {
+        let (max_pass, data) = self.map_internal(pass, f);
+        Pipeline::new(max_pass, data)
     }
 
-    fn map_result<U, F>(self, pass: Pass, f: F) -> Result<Pipeline<'a, U>, Box<dyn Error>>
+    fn map_result<U, F>(self, pass: Pass, f: F) -> Result<Pipeline<U>, Box<dyn Error>>
         where F: FnOnce(T) -> Result<U, Box<dyn Error>>
     {
-        let (options, data) = self.map_internal(pass, f);
-        data.transpose().map(|data| Pipeline::new(options, data))
+        let (max_pass, data) = self.map_internal(pass, f);
+        data.transpose().map(|data| Pipeline::new(max_pass, data))
     }
 
-    fn map_internal<U, F: FnOnce(T) -> U>(self, pass: Pass, f: F) -> (&'a ProcessOptions, Option<U>) {
-        let options = self.options;
-        (options, self.data
-            .filter(|_| options.last_pass >= pass)
+    fn map_internal<U, F: FnOnce(T) -> U>(self, pass: Pass, f: F) -> (Pass, Option<U>) {
+        let max_pass = self.max_pass;
+        (max_pass, self.data
+            .filter(|_| max_pass >= pass)
             .map(|x| f(x)))
     }
 }
 
-impl<'a, T> Pipeline<'a, Result<T, Box<dyn Error>>> {
+impl<T> Pipeline<Result<T, Box<dyn Error>>> {
     fn result(self) -> Result<Option<T>, Box<dyn Error>> {
         self.data.transpose()
     }
@@ -179,7 +180,7 @@ fn process(path: &str, options: &ProcessOptions) -> Result<(), Box<dyn Error>> {
     let source_file = load_source_file_pass(path)?;
     let mut rb_pass_count: u8 = 0;
     let mut cfp_pass_count: u8 = 0;
-    Pipeline::new(options, Some(source_file))
+    Pipeline::new(options.max_pass, Some(source_file))
         .map_result(Pass::Parse, |source_file| parse_source_file_pass(source_file, options))?
         .map_result(Pass::Semantics, |ast| semantic_check_pass(ast, options))?
         .map(Pass::CFG, |hir| construct_cfg_pass(hir, "cfg.dot", "", options))
