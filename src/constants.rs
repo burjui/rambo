@@ -1,10 +1,19 @@
+use crate::env::Environment;
+use crate::semantics::BindingPtr;
+use crate::semantics::BindingRef;
+use crate::semantics::BindingValue;
+use crate::semantics::Block;
+use crate::semantics::ExprRef;
+use crate::semantics::Ptr;
+use crate::semantics::TypedExpr;
+use crate::semantics::TypedStatement;
+use crate::source::Source;
 use num_bigint::BigInt;
 use num_traits::Zero;
-use std::ops::{Add, Sub, Mul, Div};
-
-use crate::semantics::*;
-use crate::env::Environment;
-use crate::source::Source;
+use std::ops::Add;
+use std::ops::Div;
+use std::ops::Mul;
+use std::ops::Sub;
 
 // TODO implement operation-specific optimizations, such as "x*1 = x", "x+0 = x" and so on
 // TODO get rid of unreachable()

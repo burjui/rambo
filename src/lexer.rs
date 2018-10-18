@@ -1,8 +1,12 @@
-use crate::source::*;
-use std::fmt::{Display, Debug, Formatter, Result as FmtResult};
-use std::error::Error;
-use std::iter::once;
+use crate::source::Range;
+use crate::source::Source;
+use crate::source::SourceFile;
 use itertools::Itertools;
+use std::error::Error;
+use std::fmt::Debug;
+use std::fmt::Display;
+use std::fmt::Formatter;
+use std::iter::once;
 use std::rc::Rc;
 
 #[derive(Debug, PartialEq, Copy, Clone)]
@@ -25,14 +29,14 @@ impl Lexeme {
 }
 
 impl Debug for Lexeme {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> FmtResult {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         formatter.write_str(&format!("{} | {:?} | {:?}",
              self.text(), self.token, self.source.file.position(self.source.range.start).unwrap()))
     }
 }
 
 impl Display for Lexeme {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> FmtResult {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         formatter.write_str(if self.token == Token::EOF { "end of file" } else { self.text() })
     }
 }
@@ -303,7 +307,7 @@ impl Lexer {
 }
 
 impl Debug for Lexer {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> FmtResult {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         formatter.write_str(
             &format!("Lexer {{ {}({:?}) }}", self.file.path, self.file.position(self.current_offset).unwrap()))
     }

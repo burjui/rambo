@@ -1,3 +1,6 @@
+use itertools::Itertools;
+use std::fmt::Debug;
+
 macro_rules! error {
     ($format_string: expr $(, $argument: expr)*) => { Err(From::from(format!($format_string $(, $argument)*))) };
 }
@@ -15,8 +18,6 @@ macro_rules! warning_at {
     }};
 }
 
-use std::fmt::Debug;
-use itertools::Itertools;
 crate trait ByLine: Iterator {
     fn join_as_strings(&mut self, separator: &str) -> String
         where Self: Sized, Self::Item: Debug

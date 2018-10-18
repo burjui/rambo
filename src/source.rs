@@ -1,5 +1,7 @@
 use std::error::Error;
-use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
+use std::fmt::Debug;
+use std::fmt::Display;
+use std::fmt::Formatter;
 use std::rc::Rc;
 
 #[derive(Copy, Clone)]
@@ -9,7 +11,7 @@ crate struct Position {
 }
 
 impl Debug for Position {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> FmtResult {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         formatter.write_str(&format!("{}:{}", self.line + 1, self.column + 1))
     }
 }
@@ -46,13 +48,13 @@ impl Source {
 }
 
 impl Display for Source {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> FmtResult {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         write!(formatter, "{}({:?})", self.file.path, self.file.position(self.range.start).unwrap())
     }
 }
 
 impl Debug for Source {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> FmtResult {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         formatter.write_str(self.text())
     }
 }

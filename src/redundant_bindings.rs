@@ -1,8 +1,20 @@
-use petgraph::{ Graph, Direction, visit::EdgeRef, graph::NodeIndex };
-use crate::semantics::*;
+use crate::semantics::BindingPtr;
+use crate::semantics::BindingRef;
+use crate::semantics::BindingValue;
+use crate::semantics::Block;
+use crate::semantics::ExprRef;
+use crate::semantics::Ptr;
+use crate::semantics::TypedExpr;
+use crate::semantics::TypedStatement;
 use crate::source::Source;
-use std::collections::{ hash_map::HashMap, hash_set::HashSet };
-use crate::typed_visitor::{ TypedVisitor };
+use crate::typed_visitor::TypedVisitor;
+use petgraph::Direction;
+use petgraph::Graph;
+use petgraph::graph::NodeIndex;
+use petgraph::visit::EdgeRef;
+use std::collections::hash_map::HashMap;
+use std::collections::hash_set::HashSet;
+use std::fmt;
 
 #[derive(PartialEq)]
 crate enum Warnings { On, Off }
@@ -179,7 +191,6 @@ impl Reachability {
     }
 }
 
-use std::fmt;
 struct SourcePrinter(Source);
 
 impl fmt::Debug for SourcePrinter {

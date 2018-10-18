@@ -1,9 +1,18 @@
-use crate::semantics::*;
-use std::rc::Rc;
+use crate::semantics::BindingValue;
+use crate::semantics::Block;
+use crate::semantics::ExprRef;
+use crate::semantics::TypedExpr;
+use crate::semantics::TypedStatement;
+use crate::utils::ByLine;
+use petgraph::Direction;
+use petgraph::dot::Config;
+use petgraph::dot::Dot;
+use petgraph::Graph;
+use petgraph::graph::NodeIndex;
+use petgraph::visit::EdgeRef;
 use std::cell::RefCell;
 use std::fmt;
-use petgraph::{ Graph, Direction, visit::EdgeRef, graph::NodeIndex, dot::{ Dot, Config } };
-use crate::utils::*;
+use std::rc::Rc;
 
 crate fn construct_cfg(code: &[TypedStatement]) -> CFG {
     let mut cfg = CFG::new();

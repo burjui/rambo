@@ -1,9 +1,13 @@
-use std::fmt::{Debug, Formatter, Write, Result as FmtResult};
+use crate::lexer::Lexeme;
+use crate::lexer::Lexer;
+use crate::lexer::LexerStats;
+use crate::lexer::Token;
+use crate::semantics::Type;
+use crate::source::Source;
 use std::error::Error;
-
-use crate::lexer::*;
-use crate::source::*;
-use crate::semantics::*;
+use std::fmt::Debug;
+use std::fmt::Formatter;
+use std::fmt::Write;
 
 #[derive(Clone)]
 crate struct Parameter {
@@ -13,7 +17,7 @@ crate struct Parameter {
 }
 
 impl Debug for Parameter {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> FmtResult {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         write!(formatter, "({:?}: {:?})", self.name, self.type_)
     }
 }
@@ -24,7 +28,7 @@ crate enum BinaryOperation {
 }
 
 impl Debug for BinaryOperation {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> FmtResult {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         formatter.write_char(match self {
             BinaryOperation::Assign => '=',
             BinaryOperation::Add => '+',
@@ -71,7 +75,7 @@ crate enum Expr {
 }
 
 impl Debug for Expr {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> FmtResult {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         write!(formatter, "{:?}", self.source())
     }
 }
@@ -104,7 +108,7 @@ crate enum Statement {
 }
 
 impl Debug for Statement {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> FmtResult {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Statement::Expr(expr) => expr.fmt(formatter),
             Statement::Binding { name, value, .. } => write!(formatter, "let {:?} = {:?}", name, value)

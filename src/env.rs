@@ -1,8 +1,8 @@
 use std::cell::RefCell;
-use std::collections::HashMap;
-use std::fmt::Debug;
-use std::error::Error;
 use std::cmp::Eq;
+use std::collections::HashMap;
+use std::error::Error;
+use std::fmt::Debug;
 use std::hash::Hash;
 
 crate struct Environment<Key, Value> {

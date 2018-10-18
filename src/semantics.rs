@@ -1,14 +1,17 @@
-use std::fmt::{Debug, Formatter, Result as FmtResult};
-use std::error::Error;
-use std::rc::Rc;
-use std::cell::RefCell;
-use num_bigint::BigInt;
-use std::collections::HashMap;
-use itertools::Itertools;
-use crate::utils::*;
-use crate::parser::*;
+use crate::parser::BinaryOperation;
+use crate::parser::Expr;
 use crate::parser::Parameter as ParsedParameter;
+use crate::parser::Statement;
 use crate::source::Source;
+use crate::utils::ByLine;
+use itertools::Itertools;
+use num_bigint::BigInt;
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::error::Error;
+use std::fmt::Debug;
+use std::fmt::Formatter;
+use std::rc::Rc;
 
 crate type FunctionTypeRef = Rc<FunctionType>;
 
@@ -19,7 +22,7 @@ crate struct Parameter {
 }
 
 impl Debug for Parameter {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> FmtResult {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         write!(formatter, "({}: {:?})", self.name, self.type_)
     }
 }
@@ -31,7 +34,7 @@ crate struct FunctionType {
 }
 
 impl Debug for FunctionType {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> FmtResult {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         let parameter_list = self.parameters.iter().map(|x| format!("{:?}", x)).join(" ");
         write!(formatter, "({} -> {:?})", parameter_list, self.result)
     }
@@ -47,7 +50,7 @@ crate enum Type {
 }
 
 impl Debug for Type {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> FmtResult {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Type::Unit => write!(formatter, "()"),
             Type::Int => write!(formatter, "num"),
@@ -67,7 +70,7 @@ crate struct Lambda {
 }
 
 impl Debug for Lambda {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> FmtResult {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         write!(formatter, "(λ {:?} = {:?})", self.type_, self.body)
     }
 }
@@ -106,7 +109,7 @@ crate enum TypedExpr {
 }
 
 impl Debug for TypedExpr {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> FmtResult {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             TypedExpr::Phantom => write!(formatter, "@"),
             TypedExpr::Unit(_) => write!(formatter, "()"),
@@ -230,13 +233,14 @@ impl Binding {
 }
 
 impl Debug for Binding {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> FmtResult {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         write!(formatter, "let {} = {:?}", self.name, self.data)
     }
 }
 
 crate type BindingPtr = *const BindingCell;
 
+// TODO use Rc::ptr_eq() instead
 crate trait Ptr<T> {
     fn ptr(self) -> *const T;
 }
@@ -254,7 +258,7 @@ crate enum TypedStatement {
 }
 
 impl Debug for TypedStatement {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> FmtResult {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             TypedStatement::Expr(expr) => expr.fmt(formatter),
             TypedStatement::Binding(binding) => binding.borrow().fmt(formatter)

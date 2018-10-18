@@ -1,6 +1,11 @@
 use crate::env::Environment;
-use crate::semantics::*;
+use crate::semantics::BindingPtr;
+use crate::semantics::BindingValue;
 use crate::semantics::Block;
+use crate::semantics::Lambda;
+use crate::semantics::Ptr;
+use crate::semantics::TypedExpr;
+use crate::semantics::TypedStatement;
 use num_bigint::BigInt;
 use num_traits::Zero;
 use std::error::Error;
