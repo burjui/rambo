@@ -39,7 +39,7 @@ impl<'a> Evaluator {
                     BindingValue::Var(expr) => self.eval_expr(expr)?,
                     BindingValue::Arg(_) => panic!("{:?}", binding.borrow().data)
                 };
-                self.env.bind_force(binding.clone().into(), value);
+                self.env.bind_force(binding.clone(), value);
                 Ok(Evalue::Unit)
             }
         }
@@ -82,7 +82,7 @@ impl<'a> Evaluator {
             },
             TypedExpr::Assign(binding, value, _) => {
                 let value = self.eval_expr(value)?;
-                self.env.bind_force(binding.clone().into(), value.clone());
+                self.env.bind_force(binding.clone(), value.clone());
                 Ok(value)
             },
             TypedExpr::Deref(binding, _) => Ok(self.env.resolve(binding).unwrap()),
@@ -96,7 +96,7 @@ impl<'a> Evaluator {
                 };
                 self.env.push();
                 for (parameter, argument) in lambda.parameters.iter().zip(arguments.into_iter()) {
-                    self.env.bind(parameter.clone().into(), argument).unwrap();
+                    self.env.bind(parameter.clone(), argument).unwrap();
                 }
                 let result = self.eval_expr(&lambda.body);
                 self.env.pop();

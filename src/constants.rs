@@ -89,7 +89,7 @@ impl CFP {
                         if let TypedExpr::Lambda(lambda, _) = &function as &TypedExpr {
                             self.env.push();
                             for (parameter, argument) in lambda.parameters.iter().zip(arguments.into_iter()) {
-                                self.env.bind(parameter.clone().into(), argument).unwrap();
+                                self.env.bind(parameter.clone(), argument).unwrap();
                             }
                             let result = self.fold(&lambda.body);
                             self.env.pop();
@@ -106,7 +106,7 @@ impl CFP {
             TypedExpr::Lambda(lambda, source) => {
                 self.env.push();
                 for parameter in &lambda.parameters {
-                    self.env.bind(parameter.clone().into(), ExprRef::new(TypedExpr::Phantom)).unwrap();
+                    self.env.bind(parameter.clone(), ExprRef::new(TypedExpr::Phantom)).unwrap();
                 }
                 let body = self.fold(&lambda.body);
                 self.env.pop();

@@ -182,7 +182,7 @@ impl Reachability {
 
     fn register(&mut self, binding: &BindingRef) {
         let node = self.graph.add_node(SourcePrinter(binding.borrow().source.clone()));
-        self.map.insert(binding.clone().into(), node);
+        self.map.insert(binding.clone(), node);
         if let BindingValue::Var(value) = &binding.borrow().data {
              self.expr_reachability(value, &Some(binding.clone()));
         }
