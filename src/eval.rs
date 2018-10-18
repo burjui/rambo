@@ -1,9 +1,8 @@
 use crate::env::Environment;
-use crate::semantics::BindingPtr;
 use crate::semantics::BindingValue;
+use crate::semantics::BindingRef;
 use crate::semantics::Block;
 use crate::semantics::Lambda;
-use crate::semantics::Ptr;
 use crate::semantics::TypedExpr;
 use crate::semantics::TypedStatement;
 use num_bigint::BigInt;
@@ -11,7 +10,7 @@ use num_traits::Zero;
 use std::error::Error;
 use std::rc::Rc;
 
-type Env = Environment<BindingPtr, Evalue>;
+type Env = Environment<BindingRef, Evalue>;
 
 crate struct Evaluator {
     env: Env,
@@ -40,7 +39,7 @@ impl<'a> Evaluator {
                     BindingValue::Var(expr) => self.eval_expr(expr)?,
                     BindingValue::Arg(_) => panic!("{:?}", binding.borrow().data)
                 };
-                self.env.bind_force(binding.ptr(), value);
+                self.env.bind_force(binding.clone().into(), value);
                 Ok(Evalue::Unit)
             }
         }
@@ -83,10 +82,10 @@ impl<'a> Evaluator {
             },
             TypedExpr::Assign(binding, value, _) => {
                 let value = self.eval_expr(value)?;
-                self.env.bind_force(binding.ptr(), value.clone());
+                self.env.bind_force(binding.clone().into(), value.clone());
                 Ok(value)
             },
-            TypedExpr::Deref(binding, _) => Ok(self.env.resolve(&binding.ptr()).unwrap()),
+            TypedExpr::Deref(binding, _) => Ok(self.env.resolve(binding).unwrap()),
             TypedExpr::Application { function, arguments, .. } => {
                 let arguments: Result<Vec<Evalue>, Box<dyn Error>> = arguments.iter()
                     .map(|argument| self.eval_expr(argument)).collect();
@@ -97,7 +96,7 @@ impl<'a> Evaluator {
                 };
                 self.env.push();
                 for (parameter, argument) in lambda.parameters.iter().zip(arguments.into_iter()) {
-                    self.env.bind(parameter.ptr(), argument).unwrap();
+                    self.env.bind(parameter.clone().into(), argument).unwrap();
                 }
                 let result = self.eval_expr(&lambda.body);
                 self.env.pop();

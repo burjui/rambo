@@ -13,6 +13,9 @@ use std::error::Error;
 use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::rc::Rc;
+use std::ops::Deref;
+use std::hash::Hash;
+use std::hash::Hasher;
 
 crate type FunctionTypeRef = Rc<FunctionType>;
 
@@ -217,7 +220,43 @@ impl BindingValue {
 }
 
 crate type BindingCell = RefCell<Binding>;
-crate type BindingRef = Rc<BindingCell>;
+
+#[derive(Clone)]
+crate struct BindingRef(Rc<BindingCell>);
+
+impl From<Rc<BindingCell>> for BindingRef {
+    fn from(cell: Rc<RefCell<Binding>>) -> Self {
+        Self(cell)
+    }
+}
+
+impl Deref for BindingRef {
+    type Target = Rc<BindingCell>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl PartialEq<BindingRef> for BindingRef {
+    fn eq(&self, other: &BindingRef) -> bool {
+        Rc::ptr_eq(self, other)
+    }
+}
+
+impl Eq for BindingRef {}
+
+impl Hash for BindingRef {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.0.as_ptr().hash(state)
+    }
+}
+
+impl Debug for BindingRef {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        self.deref().fmt(formatter)
+    }
+}
 
 crate struct Binding {
     crate name: String,
@@ -236,19 +275,6 @@ impl Binding {
 impl Debug for Binding {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         write!(formatter, "let {} = {:?}", self.name, self.data)
-    }
-}
-
-crate type BindingPtr = *const BindingCell;
-
-// TODO use Rc::ptr_eq() instead
-crate trait Ptr<T> {
-    fn ptr(self) -> *const T;
-}
-
-impl<'a> Ptr<BindingCell> for &'a BindingRef {
-    fn ptr(self) -> *const BindingCell {
-        self as &BindingCell as *const BindingCell
     }
 }
 
@@ -298,13 +324,13 @@ fn check_statement(env: &mut Environment, statement: &Statement) -> CheckResult<
         },
         Statement::Binding { name, value, source } => {
             let value = check_expr(env, &value)?;
-            let binding = Rc::new(RefCell::new(Binding {
+            let binding = BindingRef(Rc::new(RefCell::new(Binding {
                 name: name.text().to_string(),
                 data: BindingValue::Var(value),
                 assigned: false,
                 dirty: false,
                 source: source.clone()
-            }));
+            })));
             env.bind(&binding)?;
             Ok(TypedStatement::Binding(binding))
         }
@@ -462,13 +488,13 @@ fn check_function(env: &mut Environment, parameters: &[ParsedParameter], body: &
     env.push();
     let mut parameter_bindings = vec![];
     for parameter in parameters.iter() {
-        let binding = Rc::new(RefCell::new(Binding {
+        let binding = BindingRef(Rc::new(RefCell::new(Binding {
             name: parameter.name.to_string(),
             data: BindingValue::Arg(parameter.type_.clone()),
             assigned: false,
             dirty: false,
             source: parameter.source.clone()
-        }));
+        })));
         parameter_bindings.push(binding.clone());
         env.bind(&binding)?;
     }

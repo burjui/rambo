@@ -3,6 +3,7 @@
 #![feature(box_syntax)]
 #![feature(box_patterns)]
 #![feature(transpose_result)]
+#![feature(self_struct_ctor)]
 
 use crate::pipeline::ConstructCFG;
 use crate::pipeline::ConstructCFGOptimized;

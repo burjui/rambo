@@ -1,9 +1,7 @@
-use crate::semantics::BindingPtr;
 use crate::semantics::BindingRef;
 use crate::semantics::BindingValue;
 use crate::semantics::Block;
 use crate::semantics::ExprRef;
-use crate::semantics::Ptr;
 use crate::semantics::TypedExpr;
 use crate::semantics::TypedStatement;
 use crate::source::Source;
@@ -66,7 +64,7 @@ impl RedundantBindings {
 }
 
 type ReachabilityGraph = Graph<SourcePrinter, u8>;
-type BindingToNodeMap = HashMap<BindingPtr, NodeIndex>;
+type BindingToNodeMap = HashMap<BindingRef, NodeIndex>;
 
 struct Reachability {
     graph: ReachabilityGraph,
@@ -74,11 +72,11 @@ struct Reachability {
 }
 
 struct RedundantBindingRemover {
-    redundant_bindings: HashSet<BindingPtr>
+    redundant_bindings: HashSet<BindingRef>
 }
 
 impl RedundantBindingRemover {
-    fn new(redundant_bindings: HashSet<BindingPtr>) -> Self {
+    fn new(redundant_bindings: HashSet<BindingRef>) -> Self {
         Self { redundant_bindings }
     }
 }
@@ -109,7 +107,7 @@ impl TypedVisitor for RedundantBindingRemover {
     fn visit_statement(&mut self, statement: &TypedStatement) -> Option<TypedStatement> {
         match statement {
             TypedStatement::Binding(binding) =>
-                if self.redundant_bindings.contains(&binding.ptr()) {
+                if self.redundant_bindings.contains(binding) {
                     let unit = TypedExpr::Unit(binding.borrow().source.clone());
                     Some(TypedStatement::Expr(ExprRef::new(unit)))
                 } else {
@@ -147,9 +145,9 @@ impl Reachability {
             TypedExpr::String(_, _) => {},
             TypedExpr::Deref(binding, source) => {
                 let src = origin.as_ref()
-                    .map(|origin| self.map[&origin.ptr()])
+                    .map(|origin| self.map[origin])
                     .unwrap_or_else(|| self.graph.add_node(SourcePrinter(source.clone())));
-                let dst = self.map[&binding.ptr()];
+                let dst = self.map[binding];
                 self.graph.add_edge(src, dst, 0);
             },
             TypedExpr::Lambda(lambda, _) => {
@@ -184,7 +182,7 @@ impl Reachability {
 
     fn register(&mut self, binding: &BindingRef) {
         let node = self.graph.add_node(SourcePrinter(binding.borrow().source.clone()));
-        self.map.insert(binding.ptr(), node);
+        self.map.insert(binding.clone().into(), node);
         if let BindingValue::Var(value) = &binding.borrow().data {
              self.expr_reachability(value, &Some(binding.clone()));
         }

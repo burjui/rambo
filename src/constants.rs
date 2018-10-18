@@ -1,10 +1,8 @@
 use crate::env::Environment;
-use crate::semantics::BindingPtr;
 use crate::semantics::BindingRef;
 use crate::semantics::BindingValue;
 use crate::semantics::Block;
 use crate::semantics::ExprRef;
-use crate::semantics::Ptr;
 use crate::semantics::TypedExpr;
 use crate::semantics::TypedStatement;
 use crate::source::Source;
@@ -19,7 +17,7 @@ use std::ops::Sub;
 // TODO get rid of unreachable()
 
 crate struct CFP {
-    env: Environment<BindingPtr, ExprRef>
+    env: Environment<BindingRef, ExprRef>
 }
 
 impl CFP {
@@ -60,7 +58,7 @@ impl CFP {
                             expr.clone()
                         }
                     },
-                    BindingValue::Arg(_) => self.env.resolve(&binding.ptr()).unwrap().clone()
+                    BindingValue::Arg(_) => self.env.resolve(binding).unwrap().clone()
                 }
             }
             TypedExpr::AddInt(left, right, source) => self.try_fold_numeric(expr, left, right, Add::add, source),
@@ -91,7 +89,7 @@ impl CFP {
                         if let TypedExpr::Lambda(lambda, _) = &function as &TypedExpr {
                             self.env.push();
                             for (parameter, argument) in lambda.parameters.iter().zip(arguments.into_iter()) {
-                                self.env.bind(parameter.ptr(), argument).unwrap();
+                                self.env.bind(parameter.clone().into(), argument).unwrap();
                             }
                             let result = self.fold(&lambda.body);
                             self.env.pop();
@@ -108,7 +106,7 @@ impl CFP {
             TypedExpr::Lambda(lambda, source) => {
                 self.env.push();
                 for parameter in &lambda.parameters {
-                    self.env.bind(parameter.ptr(), ExprRef::new(TypedExpr::Phantom)).unwrap();
+                    self.env.bind(parameter.clone().into(), ExprRef::new(TypedExpr::Phantom)).unwrap();
                 }
                 let body = self.fold(&lambda.body);
                 self.env.pop();
