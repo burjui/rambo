@@ -72,6 +72,11 @@ impl Debug for Lambda {
     }
 }
 
+crate struct Block {
+    crate statements: Vec<TypedStatement>,
+    crate source: Source
+}
+
 crate enum TypedExpr {
     Phantom, // TODO rename to PseudoArg
     Unit(Source),
@@ -97,7 +102,7 @@ crate enum TypedExpr {
         negative: Option<ExprRef>,
         source: Source
     },
-    Block(Vec<TypedStatement>, Source)
+    Block(Block)
 }
 
 impl Debug for TypedExpr {
@@ -123,7 +128,7 @@ impl Debug for TypedExpr {
                 };
                 write!(formatter, "(if {:?} {:?}{})", condition, positive, negative)
             },
-            TypedExpr::Block(statements, _) => write!(formatter, "{{ {} }})", statements.iter().join_as_strings("; "))
+            TypedExpr::Block(Block { statements, .. }) => write!(formatter, "{{ {} }})", statements.iter().join_as_strings("; "))
         }
     }
 }
@@ -154,7 +159,7 @@ impl TypedExpr {
                     positive.type_()
                 }
             },
-            TypedExpr::Block(statements, _) => statements.last().map(TypedStatement::type_).unwrap_or_else(|| Type::Unit)
+            TypedExpr::Block(Block { statements, .. }) => statements.last().map(TypedStatement::type_).unwrap_or_else(|| Type::Unit)
         }
     }
 
@@ -173,12 +178,21 @@ impl TypedExpr {
             TypedExpr::Assign(left, right, _) => TypedExpr::Assign(left.clone(), right.clone(), source),
             TypedExpr::Lambda(lambda, _) => TypedExpr::Lambda(lambda.clone(), source),
             TypedExpr::Application { type_, function, arguments, .. } => TypedExpr::Application {
-                type_: type_.clone(), function: function.clone(), arguments: arguments.clone(), source
+                type_: type_.clone(),
+                function: function.clone(),
+                arguments: arguments.clone(),
+                source
             },
             TypedExpr::Conditional { condition, positive, negative, .. } => TypedExpr::Conditional {
-                condition: condition.clone(), positive: positive.clone(), negative: negative.clone(), source
+                condition: condition.clone(),
+                positive: positive.clone(),
+                negative: negative.clone(),
+                source
             },
-            TypedExpr::Block(statements, _) => TypedExpr::Block(statements.clone(), source),
+            TypedExpr::Block(Block { statements, .. }) => TypedExpr::Block(Block{
+                statements: statements.clone(),
+                source
+            }),
         })
     }
 }
@@ -428,7 +442,10 @@ fn check_expr(env: &mut Environment, expr: &Expr) -> CheckResult<ExprRef> {
             let statements = statements.iter()
                 .map(|statement| check_statement(env, statement))
                 .collect::<CheckResult<Vec<_>>>()?;
-            Ok(ExprRef::new(TypedExpr::Block(statements, source.clone())))
+            Ok(ExprRef::new(TypedExpr::Block(Block {
+                statements,
+                source: source.clone()
+            })))
         }
     }
 }
@@ -469,8 +486,13 @@ fn check_function(env: &mut Environment, parameters: &[ParsedParameter], body: &
 fn check_block<'a, BlockIterator>(env: &mut Environment, block: BlockIterator, source: Source) -> CheckResult<ExprRef>
     where BlockIterator: Iterator<Item = &'a Statement>
 {
-    let statements: CheckResult<Vec<_>> = block.map(|statement| check_statement(env, statement)).collect();
-    Ok(Rc::new(TypedExpr::Block(statements?, source)))
+    let statements = block
+        .map(|statement| check_statement(env, statement))
+        .collect::<Result<_, _>>()?;
+    Ok(Rc::new(TypedExpr::Block(Block {
+        statements,
+        source
+    })))
 }
 
 crate struct Environment {

@@ -102,7 +102,7 @@ fn scan_basic_blocks_expr(cfg: &mut CFG, entry: NodeIndex, expr: &ExprRef) -> Op
             };
             scan_basic_blocks_expr(cfg, entry, &lambda.body)
         },
-        TypedExpr::Block(statements, _) => Some(scan_basic_blocks(cfg, entry, statements)),
+        TypedExpr::Block(Block {statements, .. }) => Some(scan_basic_blocks(cfg, entry, statements)),
         _ => None
     }
 }

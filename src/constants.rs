@@ -115,7 +115,7 @@ impl CFP {
                 }
                 expr.clone()
             },
-            TypedExpr::Block(statements, source) => {
+            TypedExpr::Block(Block { statements, source }) => {
                 self.env.push();
                 let statements = self.fold_statements(statements);
                 self.env.pop();
@@ -129,7 +129,10 @@ impl CFP {
                         return expr.clone_at(source.clone())
                     }
                 }
-                ExprRef::new(TypedExpr::Block(statements, source.clone()))
+                ExprRef::new(TypedExpr::Block(Block {
+                    statements,
+                    source: source.clone()
+                }))
             },
             TypedExpr::Phantom |
             TypedExpr::Unit(_) |

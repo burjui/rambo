@@ -166,7 +166,7 @@ impl Reachability {
                     self.expr_reachability(clause, origin)
                 }
             },
-            TypedExpr::Block(statements, _) => self.compute_reachability(statements.as_slice(), origin)
+            TypedExpr::Block(Block { statements, .. }) => self.compute_reachability(statements.as_slice(), origin)
         }
     }
 

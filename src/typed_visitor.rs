@@ -1,7 +1,12 @@
-use crate::semantics::{
-    TypedStatement, TypedExpr, ExprRef, BindingRef,
-    BindingValue, Lambda, FunctionTypeRef, Type
-};
+use crate::semantics::BindingRef;
+use crate::semantics::BindingValue;
+use crate::semantics::Block;
+use crate::semantics::ExprRef;
+use crate::semantics::FunctionTypeRef;
+use crate::semantics::Lambda;
+use crate::semantics::Type;
+use crate::semantics::TypedExpr;
+use crate::semantics::TypedStatement;
 use crate::source::Source;
 use num_bigint::BigInt;
 use std::rc::Rc;
@@ -43,7 +48,7 @@ crate trait TypedVisitor {
             TypedExpr::Assign(binding, value, source) => self.visit_assign(expr, binding, value, source),
             TypedExpr::Conditional { condition, positive, negative, source } =>
                 self.visit_conditional(expr, condition, positive, negative, source),
-            TypedExpr::Block(statements, source) => self.visit_block(expr, statements, source),
+            TypedExpr::Block(Block { statements, source }) => self.visit_block(expr, statements, source),
         }
     }
 
@@ -206,6 +211,9 @@ crate trait TypedVisitor {
 
     #[allow(unused)]
     fn post_block(&mut self, expr: &ExprRef, statements: Vec<TypedStatement>, source: &Source) -> ExprRef {
-        ExprRef::new(TypedExpr::Block(statements, source.clone()))
+        ExprRef::new(TypedExpr::Block(Block {
+            statements,
+            source: source.clone()
+        }))
     }
 }

@@ -1,11 +1,10 @@
-use std::fmt::{Debug, Formatter, Result as FmtResult};
-use std::error::Error;
+use crate::env::Environment;
+use crate::semantics::*;
+use crate::semantics::Block;
 use num_bigint::BigInt;
 use num_traits::Zero;
+use std::error::Error;
 use std::rc::Rc;
-
-use crate::semantics::*;
-use crate::env::Environment;
 
 type Env = Environment<BindingPtr, Evalue>;
 
@@ -113,7 +112,7 @@ impl<'a> Evaluator {
                 };
                 clause.map(|expr| self.eval_expr(expr)).unwrap_or_else(|| Ok(Evalue::Unit))
             },
-            TypedExpr::Block(statements, _) => {
+            TypedExpr::Block(Block { statements, .. }) => {
                 self.env.push();
                 let result = statements.iter()
                     .map(|statement| self.eval_statement(statement))
@@ -145,8 +144,8 @@ crate enum Evalue {
     Lambda(Rc<Lambda>)
 }
 
-impl Debug for Evalue {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> FmtResult {
+impl std::fmt::Debug for Evalue {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Evalue::Unit => write!(formatter, "()"),
             Evalue::Int(value) => write!(formatter, "{}", value),
