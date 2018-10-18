@@ -33,8 +33,9 @@ impl Source {
         &self.file.text[self.range.start .. self.range.end]
     }
 
-    // TODO replace usize argument with another Source
-    crate fn extend(&self, end: usize) -> Source {
+    crate fn extend(&self, until: &Source) -> Source {
+        assert!(Rc::ptr_eq(&self.file, &until.file));
+        let end = until.range.end;
         assert!(end >= self.range.end);
         assert!(end <= self.file.text.len());
         Source {

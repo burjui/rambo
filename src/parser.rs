@@ -125,7 +125,7 @@ crate struct Parser {
     lexeme: Lexeme,
     lexeme_line: usize,
     previous_lexeme_line: usize,
-    previous_lexeme_end: usize
+    previous_lexeme_source: Source
 }
 
 macro_rules! error {
@@ -135,12 +135,13 @@ macro_rules! error {
 impl Parser {
     crate fn new(lexer: Lexer) -> Parser {
         let eof_lexeme = lexer.eof_lexeme.clone();
+        let dummy_source = eof_lexeme.source.clone();
         Parser {
             lexer,
             lexeme: eof_lexeme,
             lexeme_line: 0,
             previous_lexeme_line: 0,
-            previous_lexeme_end: 0,
+            previous_lexeme_source: dummy_source,
         }
     }
 
@@ -153,7 +154,7 @@ impl Parser {
         }
         Ok(Block {
             statements,
-            source: start.extend(self.lexeme.source.range.end)
+            source: start.extend(&self.lexeme.source)
         })
     }
 
@@ -204,7 +205,7 @@ impl Parser {
         } else {
             None
         };
-        let source = start.extend(self.previous_lexeme_end);
+        let source = start.extend(&self.previous_lexeme_source);
         Ok(Expr::Conditional {
             source,
             condition,
@@ -237,8 +238,8 @@ impl Parser {
         while self.lexeme.token != Token::EOF && self.lexeme.token != Token::RBrace {
             statements.push(self.parse_statement()?)
         }
-        let end = self.expect(Token::RBrace, "}")?.source.range.end;
-        let source = start.extend(end);
+        let end = self.expect(Token::RBrace, "}")?.source;
+        let source = start.extend(&end);
         Ok(Expr::Block(Block {
             source,
             statements
@@ -274,7 +275,7 @@ impl Parser {
                     .and_then(|p| if operator.is_left_associative() { p.next_binary_precedence() } else { Some(p) });
                 let right_operand = parse_next(self, right_precedence)?;
                 result = Expr::Binary {
-                    source: start.extend(self.previous_lexeme_end),
+                    source: start.extend(&self.previous_lexeme_source),
                     operation: operator.binary_operation(),
                     left: box(result),
                     right: box(right_operand)
@@ -300,7 +301,7 @@ impl Parser {
                 first_expr
             } else {
                 Expr::Application {
-                    source: start.extend(self.previous_lexeme_end),
+                    source: start.extend(&self.previous_lexeme_source),
                     function: box(first_expr),
                     arguments
                 }
@@ -319,7 +320,7 @@ impl Parser {
             Token::LParen => {
                 if self.lexeme.token == Token::RParen {
                     self.read_lexeme()?;
-                    let source = primary.source.extend(self.previous_lexeme_end);
+                    let source = primary.source.extend(&self.previous_lexeme_source);
                     Ok(Expr::Unit(source))
                 } else {
                     let expr = self.parse_expression()?;
@@ -335,7 +336,7 @@ impl Parser {
         let name = self.expect(Token::Id, "identifier")?;
         self.expect(Token::Eq, "=")?;
         let value = self.parse_expression()?;
-        let source = start.extend(self.previous_lexeme_end);
+        let source = start.extend(&self.previous_lexeme_source);
         Ok(Statement::Binding {
             name: name.source,
             value: box(value),
@@ -347,11 +348,11 @@ impl Parser {
         let mut parameters = vec![];
         let lparen = self.expect(Token::LParen, "`('")?;
         if self.lexeme.token == Token::RParen {
-            let rparen_source_end = self.lexeme.source.range.end;
+            let rparen_source = self.lexeme.source.clone();
             self.read_lexeme()?;
             parameters.push(Parameter {
                 name: "_".to_string(),
-                source: lparen.source.extend(rparen_source_end),
+                source: lparen.source.extend(&rparen_source),
                 type_: Type::Unit
             });
         } else {
@@ -373,7 +374,7 @@ impl Parser {
             self.expect(Token::Arrow, "arrow")?;
             let body = self.parse_block_or_expr()?;
             Ok(Expr::Lambda {
-                source: start.extend(self.previous_lexeme_end),
+                source: start.extend(&self.previous_lexeme_source),
                 parameters,
                 body: box(body)
             })
@@ -386,7 +387,7 @@ impl Parser {
         let type_ = self.parse_type()?;
         Ok(Parameter {
             name: id.source.text().to_string(),
-            source: id.source.extend(self.previous_lexeme_end),
+            source: id.source.extend(&self.previous_lexeme_source),
             type_
         })
     }
@@ -417,7 +418,7 @@ impl Parser {
 
     fn read_lexeme(&mut self) -> ParseResult<()> {
         self.previous_lexeme_line = self.lexeme_line;
-        self.previous_lexeme_end = self.lexeme.source.range.end;
+        self.previous_lexeme_source = self.lexeme.source.clone();
         let (lexeme, line) = self.lexer.read()?;
         self.lexeme = lexeme;
         self.lexeme_line = line;
