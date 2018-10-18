@@ -48,7 +48,7 @@ crate trait TypedVisitor {
             TypedExpr::Assign(binding, value, source) => self.visit_assign(expr, binding, value, source),
             TypedExpr::Conditional { condition, positive, negative, source } =>
                 self.visit_conditional(expr, condition, positive, negative, source),
-            TypedExpr::Block(Block { statements, source }) => self.visit_block(expr, statements, source),
+            TypedExpr::Block(block) => ExprRef::new(TypedExpr::Block(self.visit_block(&block))),
         }
     }
 
@@ -204,16 +204,16 @@ crate trait TypedVisitor {
         })
     }
 
-    fn visit_block(&mut self, expr: &ExprRef, statements: &[TypedStatement], source: &Source) -> ExprRef {
-        let statements = self.visit_statements(statements);
-        self.post_block(expr, statements, source)
+    fn visit_block(&mut self, block: &Block) -> Block {
+        let statements = self.visit_statements(&block.statements);
+        self.post_block(statements, &block.source)
     }
 
     #[allow(unused)]
-    fn post_block(&mut self, expr: &ExprRef, statements: Vec<TypedStatement>, source: &Source) -> ExprRef {
-        ExprRef::new(TypedExpr::Block(Block {
+    fn post_block(&mut self, statements: Vec<TypedStatement>, source: &Source) -> Block {
+        Block {
             statements,
             source: source.clone()
-        }))
+        }
     }
 }

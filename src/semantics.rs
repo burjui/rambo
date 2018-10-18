@@ -1,4 +1,5 @@
 use crate::parser::BinaryOperation;
+use crate::parser::Block as ASTBlock;
 use crate::parser::Expr;
 use crate::parser::Parameter as ParsedParameter;
 use crate::parser::Statement;
@@ -277,13 +278,16 @@ impl TypedStatement {
 
 type CheckResult<T> = Result<T, Box<dyn Error>>;
 
-crate fn check_module(code: &[Statement]) -> CheckResult<Vec<TypedStatement>> {
-    let mut typed_module = vec![];
+crate fn check_module(code: &ASTBlock) -> CheckResult<Block> {
+    let mut statements = vec![];
     let mut env = Environment::new();
-    for statement in code {
-        typed_module.push(check_statement(&mut env, statement)?);
+    for statement in &code.statements {
+        statements.push(check_statement(&mut env, statement)?);
     }
-    Ok(typed_module)
+    Ok(Block {
+        statements,
+        source: code.source.clone()
+    })
 }
 
 fn check_statement(env: &mut Environment, statement: &Statement) -> CheckResult<TypedStatement> {
@@ -408,7 +412,7 @@ fn check_expr(env: &mut Environment, expr: &Expr) -> CheckResult<ExprRef> {
             }
 
             let (positive, positive_source) = match positive {
-                box Expr::Block { source, statements } => (statements, source),
+                box Expr::Block(ASTBlock { source, statements }) => (statements, source),
                 _ => unreachable!()
             };
             if positive.is_empty() {
@@ -418,7 +422,7 @@ fn check_expr(env: &mut Environment, expr: &Expr) -> CheckResult<ExprRef> {
             let positive_type = positive.type_();
 
             let negative = match negative {
-                Some(box Expr::Block { source, statements, .. }) => {
+                Some(box Expr::Block(ASTBlock { source, statements, .. })) => {
                     if statements.is_empty() {
                         warning!("empty negative conditional clause: {:?}", source);
                     }
@@ -442,7 +446,7 @@ fn check_expr(env: &mut Environment, expr: &Expr) -> CheckResult<ExprRef> {
                 source: source.clone()
             }))
         },
-        Expr::Block { source, statements } => {
+        Expr::Block(ASTBlock { source, statements }) => {
             let statements = statements.iter()
                 .map(|statement| check_statement(env, statement))
                 .collect::<CheckResult<Vec<_>>>()?;

@@ -26,13 +26,13 @@ crate struct RedundantBindings {
 }
 
 impl RedundantBindings {
-    crate fn remove(code: &[TypedStatement], warnings: Warnings) -> Vec<TypedStatement> {
+    crate fn remove(code: &Block, warnings: Warnings) -> Block {
         let (graph, map) = Reachability::compute(code);
         let redundant = RedundantBindings { warnings, graph, map };
         redundant.remove_unreachable(code)
     }
 
-    fn remove_unreachable(mut self, code: &[TypedStatement]) -> Vec<TypedStatement> {
+    fn remove_unreachable(mut self, code: &Block) -> Block {
         let mut disconnected_nodes = HashSet::<NodeIndex>::new();
         let binding_nodes = self.map.values().cloned().collect::<Vec<_>>();
         binding_nodes.into_iter().for_each(|node| Self::process_node(&mut self.graph, node, &mut disconnected_nodes));
@@ -49,7 +49,7 @@ impl RedundantBindings {
         let redundant_bindings = self.map.into_iter()
             .filter_map(|(binding, node)| if disconnected_nodes.contains(&node) { Some(binding) } else { None })
             .collect::<HashSet<_>>();
-        RedundantBindingRemover::new(redundant_bindings).visit_statements(code)
+        RedundantBindingRemover::new(redundant_bindings).visit_block(code)
     }
 
     fn process_node(graph: &mut ReachabilityGraph, node: NodeIndex, disconnected_nodes: &mut HashSet<NodeIndex>) {
@@ -121,12 +121,12 @@ impl TypedVisitor for RedundantBindingRemover {
 }
 
 impl Reachability {
-    fn compute(code: &[TypedStatement]) -> (ReachabilityGraph, BindingToNodeMap) {
+    fn compute(code: &Block) -> (ReachabilityGraph, BindingToNodeMap) {
         let mut computer = Reachability {
             graph: ReachabilityGraph::new(),
             map: HashMap::new()
         };
-        computer.compute_reachability(code, &None);
+        computer.compute_reachability(&code.statements, &None);
         (computer.graph, computer.map)
     }
 

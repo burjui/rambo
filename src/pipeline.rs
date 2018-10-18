@@ -4,12 +4,12 @@ use crate::constants::CFP;
 use crate::eval::Evaluator;
 use crate::eval::Evalue;
 use crate::lexer::Lexer;
+use crate::parser::Block as ASTBlock;
 use crate::parser::Parser;
-use crate::parser::Statement;
 use crate::redundant_bindings::RedundantBindings;
 use crate::redundant_bindings::Warnings;
+use crate::semantics::Block;
 use crate::semantics::check_module;
-use crate::semantics::TypedStatement;
 use crate::source::SourceFile;
 use crate::utils::ByLine;
 use std::error::Error;
@@ -155,37 +155,37 @@ impl CompilerPass<String, SourceFile> for Load {
     }
 }
 
-impl CompilerPass<SourceFile, Vec<Statement>> for Parse {
+impl CompilerPass<SourceFile, ASTBlock> for Parse {
     const ID: PassId = PassId::Parse;
 
-    fn apply_impl(source_file: SourceFile, stdout: &mut StandardStream, options: &PipelineOptions) -> Result<Vec<Statement>, Box<dyn Error>> {
+    fn apply_impl(source_file: SourceFile, stdout: &mut StandardStream, options: &PipelineOptions) -> Result<ASTBlock, Box<dyn Error>> {
         let lexer = Lexer::new(source_file);
         let mut parser = Parser::new(lexer);
         let ast = parser.parse()?;
         let stats = { parser.lexer_stats() };
         writeln!(stdout, "{} lexemes", stats.lexeme_count);
         if options.dump_intermediate {
-            writeln!(stdout, "-----------\n{}", ast.iter().join_as_strings("\n"));
+            writeln!(stdout, "-----------\n{}", ast.statements.iter().join_as_strings("\n"));
         }
         Ok(ast)
     }
 }
 
-impl CompilerPass<Vec<Statement>, Vec<TypedStatement>> for VerifySemantics {
+impl CompilerPass<ASTBlock, Block> for VerifySemantics {
     const ID: PassId = PassId::VerifySemantics;
 
-    fn apply_impl(ast: Vec<Statement>, stdout: &mut StandardStream, options: &PipelineOptions) -> Result<Vec<TypedStatement>, Box<dyn Error>> {
-        let hir = check_module(ast.as_slice())?;
+    fn apply_impl(ast: ASTBlock, stdout: &mut StandardStream, options: &PipelineOptions) -> Result<Block, Box<dyn Error>> {
+        let hir = check_module(&ast)?;
         if options.dump_intermediate {
-            writeln!(stdout, "{}", hir.iter().join_as_strings("\n"));
+            writeln!(stdout, "{}", hir.statements.iter().join_as_strings("\n"));
         }
         Ok(hir)
     }
 }
 
 impl ConstructCFG {
-    fn apply<'a>(hir: Vec<TypedStatement>, _: &'a mut StandardStream, options: &PipelineOptions, filename: &str) -> Result<Vec<TypedStatement>, Box<dyn Error>> {
-        let cfg = construct_cfg(hir.as_slice());
+    fn apply<'a>(hir: Block, _: &'a mut StandardStream, options: &PipelineOptions, filename: &str) -> Result<Block, Box<dyn Error>> {
+        let cfg = construct_cfg(&hir.statements);
         if options.dump_cfg {
             dump_graph(&cfg, filename);
         }
@@ -193,83 +193,83 @@ impl ConstructCFG {
     }
 }
 
-impl CompilerPass<Vec<TypedStatement>, Vec<TypedStatement>> for ConstructCFG {
+impl CompilerPass<Block, Block> for ConstructCFG {
     const ID: PassId = PassId::ConstructCFG;
 
-    fn apply_impl(hir: Vec<TypedStatement>, stdout: &mut StandardStream, options: &PipelineOptions) -> Result<Vec<TypedStatement>, Box<dyn Error>> {
+    fn apply_impl(hir: Block, stdout: &mut StandardStream, options: &PipelineOptions) -> Result<Block, Box<dyn Error>> {
         Self::apply(hir, stdout, options, "cfg.dot")
     }
 }
 
-impl CompilerPass<Vec<TypedStatement>, Vec<TypedStatement>> for ConstructCFGOptimized {
+impl CompilerPass<Block, Block> for ConstructCFGOptimized {
     const ID: PassId = PassId::ConstructCFGOptimized;
 
-    fn apply_impl(hir: Vec<TypedStatement>, stdout: &mut StandardStream, options: &PipelineOptions) -> Result<Vec<TypedStatement>, Box<dyn Error>> {
+    fn apply_impl(hir: Block, stdout: &mut StandardStream, options: &PipelineOptions) -> Result<Block, Box<dyn Error>> {
         ConstructCFG::apply(hir, stdout, options, "cfg-optimized.dot")
     }
 }
 
 impl RemoveRedundantBindings1 {
-    fn apply(hir: Vec<TypedStatement>, stdout: &mut StandardStream, options: &PipelineOptions, warnings: Warnings) -> Result<Vec<TypedStatement>, Box<dyn Error>> {
-        let result = RedundantBindings::remove(hir.as_slice(), warnings);
+    fn apply(hir: Block, stdout: &mut StandardStream, options: &PipelineOptions, warnings: Warnings) -> Result<Block, Box<dyn Error>> {
+        let result = RedundantBindings::remove(&hir, warnings);
         drop(hir);
         if options.dump_intermediate {
-            writeln!(stdout, "{}", result.iter().join_as_strings("\n"));
+            writeln!(stdout, "{}", result.statements.iter().join_as_strings("\n"));
         }
         Ok(result)
     }
 }
 
-impl CompilerPass<Vec<TypedStatement>, Vec<TypedStatement>> for RemoveRedundantBindings1 {
+impl CompilerPass<Block, Block> for RemoveRedundantBindings1 {
     const ID: PassId = PassId::RemoveRedundantBindings1;
 
-    fn apply_impl(hir: Vec<TypedStatement>, stdout: &mut StandardStream, options: &PipelineOptions) -> Result<Vec<TypedStatement>, Box<dyn Error>> {
+    fn apply_impl(hir: Block, stdout: &mut StandardStream, options: &PipelineOptions) -> Result<Block, Box<dyn Error>> {
         Self::apply(hir, stdout, options, if options.warnings { Warnings::On } else { Warnings::Off })
     }
 }
 
-impl CompilerPass<Vec<TypedStatement>, Vec<TypedStatement>> for RemoveRedundantBindings2 {
+impl CompilerPass<Block, Block> for RemoveRedundantBindings2 {
     const ID: PassId = PassId::RemoveRedundantBindings2;
 
-    fn apply_impl(hir: Vec<TypedStatement>, stdout: &mut StandardStream, options: &PipelineOptions) -> Result<Vec<TypedStatement>, Box<dyn Error>> {
+    fn apply_impl(hir: Block, stdout: &mut StandardStream, options: &PipelineOptions) -> Result<Block, Box<dyn Error>> {
         RemoveRedundantBindings1::apply(hir, stdout, options, Warnings::Off)
     }
 }
 
 impl PropagateConstants1 {
-    fn apply(hir: Vec<TypedStatement>, stdout: &mut StandardStream, options: &PipelineOptions) -> Result<Vec<TypedStatement>, Box<dyn Error>> {
+    fn apply(hir: Block, stdout: &mut StandardStream, options: &PipelineOptions) -> Result<Block, Box<dyn Error>> {
         let mut cfp = CFP::new();
-        let result = cfp.fold_statements(hir.as_slice());
+        let result = cfp.fold_block(&hir);
         drop(hir);
         if options.dump_intermediate {
-            writeln!(stdout, "{}", result.iter().join_as_strings("\n"));
+            writeln!(stdout, "{}", result.statements.iter().join_as_strings("\n"));
         }
         Ok(result)
     }
 }
 
-impl CompilerPass<Vec<TypedStatement>, Vec<TypedStatement>> for PropagateConstants1 {
+impl CompilerPass<Block, Block> for PropagateConstants1 {
     const ID: PassId = PassId::PropagateConstants1;
 
-    fn apply_impl(hir: Vec<TypedStatement>, stdout: &mut StandardStream, options: &PipelineOptions) -> Result<Vec<TypedStatement>, Box<dyn Error>> {
+    fn apply_impl(hir: Block, stdout: &mut StandardStream, options: &PipelineOptions) -> Result<Block, Box<dyn Error>> {
         Self::apply(hir, stdout, options)
     }
 }
 
-impl CompilerPass<Vec<TypedStatement>, Vec<TypedStatement>> for PropagateConstants2 {
+impl CompilerPass<Block, Block> for PropagateConstants2 {
     const ID: PassId = PassId::PropagateConstants2;
 
-    fn apply_impl(hir: Vec<TypedStatement>, stdout: &mut StandardStream, options: &PipelineOptions) -> Result<Vec<TypedStatement>, Box<dyn Error>> {
+    fn apply_impl(hir: Block, stdout: &mut StandardStream, options: &PipelineOptions) -> Result<Block, Box<dyn Error>> {
         PropagateConstants1::apply(hir, stdout, options)
     }
 }
 
-impl CompilerPass<Vec<TypedStatement>, Evalue> for Evaluate {
+impl CompilerPass<Block, Evalue> for Evaluate {
     const ID: PassId = PassId::Evaluate;
 
-    fn apply_impl(hir: Vec<TypedStatement>, stdout: &mut StandardStream, _: &PipelineOptions) -> Result<Evalue, Box<dyn Error>> {
+    fn apply_impl(hir: Block, stdout: &mut StandardStream, _: &PipelineOptions) -> Result<Evalue, Box<dyn Error>> {
         let mut evaluator = Evaluator::new();
-        let value = evaluator.eval_module(hir.as_slice())?;
+        let value = evaluator.eval_module(&hir.statements)?;
         writeln!(stdout, "{:?}", value);
         Ok(value)
     }

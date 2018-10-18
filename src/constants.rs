@@ -29,7 +29,14 @@ impl CFP {
         }
     }
 
-    crate fn fold_statements(&mut self, code: &[TypedStatement]) -> Vec<TypedStatement> {
+    crate fn fold_block(&mut self, code: &Block) -> Block {
+        Block {
+            statements: self.fold_statements(&code.statements),
+            source: code.source.clone()
+        }
+    }
+
+    fn fold_statements(&mut self, code: &[TypedStatement]) -> Vec<TypedStatement> {
         code.into_iter()
             .map(|statement| match statement {
                 TypedStatement::Binding(binding) => {

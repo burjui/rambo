@@ -40,7 +40,12 @@ impl Debug for BinaryOperation {
 }
 
 #[derive(Clone)]
-//#[derive(Debug)]
+crate struct Block {
+    crate statements: Vec<Statement>,
+    crate source: Source
+}
+
+#[derive(Clone)]
 crate enum Expr {
     Unit(Source),
     Int(Source),
@@ -68,10 +73,7 @@ crate enum Expr {
         positive: Box<Expr>,
         negative: Option<Box<Expr>>
     },
-    Block {
-        source: Source,
-        statements: Vec<Statement>
-    }
+    Block(Block)
 }
 
 impl Debug for Expr {
@@ -91,7 +93,7 @@ impl Expr {
             Expr::Binary { source, .. } |
             Expr::Application { source, .. } |
             Expr::Conditional { source, .. } |
-            Expr::Block { source, .. }
+            Expr::Block(Block { source, .. })
             => source
         }
     }
@@ -142,13 +144,17 @@ impl Parser {
         }
     }
 
-    crate fn parse(&mut self) -> ParseResult<Vec<Statement>> {
+    crate fn parse(&mut self) -> ParseResult<Block> {
         self.read_lexeme()?;
+        let start = self.lexeme.source.clone();
         let mut statements = vec![];
         while self.lexeme.token != Token::EOF {
             statements.push(self.parse_statement()?)
         }
-        Ok(statements)
+        Ok(Block {
+            statements,
+            source: start.extend(self.lexeme.source.range.end)
+        })
     }
 
     crate fn lexer_stats(&self) -> &LexerStats {
@@ -219,10 +225,10 @@ impl Parser {
         let expr = self.parse_expression()?;
         let source = expr.source().clone();
         let statements = vec![Statement::Expr(expr)];
-        Ok(Expr::Block {
+        Ok(Expr::Block(Block {
             source,
             statements
-        })
+        }))
     }
 
     fn parse_block(&mut self) -> ParseResult<Expr> {
@@ -233,10 +239,10 @@ impl Parser {
         }
         let end = self.expect(Token::RBrace, "}")?.source.range.end;
         let source = start.extend(end);
-        Ok(Expr::Block {
+        Ok(Expr::Block(Block {
             source,
             statements
-        })
+        }))
     }
 
     fn parse_binary(&mut self, precedence: Precedence) -> ParseResult<Expr> {
