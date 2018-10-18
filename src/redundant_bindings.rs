@@ -109,7 +109,7 @@ impl TypedVisitor for RedundantBindingRemover {
             TypedStatement::Binding(binding) =>
                 if self.redundant_bindings.contains(binding) {
                     let unit = TypedExpr::Unit(binding.borrow().source.clone());
-                    Some(TypedStatement::Expr(ExprRef::new(unit)))
+                    Some(TypedStatement::Expr(ExprRef::from(unit)))
                 } else {
                     Some(TypedStatement::Binding(self.visit_binding(binding)))
                 },

@@ -68,7 +68,7 @@ impl CFP {
             TypedExpr::AddStr(left, right, source) => {
                 match (&self.fold(left) as &TypedExpr, &self.fold(right) as &TypedExpr) {
                     (TypedExpr::String(left, _), TypedExpr::String(right, _)) =>
-                        ExprRef::new(TypedExpr::String(left.to_string() + right, source.clone())),
+                        ExprRef::from(TypedExpr::String(left.to_string() + right, source.clone())),
                     _ => expr.clone()
                 }
             },
@@ -101,12 +101,12 @@ impl CFP {
             },
             TypedExpr::Assign(binding, value, source) => {
                 binding.borrow_mut().assigned = true;
-                ExprRef::new(TypedExpr::Assign(binding.clone(), self.fold(value), source.clone()))
+                ExprRef::from(TypedExpr::Assign(binding.clone(), self.fold(value), source.clone()))
             },
             TypedExpr::Lambda(lambda, source) => {
                 self.env.push();
                 for parameter in &lambda.parameters {
-                    self.env.bind(parameter.clone(), ExprRef::new(TypedExpr::Phantom)).unwrap();
+                    self.env.bind(parameter.clone(), ExprRef::from(TypedExpr::Phantom)).unwrap();
                 }
                 let body = self.fold(&lambda.body);
                 self.env.pop();
@@ -122,7 +122,7 @@ impl CFP {
                     return if n == &BigInt::zero() {
                         negative.as_ref()
                             .map(|clause| self.fold(clause))
-                            .unwrap_or_else(|| ExprRef::new(TypedExpr::Unit(source.clone())))
+                            .unwrap_or_else(|| ExprRef::from(TypedExpr::Unit(source.clone())))
                     } else {
                         self.fold(positive).clone_at(source.clone())
                     }
@@ -143,7 +143,7 @@ impl CFP {
                         return expr.clone_at(source.clone())
                     }
                 }
-                ExprRef::new(TypedExpr::Block(Block {
+                ExprRef::from(TypedExpr::Block(Block {
                     statements,
                     source: source.clone()
                 }))
@@ -179,7 +179,7 @@ impl CFP {
         match (&left as &TypedExpr, &right as &TypedExpr) {
             (TypedExpr::Int(left, _), TypedExpr::Int(right, _)) => {
                 let result = fold_impl(left.clone(), right.clone());
-                ExprRef::new(TypedExpr::Int(result, source.clone()))
+                ExprRef::from(TypedExpr::Int(result, source.clone()))
             },
             _ => original_expr.clone()
         }

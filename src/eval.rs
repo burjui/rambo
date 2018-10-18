@@ -1,6 +1,6 @@
 use crate::env::Environment;
-use crate::semantics::BindingValue;
 use crate::semantics::BindingRef;
+use crate::semantics::BindingValue;
 use crate::semantics::Block;
 use crate::semantics::Lambda;
 use crate::semantics::TypedExpr;
