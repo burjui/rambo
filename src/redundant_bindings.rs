@@ -82,28 +82,6 @@ impl RedundantBindingRemover {
 }
 
 impl TypedVisitor for RedundantBindingRemover {
-    fn post_statements(&mut self, statements: Vec<TypedStatement>) -> Vec<TypedStatement> {
-        // Remove consecutive `()' left from redundant bindings
-        let mut previous_expr_is_unit = false;
-        statements.into_iter()
-            .filter_map(|statement| match &statement {
-                TypedStatement::Binding(_) => Some(statement),
-                TypedStatement::Expr(expr) => {
-                    previous_expr_is_unit = match expr as &TypedExpr {
-                        TypedExpr::Unit(_) => {
-                            if previous_expr_is_unit {
-                                return None;
-                            }
-                            true
-                        },
-                        _ => false
-                    };
-                    Some(statement)
-                }
-            })
-            .collect()
-    }
-
     fn visit_statement(&mut self, statement: &TypedStatement) -> Option<TypedStatement> {
         match statement {
             TypedStatement::Binding(binding) =>

@@ -17,33 +17,66 @@ use std::ops::Sub;
 // TODO get rid of unreachable()
 
 crate struct CFP {
-    env: Environment<BindingRef, ExprRef>
+    env: Environment<BindingRef, ExprRef>,
+    current_indent_level: usize
+}
+
+macro_rules! debug_println_indented {
+    ($self: ident, $format_string: expr $(, $argument: expr)*) => {{
+        debug_print!("{}", "  ".repeat($self.current_indent_level));
+        debug_println!($format_string $(, $argument)*);
+    }};
 }
 
 impl CFP {
     crate fn new() -> CFP {
         CFP {
-            env: Environment::new()
+            env: Environment::new(),
+            current_indent_level: 0
         }
     }
 
-    crate fn fold_block(&mut self, code: &Block) -> Block {
-        Block {
-            statements: self.fold_statements(&code.statements),
-            source: code.source.clone()
-        }
-    }
-
-    fn fold_statements(&mut self, code: &[TypedStatement]) -> Vec<TypedStatement> {
-        code.into_iter()
-            .map(|statement| match statement {
-                TypedStatement::Binding(binding) => {
-                    self.process_binding(binding);
-                    TypedStatement::Binding(binding.clone())
-                },
-                TypedStatement::Expr(expr) => TypedStatement::Expr(self.fold(&expr))
+    crate fn fold_block(&mut self, block: &Block) -> Block {
+        debug_println_indented!(self, "#BLOCK# {:?}", block);
+        self.env.push();
+        let statements = block.statements.iter()
+            .map(|statement| {
+                self.current_indent_level += 1;
+                let statement = self.fold_statement(statement);
+                self.current_indent_level -= 1;
+                statement
             })
-            .collect::<Vec<_>>()
+            .collect::<Vec<_>>();
+        self.env.pop();
+
+        let statements = statements.iter()
+            .fold(Vec::new(), |mut result, statement| {
+                debug_println_indented!(self, ">> {:?}", statement);
+                if let (Some(TypedStatement::Expr(e1)), TypedStatement::Expr(e2)) = (result.last(), &statement) {
+                    debug_println_indented!(self, "## {:?}", e1);
+                    debug_println_indented!(self, "## {:?}\n", e2);
+                    if is_primitive_constant(e1) && is_primitive_constant(e2) {
+                        (*result.last_mut().unwrap()) = statement.clone();
+                    }
+                } else {
+                    result.push(statement.clone());
+                }
+                result
+            });
+        Block {
+            statements,
+            source: block.source.clone()
+        }
+    }
+
+    fn fold_statement(&mut self, statement: &TypedStatement) -> TypedStatement {
+        match statement {
+            TypedStatement::Binding(binding) => {
+                self.process_binding(binding);
+                TypedStatement::Binding(binding.clone())
+            },
+            TypedStatement::Expr(expr) => TypedStatement::Expr(self.fold(&expr))
+        }
     }
 
     #[must_use]
@@ -52,13 +85,19 @@ impl CFP {
             TypedExpr::Deref(binding, source) => {
                 match &binding.borrow().data {
                     BindingValue::Var(value) => {
+                        let value = self.fold(value);
                         if is_primitive_constant(&value) {
                             value.clone_at(source.clone())
                         } else {
                             expr.clone()
                         }
                     },
-                    BindingValue::Arg(_) => self.env.resolve(binding).unwrap().clone()
+                    BindingValue::Arg(_) => {
+                        let value = self.env.resolve(binding).unwrap().clone();
+                        let value = self.fold(&value);
+                        debug_println_indented!(self, "#DEREF ARG# {:?} -> {:?}", binding, value);
+                        value
+                    }
                 }
             }
             TypedExpr::AddInt(left, right, source) => self.try_fold_numeric(expr, left, right, Add::add, source),
@@ -73,26 +112,34 @@ impl CFP {
                 }
             },
             TypedExpr::Application { function, arguments, source, .. } => {
+                debug_println_indented!(self, "#APPL# {:?}", function);
                 let original_function = function;
                 let mut function = self.fold(original_function);
+                debug_println_indented!(self, "#FOLDED# {:?}", function);
                 if is_primitive_constant(&function) {
+                    debug_println_indented!(self, "#FN=CONST#");
                     function
                 } else {
-                    let arguments = arguments.iter().map(|argument| self.fold(argument)).collect::<Vec<_>>();
-                    if arguments.iter().all(is_constant) {
-                        while let TypedExpr::Deref(binding, _) = &function.clone() as &TypedExpr {
-                            function = match &binding.borrow().data {
-                                BindingValue::Var(value) => value.clone(),
-                                _ => unreachable!()
-                            };
+                    debug_println_indented!(self, "#FN!=CONST#");
+                    while let TypedExpr::Deref(binding, _) = &function.clone() as &TypedExpr {
+                        function = match &binding.borrow().data {
+                            BindingValue::Var(value) => value.clone(),
+                            _ => unreachable!()
+                        };
+                    }
+                    if let TypedExpr::Lambda(lambda, _) = &function as &TypedExpr {
+                        self.env.push();
+                        for (parameter, argument) in lambda.parameters.iter().zip(arguments.into_iter()) {
+                            debug_println_indented!(self, "#PARAM# {:?}", parameter);
+                            let old_argument = argument;
+                            let argument = self.fold(argument);
+                            debug_println_indented!(self, "#ARG# {:?} -> {:?}\n", old_argument, argument);
+                            self.env.bind(parameter.clone(), argument.clone()).unwrap();
                         }
-                        if let TypedExpr::Lambda(lambda, _) = &function as &TypedExpr {
-                            self.env.push();
-                            for (parameter, argument) in lambda.parameters.iter().zip(arguments.into_iter()) {
-                                self.env.bind(parameter.clone(), argument).unwrap();
-                            }
-                            let result = self.fold(&lambda.body);
-                            self.env.pop();
+                        let result = self.fold(&lambda.body);
+                        debug_println_indented!(self, "#APPL-RESULT# {:?}\n", result);
+                        self.env.pop();
+                        if is_primitive_constant(&result) {
                             return result.clone_at(source.clone())
                         }
                     }
@@ -104,6 +151,7 @@ impl CFP {
                 ExprRef::from(TypedExpr::Assign(binding.clone(), self.fold(value), source.clone()))
             },
             TypedExpr::Lambda(lambda, source) => {
+                debug_println_indented!(self, "#LAMBDA# {:?}", lambda);
                 self.env.push();
                 for parameter in &lambda.parameters {
                     self.env.bind(parameter.clone(), ExprRef::from(TypedExpr::Phantom)).unwrap();
@@ -129,25 +177,7 @@ impl CFP {
                 }
                 expr.clone()
             },
-            TypedExpr::Block(Block { statements, source }) => {
-                self.env.push();
-                let statements = self.fold_statements(statements);
-                self.env.pop();
-                if statements.iter().all(|statement| match statement {
-                    TypedStatement::Expr(expr) => {
-                        is_primitive_constant(expr)
-                    },
-                    _ => false
-                }) {
-                    if let TypedStatement::Expr(expr) = &statements[statements.len() - 1] {
-                        return expr.clone_at(source.clone())
-                    }
-                }
-                ExprRef::from(TypedExpr::Block(Block {
-                    statements,
-                    source: source.clone()
-                }))
-            },
+            TypedExpr::Block(block) => ExprRef::from(TypedExpr::Block(self.fold_block(block))),
             TypedExpr::Phantom |
             TypedExpr::Unit(_) |
             TypedExpr::Int(_, _) |
@@ -176,6 +206,7 @@ impl CFP {
         where FoldFn: FnOnce(BigInt, BigInt) -> BigInt
     {
         let (left, right) = (self.fold(left), self.fold(right));
+        debug_println_indented!(self, "#ARITH# {:?}, {:?}: {:?}", left, right, source);
         match (&left as &TypedExpr, &right as &TypedExpr) {
             (TypedExpr::Int(left, _), TypedExpr::Int(right, _)) => {
                 let result = fold_impl(left.clone(), right.clone());
@@ -183,13 +214,6 @@ impl CFP {
             },
             _ => original_expr.clone()
         }
-    }
-}
-
-fn is_constant(expr: &ExprRef) -> bool {
-    match expr as &TypedExpr {
-        &TypedExpr::Unit(_) | TypedExpr::Int(_, _) | &TypedExpr::String(_, _) | &TypedExpr::Lambda {..} => true,
-        _ => false
     }
 }
 

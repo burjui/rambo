@@ -10,7 +10,7 @@ crate struct Environment<Key, Value> {
 }
 
 impl<Key, Value> Environment<Key, Value>
-where Key: Eq + Debug + Hash, Value: Clone {
+where Key: Eq + Debug + Hash, Value: Clone + Debug {
     crate fn new() -> Environment<Key, Value> {
         Environment {
             scopes: vec![RefCell::new(HashMap::new())]

@@ -105,6 +105,12 @@ crate struct Block {
     crate source: Source
 }
 
+impl Debug for Block {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{{ {} }})", self.statements.iter().join_as_strings("; "))
+    }
+}
+
 crate enum TypedExpr {
     Phantom, // TODO rename to PseudoArg
     Unit(Source),
@@ -156,7 +162,7 @@ impl Debug for TypedExpr {
                 };
                 write!(formatter, "(if {:?} {:?}{})", condition, positive, negative)
             },
-            TypedExpr::Block(Block { statements, .. }) => write!(formatter, "{{ {} }})", statements.iter().join_as_strings("; "))
+            TypedExpr::Block(block) => block.fmt(formatter)
         }
     }
 }
@@ -275,7 +281,7 @@ impl Hash for BindingRef {
 
 impl Debug for BindingRef {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        self.0.fmt(formatter)
+        self.0.borrow().fmt(formatter)
     }
 }
 
