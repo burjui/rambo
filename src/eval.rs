@@ -23,57 +23,35 @@ impl<'a> Evaluator {
         }
     }
 
-    crate fn eval_module(&mut self, code: &[TypedStatement]) -> Result<Evalue, Box<dyn Error>> {
-        let mut result = Evalue::Unit;
-        for statement in code {
-            result = self.eval_statement(statement)?;
-        }
-        Ok(result)
-    }
-
-    fn eval_statement(&mut self, statement: &TypedStatement) -> Result<Evalue, Box<dyn Error>> {
-        match statement {
-            TypedStatement::Expr(expr) => Ok(self.eval_expr(expr)?),
-            TypedStatement::Binding(binding) => {
-                let value = match &binding.borrow().data {
-                    BindingValue::Var(expr) => self.eval_expr(expr)?,
-                    BindingValue::Arg(_) => panic!("{:?}", binding.borrow().data)
-                };
-                self.env.bind_force(binding.clone(), value);
-                Ok(Evalue::Unit)
-            }
-        }
-    }
-
-    fn eval_expr(&mut self, expr: &TypedExpr) -> Result<Evalue, Box<dyn Error>> {
+    crate fn eval(&mut self, expr: &TypedExpr) -> Result<Evalue, Box<dyn Error>> {
         match expr {
             TypedExpr::Phantom => unreachable!(),
             TypedExpr::Unit(_) => Ok(Evalue::Unit),
             TypedExpr::Int(value, _) => Ok(Evalue::Int(value.clone())),
             TypedExpr::String(value, _) => Ok(Evalue::String(value.clone())),
             TypedExpr::AddInt(left, right, _) => {
-                let left = self.eval_expr(left)?;
-                let right = self.eval_expr(right)?;
+                let left = self.eval(left)?;
+                let right = self.eval(right)?;
                 Self::numeric_binary_operation(&left, &right, "+", |a, b| a + b)
             },
             TypedExpr::SubInt(left, right, _) => {
-                let left = self.eval_expr(left)?;
-                let right = self.eval_expr(right)?;
+                let left = self.eval(left)?;
+                let right = self.eval(right)?;
                 Self::numeric_binary_operation(&left, &right, "-", |a, b| a - b)
             },
             TypedExpr::MulInt(left, right, _) => {
-                let left = self.eval_expr(left)?;
-                let right = self.eval_expr(right)?;
+                let left = self.eval(left)?;
+                let right = self.eval(right)?;
                 Self::numeric_binary_operation(&left, &right, "*", |a, b| a * b)
             },
             TypedExpr::DivInt(left, right, _) => {
-                let left = self.eval_expr(left)?;
-                let right = self.eval_expr(right)?;
+                let left = self.eval(left)?;
+                let right = self.eval(right)?;
                 Self::numeric_binary_operation(&left, &right, "/", |a, b| a / b)
             },
             TypedExpr::AddStr(left, right, _) => {
-                let left = self.eval_expr(left)?;
-                let right = self.eval_expr(right)?;
+                let left = self.eval(left)?;
+                let right = self.eval(right)?;
                 if let (Evalue::String(left), Evalue::String(right)) = (left, right) {
                     Ok(Evalue::String(left.to_string() + &right))
                 } else {
@@ -81,16 +59,16 @@ impl<'a> Evaluator {
                 }
             },
             TypedExpr::Assign(binding, value, _) => {
-                let value = self.eval_expr(value)?;
+                let value = self.eval(value)?;
                 self.env.bind_force(binding.clone(), value.clone());
                 Ok(value)
             },
             TypedExpr::Deref(binding, _) => Ok(self.env.resolve(binding).unwrap()),
             TypedExpr::Application { function, arguments, .. } => {
                 let arguments: Result<Vec<Evalue>, Box<dyn Error>> = arguments.iter()
-                    .map(|argument| self.eval_expr(argument)).collect();
+                    .map(|argument| self.eval(argument)).collect();
                 let arguments = arguments?;
-                let lambda = match self.eval_expr(function).unwrap() {
+                let lambda = match self.eval(function).unwrap() {
                     Evalue::Lambda(lambda) => lambda.clone(),
                     _ => unreachable!()
                 };
@@ -98,13 +76,13 @@ impl<'a> Evaluator {
                 for (parameter, argument) in lambda.parameters.iter().zip(arguments.into_iter()) {
                     self.env.bind(parameter.clone(), argument).unwrap();
                 }
-                let result = self.eval_expr(&lambda.body);
+                let result = self.eval(&lambda.body);
                 self.env.pop();
                 result
             },
             TypedExpr::Lambda(lambda, _) => Ok(Evalue::Lambda(lambda.clone())),
             TypedExpr::Conditional { condition, positive, negative, .. } => {
-                let condition = match self.eval_expr(condition)? {
+                let condition = match self.eval(condition)? {
                     Evalue::Int(value) => !value.is_zero(),
                     Evalue::String(value) => value.is_empty(),
                     _ => unreachable!()
@@ -114,7 +92,7 @@ impl<'a> Evaluator {
                 } else {
                     negative.as_ref()
                 };
-                clause.map(|expr| self.eval_expr(expr)).unwrap_or_else(|| Ok(Evalue::Unit))
+                clause.map(|expr| self.eval(expr)).unwrap_or_else(|| Ok(Evalue::Unit))
             },
             TypedExpr::Block(Block { statements, .. }) => {
                 self.env.push();
@@ -124,6 +102,20 @@ impl<'a> Evaluator {
                     .unwrap_or(Ok(Evalue::Unit));
                 self.env.pop();
                 result
+            }
+        }
+    }
+
+    fn eval_statement(&mut self, statement: &TypedStatement) -> Result<Evalue, Box<dyn Error>> {
+        match statement {
+            TypedStatement::Expr(expr) => Ok(self.eval(expr)?),
+            TypedStatement::Binding(binding) => {
+                let value = match &binding.borrow().data {
+                    BindingValue::Var(expr) => self.eval(expr)?,
+                    BindingValue::Arg(_) => panic!("{:?}", binding.borrow().data)
+                };
+                self.env.bind_force(binding.clone(), value);
+                Ok(Evalue::Unit)
             }
         }
     }

@@ -8,8 +8,8 @@ use crate::parser::Block as ASTBlock;
 use crate::parser::Parser;
 use crate::redundant_bindings::RedundantBindings;
 use crate::redundant_bindings::Warnings;
-use crate::semantics::Block;
 use crate::semantics::check_module;
+use crate::semantics::ExprRef;
 use crate::source::SourceFile;
 use crate::utils::ByLine;
 use std::error::Error;
@@ -171,21 +171,21 @@ impl CompilerPass<SourceFile, ASTBlock> for Parse {
     }
 }
 
-impl CompilerPass<ASTBlock, Block> for VerifySemantics {
+impl CompilerPass<ASTBlock, ExprRef> for VerifySemantics {
     const ID: PassId = PassId::VerifySemantics;
 
-    fn apply_impl(ast: ASTBlock, stdout: &mut StandardStream, options: &PipelineOptions) -> Result<Block, Box<dyn Error>> {
+    fn apply_impl(ast: ASTBlock, stdout: &mut StandardStream, options: &PipelineOptions) -> Result<ExprRef, Box<dyn Error>> {
         let hir = check_module(&ast)?;
         if options.dump_intermediate {
-            writeln!(stdout, "{}", hir.statements.iter().join_as_strings("\n"));
+            writeln!(stdout, "{:?}", hir);
         }
         Ok(hir)
     }
 }
 
 impl ConstructCFG {
-    fn apply<'a>(hir: Block, _: &'a mut StandardStream, options: &PipelineOptions, filename: &str) -> Result<Block, Box<dyn Error>> {
-        let cfg = construct_cfg(&hir.statements);
+    fn apply<'a>(hir: ExprRef, _: &'a mut StandardStream, options: &PipelineOptions, filename: &str) -> Result<ExprRef, Box<dyn Error>> {
+        let cfg = construct_cfg(&hir);
         if options.dump_cfg {
             dump_graph(&cfg, filename);
         }
@@ -193,83 +193,83 @@ impl ConstructCFG {
     }
 }
 
-impl CompilerPass<Block, Block> for ConstructCFG {
+impl CompilerPass<ExprRef, ExprRef> for ConstructCFG {
     const ID: PassId = PassId::ConstructCFG;
 
-    fn apply_impl(hir: Block, stdout: &mut StandardStream, options: &PipelineOptions) -> Result<Block, Box<dyn Error>> {
+    fn apply_impl(hir: ExprRef, stdout: &mut StandardStream, options: &PipelineOptions) -> Result<ExprRef, Box<dyn Error>> {
         Self::apply(hir, stdout, options, "cfg.dot")
     }
 }
 
-impl CompilerPass<Block, Block> for ConstructCFGOptimized {
+impl CompilerPass<ExprRef, ExprRef> for ConstructCFGOptimized {
     const ID: PassId = PassId::ConstructCFGOptimized;
 
-    fn apply_impl(hir: Block, stdout: &mut StandardStream, options: &PipelineOptions) -> Result<Block, Box<dyn Error>> {
+    fn apply_impl(hir: ExprRef, stdout: &mut StandardStream, options: &PipelineOptions) -> Result<ExprRef, Box<dyn Error>> {
         ConstructCFG::apply(hir, stdout, options, "cfg-optimized.dot")
     }
 }
 
 impl RemoveRedundantBindings1 {
-    fn apply(hir: Block, stdout: &mut StandardStream, options: &PipelineOptions, warnings: Warnings) -> Result<Block, Box<dyn Error>> {
+    fn apply(hir: ExprRef, stdout: &mut StandardStream, options: &PipelineOptions, warnings: Warnings) -> Result<ExprRef, Box<dyn Error>> {
         let result = RedundantBindings::remove(&hir, warnings);
         drop(hir);
         if options.dump_intermediate {
-            writeln!(stdout, "{}", result.statements.iter().join_as_strings("\n"));
+            writeln!(stdout, "{:?}", result);
         }
         Ok(result)
     }
 }
 
-impl CompilerPass<Block, Block> for RemoveRedundantBindings1 {
+impl CompilerPass<ExprRef, ExprRef> for RemoveRedundantBindings1 {
     const ID: PassId = PassId::RemoveRedundantBindings1;
 
-    fn apply_impl(hir: Block, stdout: &mut StandardStream, options: &PipelineOptions) -> Result<Block, Box<dyn Error>> {
+    fn apply_impl(hir: ExprRef, stdout: &mut StandardStream, options: &PipelineOptions) -> Result<ExprRef, Box<dyn Error>> {
         Self::apply(hir, stdout, options, if options.warnings { Warnings::On } else { Warnings::Off })
     }
 }
 
-impl CompilerPass<Block, Block> for RemoveRedundantBindings2 {
+impl CompilerPass<ExprRef, ExprRef> for RemoveRedundantBindings2 {
     const ID: PassId = PassId::RemoveRedundantBindings2;
 
-    fn apply_impl(hir: Block, stdout: &mut StandardStream, options: &PipelineOptions) -> Result<Block, Box<dyn Error>> {
+    fn apply_impl(hir: ExprRef, stdout: &mut StandardStream, options: &PipelineOptions) -> Result<ExprRef, Box<dyn Error>> {
         RemoveRedundantBindings1::apply(hir, stdout, options, Warnings::Off)
     }
 }
 
 impl PropagateConstants1 {
-    fn apply(hir: Block, stdout: &mut StandardStream, options: &PipelineOptions) -> Result<Block, Box<dyn Error>> {
+    fn apply(hir: ExprRef, stdout: &mut StandardStream, options: &PipelineOptions) -> Result<ExprRef, Box<dyn Error>> {
         let mut cfp = CFP::new();
-        let result = cfp.fold_block(&hir);
+        let result = cfp.fold(&hir);
         drop(hir);
         if options.dump_intermediate {
-            writeln!(stdout, "{}", result.statements.iter().join_as_strings("\n"));
+            writeln!(stdout, "{:?}", result);
         }
         Ok(result)
     }
 }
 
-impl CompilerPass<Block, Block> for PropagateConstants1 {
+impl CompilerPass<ExprRef, ExprRef> for PropagateConstants1 {
     const ID: PassId = PassId::PropagateConstants1;
 
-    fn apply_impl(hir: Block, stdout: &mut StandardStream, options: &PipelineOptions) -> Result<Block, Box<dyn Error>> {
+    fn apply_impl(hir: ExprRef, stdout: &mut StandardStream, options: &PipelineOptions) -> Result<ExprRef, Box<dyn Error>> {
         Self::apply(hir, stdout, options)
     }
 }
 
-impl CompilerPass<Block, Block> for PropagateConstants2 {
+impl CompilerPass<ExprRef, ExprRef> for PropagateConstants2 {
     const ID: PassId = PassId::PropagateConstants2;
 
-    fn apply_impl(hir: Block, stdout: &mut StandardStream, options: &PipelineOptions) -> Result<Block, Box<dyn Error>> {
+    fn apply_impl(hir: ExprRef, stdout: &mut StandardStream, options: &PipelineOptions) -> Result<ExprRef, Box<dyn Error>> {
         PropagateConstants1::apply(hir, stdout, options)
     }
 }
 
-impl CompilerPass<Block, Evalue> for Evaluate {
+impl CompilerPass<ExprRef, Evalue> for Evaluate {
     const ID: PassId = PassId::Evaluate;
 
-    fn apply_impl(hir: Block, stdout: &mut StandardStream, _: &PipelineOptions) -> Result<Evalue, Box<dyn Error>> {
+    fn apply_impl(hir: ExprRef, stdout: &mut StandardStream, _: &PipelineOptions) -> Result<Evalue, Box<dyn Error>> {
         let mut evaluator = Evaluator::new();
-        let value = evaluator.eval_module(&hir.statements)?;
+        let value = evaluator.eval(&hir)?;
         writeln!(stdout, "{:?}", value);
         Ok(value)
     }

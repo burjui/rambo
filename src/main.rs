@@ -29,7 +29,6 @@ use termcolor::ColorChoice;
 use termcolor::ColorSpec;
 use termcolor::StandardStream;
 use termcolor::WriteColor;
-use crate::utils::DEBUG_PRINT_OPTION_NAME;
 
 #[macro_use]
 mod utils;
@@ -93,7 +92,6 @@ fn parse_command_line() -> Result<CommandLine, Box<dyn Error>> {
     spec.optflag(WARNINGS_OPTION, "", "suppress warnings");
     spec.optflag(DUMP_OPTION, "dump", "dump intermediate compilation results, e.g. AST");
     spec.optflag("", DUMP_CFG_OPTION, "dump CFGs");
-    spec.optflag("", DEBUG_PRINT_OPTION_NAME, "enable debug output");
 
     let pass_name_list: String = join(PassId::all().iter().map(PassId::name), ", ");
     spec.optopt(PASS_OPTION, "pass", &format!("last compiler pass to be executed;\nfollowing pass names are recognized: {}", pass_name_list), "PASS");

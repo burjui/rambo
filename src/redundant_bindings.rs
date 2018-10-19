@@ -24,13 +24,13 @@ crate struct RedundantBindings {
 }
 
 impl RedundantBindings {
-    crate fn remove(code: &Block, warnings: Warnings) -> Block {
+    crate fn remove(code: &ExprRef, warnings: Warnings) -> ExprRef {
         let (graph, map) = Reachability::compute(code);
         let redundant = RedundantBindings { warnings, graph, map };
         redundant.remove_unreachable(code)
     }
 
-    fn remove_unreachable(mut self, code: &Block) -> Block {
+    fn remove_unreachable(mut self, code: &ExprRef) -> ExprRef {
         let mut disconnected_nodes = HashSet::<NodeIndex>::new();
         let binding_nodes = self.map.values().cloned().collect::<Vec<_>>();
         binding_nodes.into_iter().for_each(|node| Self::process_node(&mut self.graph, node, &mut disconnected_nodes));
@@ -47,7 +47,7 @@ impl RedundantBindings {
         let redundant_bindings = self.map.into_iter()
             .filter_map(|(binding, node)| if disconnected_nodes.contains(&node) { Some(binding) } else { None })
             .collect::<HashSet<_>>();
-        RedundantBindingRemover::new(redundant_bindings).visit_block(code)
+        RedundantBindingRemover::new(redundant_bindings).visit_expr(code)
     }
 
     fn process_node(graph: &mut ReachabilityGraph, node: NodeIndex, disconnected_nodes: &mut HashSet<NodeIndex>) {
@@ -91,31 +91,22 @@ impl TypedVisitor for RedundantBindingRemover {
                 } else {
                     Some(TypedStatement::Binding(self.visit_binding(binding)))
                 },
-            TypedStatement::Expr(expr) => Some(TypedStatement::Expr(self.visit(expr)))
+            TypedStatement::Expr(expr) => Some(TypedStatement::Expr(self.visit_expr(expr)))
         }
     }
 }
 
 impl Reachability {
-    fn compute(code: &Block) -> (ReachabilityGraph, BindingToNodeMap) {
+    fn compute(code: &ExprRef) -> (ReachabilityGraph, BindingToNodeMap) {
         let mut computer = Reachability {
             graph: ReachabilityGraph::new(),
             map: HashMap::new()
         };
-        computer.compute_reachability(&code.statements, &None);
+        computer.compute_expr_reachability(code, &None);
         (computer.graph, computer.map)
     }
 
-    fn compute_reachability(&mut self, code: &[TypedStatement], origin: &Option<BindingRef>) {
-        for statement in code {
-            match statement {
-                TypedStatement::Binding(binding) => self.register(binding),
-                TypedStatement::Expr(expr) => self.expr_reachability(expr, origin)
-            }
-        }
-    }
-
-    fn expr_reachability(&mut self, expr: &ExprRef, origin: &Option<BindingRef>) {
+    fn compute_expr_reachability(&mut self, expr: &ExprRef, origin: &Option<BindingRef>) {
         match expr as &TypedExpr {
             TypedExpr::Phantom |
             TypedExpr::Unit(_) |
@@ -130,31 +121,38 @@ impl Reachability {
             },
             TypedExpr::Lambda(lambda, _) => {
                 lambda.parameters.iter().for_each(|parameter| self.register(parameter));
-                self.expr_reachability(&lambda.body, origin);
+                self.compute_expr_reachability(&lambda.body, origin);
             },
             TypedExpr::Application { function, arguments, .. } => {
-                self.expr_reachability(function, origin);
-                arguments.iter().for_each(|argument| self.expr_reachability(argument, origin));
+                self.compute_expr_reachability(function, origin);
+                arguments.iter().for_each(|argument| self.compute_expr_reachability(argument, origin));
             },
             TypedExpr::AddInt(left, right, _) |
             TypedExpr::SubInt(left, right, _) |
             TypedExpr::MulInt(left, right, _) |
             TypedExpr::DivInt(left, right, _) |
             TypedExpr::AddStr(left, right, _) => {
-                self.expr_reachability(left, origin);
-                self.expr_reachability(right, origin);
+                self.compute_expr_reachability(left, origin);
+                self.compute_expr_reachability(right, origin);
             },
             TypedExpr::Assign(_, value, _) => {
-                self.expr_reachability(value, origin);
+                self.compute_expr_reachability(value, origin);
             }
             TypedExpr::Conditional { condition, positive, negative, .. } => {
-                self.expr_reachability(condition, origin);
-                self.expr_reachability(positive, origin);
+                self.compute_expr_reachability(condition, origin);
+                self.compute_expr_reachability(positive, origin);
                 if let Some(clause) = negative.as_ref() {
-                    self.expr_reachability(clause, origin)
+                    self.compute_expr_reachability(clause, origin)
                 }
             },
-            TypedExpr::Block(Block { statements, .. }) => self.compute_reachability(statements.as_slice(), origin)
+            TypedExpr::Block(Block { statements, .. }) => {
+                for statement in statements {
+                    match &statement {
+                        TypedStatement::Binding(binding) => self.register(binding),
+                        TypedStatement::Expr(expr) => self.compute_expr_reachability(expr, origin)
+                    }
+                }
+            }
         }
     }
 
@@ -162,7 +160,7 @@ impl Reachability {
         let node = self.graph.add_node(SourcePrinter(binding.borrow().source.clone()));
         self.map.insert(binding.clone(), node);
         if let BindingValue::Var(value) = &binding.borrow().data {
-             self.expr_reachability(value, &Some(binding.clone()));
+             self.compute_expr_reachability(value, &Some(binding.clone()));
         }
     }
 }

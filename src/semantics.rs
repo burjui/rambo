@@ -4,7 +4,6 @@ use crate::parser::Expr;
 use crate::parser::Parameter as ParsedParameter;
 use crate::parser::Statement;
 use crate::source::Source;
-use crate::utils::ByLine;
 use itertools::Itertools;
 use num_bigint::BigInt;
 use std::cell::RefCell;
@@ -107,7 +106,11 @@ crate struct Block {
 
 impl Debug for Block {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(formatter, "{{ {} }})", self.statements.iter().join_as_strings("; "))
+        writeln!(formatter, "{{")?;
+        for statement in &self.statements {
+            writeln!(formatter, "{:?}", statement)?;
+        }
+        write!(formatter, "}}")
     }
 }
 
@@ -152,7 +155,7 @@ impl Debug for TypedExpr {
             TypedExpr::MulInt(left, right, _) => write!(formatter, "({:?} * {:?})", left, right),
             TypedExpr::DivInt(left, right, _) => write!(formatter, "({:?} / {:?})", left, right),
             TypedExpr::AddStr(left, right, _) => write!(formatter, "({:?} + {:?})", left, right),
-            TypedExpr::Assign(left, right, _) => write!(formatter, "({:?} = {:?})", left, right),
+            TypedExpr::Assign(left, right, _) => write!(formatter, "({:?} = {:?})", left.borrow().name, right),
             TypedExpr::Lambda(lambda, _) => lambda.fmt(formatter),
             TypedExpr::Application { function, arguments, .. } => write!(formatter, "({:?} @ {:?})", function, arguments),
             TypedExpr::Conditional { condition, positive, negative, .. } => {
@@ -331,16 +334,16 @@ impl TypedStatement {
 
 type CheckResult<T> = Result<T, Box<dyn Error>>;
 
-crate fn check_module(code: &ASTBlock) -> CheckResult<Block> {
+crate fn check_module(code: &ASTBlock) -> CheckResult<ExprRef> {
     let mut statements = vec![];
     let mut env = Environment::new();
     for statement in &code.statements {
         statements.push(check_statement(&mut env, statement)?);
     }
-    Ok(Block {
+    Ok(ExprRef::from(TypedExpr::Block(Block {
         statements,
         source: code.source.clone()
-    })
+    })))
 }
 
 fn check_statement(env: &mut Environment, statement: &Statement) -> CheckResult<TypedStatement> {

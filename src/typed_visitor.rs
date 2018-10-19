@@ -12,25 +12,14 @@ use num_bigint::BigInt;
 use std::rc::Rc;
 
 crate trait TypedVisitor {
-    fn visit_statements(&mut self, statements: &[TypedStatement]) -> Vec<TypedStatement> {
-        let statements = statements.iter()
-            .filter_map(|statement| self.visit_statement(statement))
-            .collect::<Vec<_>>();
-        self.post_statements(statements)
-    }
-
-    fn post_statements(&mut self, statements: Vec<TypedStatement>) -> Vec<TypedStatement> {
-        statements.to_vec()
-    }
-
     fn visit_statement(&mut self, statement: &TypedStatement) -> Option<TypedStatement> {
         match statement {
             TypedStatement::Binding(binding) => Some(TypedStatement::Binding(self.visit_binding(binding))),
-            TypedStatement::Expr(expr) => Some(TypedStatement::Expr(self.visit(expr)))
+            TypedStatement::Expr(expr) => Some(TypedStatement::Expr(self.visit_expr(expr)))
         }
     }
 
-    fn visit(&mut self, expr: &ExprRef) -> ExprRef {
+    fn visit_expr(&mut self, expr: &ExprRef) -> ExprRef {
         match expr as &TypedExpr {
             TypedExpr::Phantom => self.visit_phantom(expr),
             TypedExpr::Unit(source) => self.visit_unit(expr, source),
@@ -48,7 +37,7 @@ crate trait TypedVisitor {
             TypedExpr::Assign(binding, value, source) => self.visit_assign(expr, binding, value, source),
             TypedExpr::Conditional { condition, positive, negative, source } =>
                 self.visit_conditional(expr, condition, positive, negative, source),
-            TypedExpr::Block(block) => ExprRef::from(TypedExpr::Block(self.visit_block(&block))),
+            TypedExpr::Block(block) => self.visit_block(expr, &block.statements, &block.source),
         }
     }
 
@@ -84,7 +73,7 @@ crate trait TypedVisitor {
     fn visit_binding(&mut self, binding: &BindingRef) -> BindingRef {
         let mut binding_mut = binding.borrow_mut();
         if let BindingValue::Var(value) = &binding_mut.data {
-            binding_mut.data = BindingValue::Var(self.visit(value))
+            binding_mut.data = BindingValue::Var(self.visit_expr(value))
         }
         binding.clone()
     }
@@ -92,7 +81,7 @@ crate trait TypedVisitor {
     fn visit_lambda(&mut self, expr: &ExprRef, lambda: &Rc<Lambda>, source: &Source) -> ExprRef {
         let parameters: Vec<BindingRef> = lambda.parameters.iter().
             map(|parameter| self.visit_binding(parameter)).collect();
-        let body = self.visit(&lambda.body);
+        let body = self.visit_expr(&lambda.body);
         self.post_lambda(expr, &lambda.type_, parameters, body, source)
     }
 
@@ -107,8 +96,8 @@ crate trait TypedVisitor {
     fn visit_application(&mut self, expr: &ExprRef, type_: &Type,
         function: &ExprRef, arguments: &[ExprRef], source: &Source) -> ExprRef
     {
-        let function = self.visit(function);
-        let arguments: Vec<ExprRef> = arguments.iter().map(|argument| self.visit(argument)).collect();
+        let function = self.visit_expr(function);
+        let arguments: Vec<ExprRef> = arguments.iter().map(|argument| self.visit_expr(argument)).collect();
         self.post_application(expr, type_, function, arguments, source)
     }
 
@@ -125,8 +114,8 @@ crate trait TypedVisitor {
     }
 
     fn visit_addint(&mut self, expr: &ExprRef, left: &ExprRef, right: &ExprRef, source: &Source) -> ExprRef {
-        let left = self.visit(left);
-        let right = self.visit(right);
+        let left = self.visit_expr(left);
+        let right = self.visit_expr(right);
         self.post_addint(expr, left, right, source)
     }
 
@@ -136,8 +125,8 @@ crate trait TypedVisitor {
     }
 
     fn visit_subint(&mut self, expr: &ExprRef, left: &ExprRef, right: &ExprRef, source: &Source) -> ExprRef {
-        let left = self.visit(left);
-        let right = self.visit(right);
+        let left = self.visit_expr(left);
+        let right = self.visit_expr(right);
         self.post_subint(expr, left, right, source)
     }
 
@@ -147,8 +136,8 @@ crate trait TypedVisitor {
     }
 
     fn visit_mulint(&mut self, expr: &ExprRef, left: &ExprRef, right: &ExprRef, source: &Source) -> ExprRef {
-        let left = self.visit(left);
-        let right = self.visit(right);
+        let left = self.visit_expr(left);
+        let right = self.visit_expr(right);
         self.post_mulint(expr, left, right, source)
     }
 
@@ -158,8 +147,8 @@ crate trait TypedVisitor {
     }
 
     fn visit_divint(&mut self, expr: &ExprRef, left: &ExprRef, right: &ExprRef, source: &Source) -> ExprRef {
-        let left = self.visit(left);
-        let right = self.visit(right);
+        let left = self.visit_expr(left);
+        let right = self.visit_expr(right);
         self.post_divint(expr, left, right, source)
     }
 
@@ -169,8 +158,8 @@ crate trait TypedVisitor {
     }
 
     fn visit_addstr(&mut self, expr: &ExprRef, left: &ExprRef, right: &ExprRef, source: &Source) -> ExprRef {
-        let left = self.visit(left);
-        let right = self.visit(right);
+        let left = self.visit_expr(left);
+        let right = self.visit_expr(right);
         self.post_addstr(expr, left, right, source)
     }
 
@@ -181,7 +170,7 @@ crate trait TypedVisitor {
 
     fn visit_assign(&mut self, expr: &ExprRef, binding: &BindingRef, value: &ExprRef, source: &Source) -> ExprRef {
         let binding = self.visit_binding(binding);
-        let value = self.visit(value);
+        let value = self.visit_expr(value);
         self.post_assign(expr, binding, value, source)
     }
 
@@ -191,9 +180,9 @@ crate trait TypedVisitor {
     }
 
     fn visit_conditional(&mut self, expr: &ExprRef, condition: &ExprRef, positive: &ExprRef, negative: &Option<ExprRef>, source: &Source) -> ExprRef {
-        let condition = self.visit(condition);
-        let positive = self.visit(positive);
-        let negative = negative.as_ref().map(|clause| self.visit(clause));
+        let condition = self.visit_expr(condition);
+        let positive = self.visit_expr(positive);
+        let negative = negative.as_ref().map(|clause| self.visit_expr(clause));
         self.post_conditional(expr, condition, positive, negative, source)
     }
 
@@ -204,16 +193,18 @@ crate trait TypedVisitor {
         })
     }
 
-    fn visit_block(&mut self, block: &Block) -> Block {
-        let statements = self.visit_statements(&block.statements);
-        self.post_block(statements, &block.source)
+    fn visit_block(&mut self, expr: &ExprRef, statements: &[TypedStatement], source: &Source) -> ExprRef {
+        let statements = statements.iter()
+            .filter_map(|statement| self.visit_statement(statement))
+            .collect::<Vec<_>>();
+        self.post_block(expr, statements, source)
     }
 
     #[allow(unused)]
-    fn post_block(&mut self, statements: Vec<TypedStatement>, source: &Source) -> Block {
-        Block {
+    fn post_block(&mut self, expr: &ExprRef, statements: Vec<TypedStatement>, source: &Source) -> ExprRef {
+        ExprRef::from(TypedExpr::Block(Block {
             statements,
             source: source.clone()
-        }
+        }))
     }
 }

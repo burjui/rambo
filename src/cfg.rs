@@ -4,47 +4,53 @@ use crate::semantics::ExprRef;
 use crate::semantics::TypedExpr;
 use crate::semantics::TypedStatement;
 use crate::utils::ByLine;
-use petgraph::Direction;
 use petgraph::dot::Config;
 use petgraph::dot::Dot;
 use petgraph::Graph;
 use petgraph::graph::NodeIndex;
-use petgraph::visit::EdgeRef;
 use std::cell::RefCell;
-use std::fmt;
+use std::collections::HashSet;
+use std::fmt::Debug;
+use std::fmt::Formatter;
 use std::rc::Rc;
 
-crate fn construct_cfg(code: &[TypedStatement]) -> CFG {
+crate fn construct_cfg(code: &ExprRef) -> CFG {
     let mut cfg = CFG::new();
-    let entry_block = cfg.add_node(CFGNode::Entry);
-    let exit_block = cfg.add_node(CFGNode::Exit);
-    let (_, last_block) = scan_basic_blocks(&mut cfg, entry_block, code);
-    let last_block_length = if let CFGNode::BasicBlock(block) = cfg.node_weight(last_block).unwrap() {
-        block.block.borrow().statements.len()
-    } else {
-        unreachable!()
-    };
-    if last_block_length == 0 {
-        let incoming = cfg.edges_directed(last_block, Direction::Incoming)
-            .map(|edge| (edge.source(), edge.id()))
-            .collect::<Vec<_>>();
-        for (source, id) in incoming {
-            cfg.add_edge(source, exit_block, 0);
-            cfg.remove_edge(id);
-        }
-    } else {
-        cfg.add_edge(last_block, exit_block, 0);
-    }
+    let entry_node = cfg.add_node(CFGNode::Entry);
+    let exit_node = cfg.add_node(CFGNode::Exit);
+    let last_node = scan_basic_blocks_expr(&mut cfg, entry_node, code)
+        .map(|(_, block)| block)
+        .unwrap_or(entry_node);
+    cfg.add_edge(last_node, exit_node, ());
+    verify_cfg(&cfg);
     cfg
 }
 
+fn verify_cfg(cfg: &CFG) {
+    let mut visited_edges: HashSet<(NodeIndex, NodeIndex)> = HashSet::new();
+    for edge in cfg.raw_edges() {
+        let source = cfg.node_weight(edge.source()).unwrap();
+        let target = cfg.node_weight(edge.target()).unwrap();
+        let edge = (edge.source(), edge.target());
+        assert!(!visited_edges.contains(&edge), "redundant edge from: {:?}\nto: {:?}", source, target);
+        visited_edges.insert(edge);
+    }
+}
+
 fn scan_basic_blocks(cfg: &mut CFG, entry: NodeIndex, code: &[TypedStatement]) -> (BasicBlockRef, NodeIndex) {
-    let (mut current_block, mut current_node) = new_basic_block(cfg);
-    cfg.add_edge(entry, current_node, 0);
+    let mut initial_block = Some(BasicBlockRef::new(BasicBlock::new()));
+    let mut current_block = initial_block.as_ref().unwrap().clone();
+    let mut current_node = entry;
     for statement in code {
         match statement {
             TypedStatement::Binding(_) => current_block.push(statement.clone()),
             TypedStatement::Expr(expr) => {
+                if let Some(initial_block) = initial_block.take() {
+                    if !initial_block.block.borrow().statements.is_empty() {
+                        current_node = cfg.add_node(CFGNode::BasicBlock(initial_block.clone()));
+                        cfg.add_edge(entry, current_node, ());
+                    }
+                }
                 if let Some((block, node)) = scan_basic_blocks_expr(cfg, current_node, expr) {
                     current_block = block;
                     current_node = node;
@@ -65,16 +71,16 @@ fn scan_basic_blocks_expr(cfg: &mut CFG, entry: NodeIndex, expr: &ExprRef) -> Op
             } else {
                 let (block, node) = new_basic_block(cfg);
                 block.push(TypedStatement::Expr(condition.clone()));
+                cfg.add_edge(entry, node, ());
                 node
             };
-            cfg.add_edge(entry, condition_node, 0);
 
             let positive_node = if let Some((_, node)) = scan_basic_blocks_expr(cfg, condition_node, positive) {
                 node
             } else {
                 let (block, node) = new_basic_block(cfg);
                 block.push(TypedStatement::Expr(positive.clone()));
-                cfg.add_edge(condition_node, node, 0);
+                cfg.add_edge(condition_node, node, ());
                 node
             };
 
@@ -84,14 +90,14 @@ fn scan_basic_blocks_expr(cfg: &mut CFG, entry: NodeIndex, expr: &ExprRef) -> Op
                 } else {
                     let (block, node) = new_basic_block(cfg);
                     block.push(TypedStatement::Expr(clause.clone()));
-                    cfg.add_edge(condition_node, node, 0);
+                    cfg.add_edge(condition_node, node, ());
                     node
                 }
             });
 
             let (exit_block, exit_node) = new_basic_block(cfg);
-            cfg.add_edge(positive_node, exit_node, 0);
-            negative_node.map(|negative_node| cfg.add_edge(negative_node, exit_node, 0));
+            cfg.add_edge(positive_node, exit_node, ());
+            negative_node.map(|negative_node| cfg.add_edge(negative_node, exit_node, ()));
             Some((exit_block, exit_node))
         },
         TypedExpr::Application { function, .. } => {
@@ -111,8 +117,13 @@ fn scan_basic_blocks_expr(cfg: &mut CFG, entry: NodeIndex, expr: &ExprRef) -> Op
             };
             scan_basic_blocks_expr(cfg, entry, &lambda.body)
         },
-        TypedExpr::Block(Block {statements, .. }) => Some(scan_basic_blocks(cfg, entry, statements)),
-        _ => None
+        TypedExpr::Block(Block { statements, .. }) => Some(scan_basic_blocks(cfg, entry, statements)),
+        _ => {
+            let (block, node) = new_basic_block(cfg);
+            block.push(TypedStatement::Expr(expr.clone()));
+            cfg.add_edge(entry, node, ());
+            Some((block, node))
+        }
     }
 }
 
@@ -136,8 +147,8 @@ impl BasicBlock {
     }
 }
 
-impl fmt::Display for BasicBlock {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl Debug for BasicBlock {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         write!(formatter, "{}", self.statements.iter().join_as_strings("\n"))
     }
 }
@@ -157,9 +168,9 @@ impl BasicBlockRef {
     }
 }
 
-impl fmt::Display for BasicBlockRef {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(formatter, "{}", self.block.borrow())
+impl Debug for BasicBlockRef {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{:?}", self.block.borrow())
     }
 }
 
@@ -169,17 +180,17 @@ crate enum CFGNode {
     BasicBlock(BasicBlockRef)
 }
 
-impl fmt::Display for CFGNode {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl Debug for CFGNode {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             CFGNode::Entry => formatter.write_str("entry"),
             CFGNode::Exit => formatter.write_str("exit"),
-            CFGNode::BasicBlock(block) => write!(formatter, "{}", block)
+            CFGNode::BasicBlock(block) => write!(formatter, "{:?}", block)
         }
     }
 }
 
-type CFG = Graph<CFGNode, u8>;
+type CFG = Graph<CFGNode, ()>;
 
 #[allow(unused)]
 crate fn dump_graph(graph: &CFG, filename: &str) {
@@ -188,5 +199,5 @@ crate fn dump_graph(graph: &CFG, filename: &str) {
     use std::io::Write;
     let file = File::create(filename).unwrap();
     let x = Dot::with_config(graph, &[Config::EdgeNoLabel]);
-    writeln!(BufWriter::new(file), "{}", x);
+    writeln!(BufWriter::new(file), "{:#?}", x);
 }
