@@ -5,6 +5,7 @@
 #![feature(transpose_result)]
 #![feature(self_struct_ctor)]
 
+use crate::pipeline::ALL_PASS_IDS;
 use crate::pipeline::ConstructCFG;
 use crate::pipeline::ConstructCFGOptimized;
 use crate::pipeline::Evaluate;
@@ -93,7 +94,7 @@ fn parse_command_line() -> Result<CommandLine, Box<dyn Error>> {
     spec.optflag(DUMP_OPTION, "dump", "dump intermediate compilation results, e.g. AST");
     spec.optflag("", DUMP_CFG_OPTION, "dump CFGs");
 
-    let pass_name_list: String = join(PassId::all().iter().map(PassId::name), ", ");
+    let pass_name_list: String = join(ALL_PASS_IDS.iter().map(PassId::name), ", ");
     spec.optopt(PASS_OPTION, "pass", &format!("last compiler pass to be executed;\nfollowing pass names are recognized: {}", pass_name_list), "PASS");
 
     let matches = spec.parse(&args[1..])?;
@@ -110,7 +111,7 @@ fn parse_command_line() -> Result<CommandLine, Box<dyn Error>> {
         max_pass: {
             *matches.opt_str(PASS_OPTION)
                 .map(|max_pass_name|
-                    PassId::all().iter()
+                    ALL_PASS_IDS.iter()
                         .find(|id| id.name() == max_pass_name)
                         .ok_or_else(|| format!("invalid compiler pass name: {}", max_pass_name)))
                 .unwrap_or(Ok(&PassId::Evaluate))?

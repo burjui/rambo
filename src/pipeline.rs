@@ -75,20 +75,20 @@ crate enum PassId {
     Evaluate
 }
 
-impl PassId {
-    crate const fn all() -> &'static [PassId] {&[
-        PassId::Load,
-        PassId::Parse,
-        PassId::VerifySemantics,
-        PassId::ConstructCFG,
-        PassId::RemoveRedundantBindings1,
-        PassId::PropagateConstants1,
-        PassId::RemoveRedundantBindings2,
-        PassId::PropagateConstants2,
-        PassId::ConstructCFGOptimized,
-        PassId::Evaluate
-    ]}
+crate static ALL_PASS_IDS: [PassId; 10] = [
+    PassId::Load,
+    PassId::Parse,
+    PassId::VerifySemantics,
+    PassId::ConstructCFG,
+    PassId::RemoveRedundantBindings1,
+    PassId::PropagateConstants1,
+    PassId::RemoveRedundantBindings2,
+    PassId::PropagateConstants2,
+    PassId::ConstructCFGOptimized,
+    PassId::Evaluate
+];
 
+impl PassId {
     crate fn name(&self) -> &str {
         match self {
             PassId::Load => "load",
