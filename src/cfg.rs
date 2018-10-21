@@ -4,10 +4,12 @@ use crate::semantics::ExprRef;
 use crate::semantics::TypedExpr;
 use crate::semantics::TypedStatement;
 use crate::utils::ByLine;
+use petgraph::Direction;
 use petgraph::dot::Config;
 use petgraph::dot::Dot;
 use petgraph::Graph;
 use petgraph::graph::NodeIndex;
+use petgraph::visit::EdgeRef;
 use std::cell::RefCell;
 use std::collections::HashSet;
 use std::fmt::Debug;
@@ -21,7 +23,24 @@ crate fn construct_cfg(code: &ExprRef) -> CFG {
     let last_node = scan_basic_blocks_expr(&mut cfg, entry_node, code)
         .map(|(_, block)| block)
         .unwrap_or(entry_node);
-    cfg.add_edge(last_node, exit_node, ());
+
+    // If the last block before exit is empty, remove it (can be leftover from a conditional)
+    let last_block_is_empty = match cfg.node_weight(last_node) {
+        Some(CFGNode::BasicBlock(block)) => block.block.borrow().statements.is_empty(),
+        _ => false,
+    };
+    if last_block_is_empty {
+        let incoming_nodes = cfg.edges_directed(last_node, Direction::Incoming)
+            .map(|edge| edge.source())
+            .collect::<Vec<_>>();
+        for node in incoming_nodes {
+            cfg.add_edge(node, exit_node, ());
+        }
+        cfg.remove_node(last_node);
+    } else {
+        cfg.add_edge(last_node, exit_node, ());
+    }
+
     verify_cfg(&cfg);
     cfg
 }
