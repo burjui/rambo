@@ -12,7 +12,6 @@ use petgraph::graph::NodeIndex;
 use petgraph::visit::EdgeRef;
 use std::collections::hash_map::HashMap;
 use std::collections::hash_set::HashSet;
-use std::fmt;
 
 #[derive(PartialEq)]
 crate enum Warnings { On, Off }
@@ -36,7 +35,6 @@ impl RedundantBindings {
         binding_nodes.into_iter().for_each(|node| Self::process_node(&mut self.graph, node, &mut disconnected_nodes));
         let mut redundant_sources = disconnected_nodes.iter()
             .filter_map(|node| self.graph.node_weight(*node))
-            .map(|SourcePrinter(source)| source)
             .collect::<Vec<_>>();
         redundant_sources.sort_by_key(|source| source.range.start);
         if self.warnings == Warnings::On {
@@ -63,7 +61,7 @@ impl RedundantBindings {
     }
 }
 
-type ReachabilityGraph = Graph<SourcePrinter, u8>;
+type ReachabilityGraph = Graph<Source, u8>;
 type BindingToNodeMap = HashMap<BindingRef, NodeIndex>;
 
 struct Reachability {
@@ -115,7 +113,7 @@ impl Reachability {
             TypedExpr::Deref(binding, source) => {
                 let src = origin.as_ref()
                     .map(|origin| self.map[origin])
-                    .unwrap_or_else(|| self.graph.add_node(SourcePrinter(source.clone())));
+                    .unwrap_or_else(|| self.graph.add_node(source.clone()));
                 let dst = self.map[binding];
                 self.graph.add_edge(src, dst, 0);
             },
@@ -157,26 +155,10 @@ impl Reachability {
     }
 
     fn register(&mut self, binding: &BindingRef) {
-        let node = self.graph.add_node(SourcePrinter(binding.borrow().source.clone()));
+        let node = self.graph.add_node(binding.borrow().source.clone());
         self.map.insert(binding.clone(), node);
         if let BindingValue::Var(value) = &binding.borrow().data {
              self.compute_expr_reachability(value, &Some(binding.clone()));
         }
-    }
-}
-
-struct SourcePrinter(Source);
-
-impl fmt::Debug for SourcePrinter {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let source = &self.0;
-        write!(f, "{} [{:?}]", source.text(), source.file.position(source.range.start).unwrap())
-    }
-}
-
-impl fmt::Display for SourcePrinter {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let source = &self.0;
-        write!(f, "{} [{:?}]", source.text(), source.file.position(source.range.start).unwrap())
     }
 }
