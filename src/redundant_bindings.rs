@@ -1,164 +1,157 @@
+use crate::env::Environment;
+use crate::semantics::Binding;
 use crate::semantics::BindingRef;
-use crate::semantics::BindingValue;
 use crate::semantics::Block;
 use crate::semantics::ExprRef;
+use crate::semantics::Lambda;
 use crate::semantics::TypedExpr;
 use crate::semantics::TypedStatement;
 use crate::source::Source;
-use crate::typed_visitor::TypedVisitor;
-use petgraph::Direction;
-use petgraph::Graph;
-use petgraph::graph::NodeIndex;
-use petgraph::visit::EdgeRef;
-use std::collections::hash_map::HashMap;
-use std::collections::hash_set::HashSet;
+use std::collections::HashMap;
+use std::collections::HashSet;
+use std::hash::Hash;
+use std::hash::Hasher;
+use std::rc::Rc;
 
-#[derive(PartialEq)]
-crate enum Warnings { On, Off }
-
-crate struct RedundantBindings {
-    warnings: Warnings,
-    graph: ReachabilityGraph,
-    map: BindingToNodeMap
-}
-
-impl RedundantBindings {
-    crate fn remove(code: &ExprRef, warnings: Warnings) -> ExprRef {
-        let (graph, map) = Reachability::compute(code);
-        let redundant = RedundantBindings { warnings, graph, map };
-        redundant.remove_unreachable(code)
-    }
-
-    fn remove_unreachable(mut self, code: &ExprRef) -> ExprRef {
-        let mut disconnected_nodes = HashSet::<NodeIndex>::new();
-        let binding_nodes = self.map.values().cloned().collect::<Vec<_>>();
-        binding_nodes.into_iter().for_each(|node| Self::process_node(&mut self.graph, node, &mut disconnected_nodes));
-        let mut redundant_sources = disconnected_nodes.iter()
-            .filter_map(|node| self.graph.node_weight(*node))
-            .collect::<Vec<_>>();
-        redundant_sources.sort_by_key(|source| source.range.start);
-        if self.warnings == Warnings::On {
-            for source in redundant_sources {
-                warning_at!(source, "redundant definition: {}", source.text());
-            }
-        }
-        let redundant_bindings = self.map.into_iter()
-            .filter_map(|(binding, node)| if disconnected_nodes.contains(&node) { Some(binding) } else { None })
-            .collect::<HashSet<_>>();
-        RedundantBindingRemover::new(redundant_bindings).visit_expr(code)
-    }
-
-    fn process_node(graph: &mut ReachabilityGraph, node: NodeIndex, disconnected_nodes: &mut HashSet<NodeIndex>) {
-        let incoming_count = graph.edges_directed(node, Direction::Incoming).count();
-        if incoming_count == 0 {
-            disconnected_nodes.insert(node);
-            let outgoing = graph.edges_directed(node, Direction::Outgoing).map(|edge| (edge.id(), edge.target())).collect::<Vec<_>>();
-            for (edge, dst) in &outgoing {
-                graph.remove_edge(*edge);
-                Self::process_node(graph, *dst, disconnected_nodes);
-            }
-        }
+crate fn report_redundant_bindings(code: &ExprRef) {
+    let mut detector = Detector {
+        env: Environment::new(),
+        binding_usages: HashMap::new(),
+        lambdas_processed: HashSet::new(),
+        redundant_bindings: Vec::new()
+    };
+    detector.process(code);
+    for source in detector.redundant_bindings {
+        warning_at!(source, "unused definition: {}", source.text())
     }
 }
 
-type ReachabilityGraph = Graph<Source, u8>;
-type BindingToNodeMap = HashMap<BindingRef, NodeIndex>;
-
-struct Reachability {
-    graph: ReachabilityGraph,
-    map: BindingToNodeMap
+struct Detector {
+    env: Environment<String, BindingRef>,
+    binding_usages: HashMap<BindingRef, usize>,
+    lambdas_processed: HashSet<LambdaRef>,
+    redundant_bindings: Vec<Source>,
 }
 
-struct RedundantBindingRemover {
-    redundant_bindings: HashSet<BindingRef>
-}
+#[derive(Clone)]
+struct LambdaRef(Rc<Lambda>);
 
-impl RedundantBindingRemover {
-    fn new(redundant_bindings: HashSet<BindingRef>) -> Self {
-        Self { redundant_bindings }
+impl PartialEq<LambdaRef> for LambdaRef {
+    fn eq(&self, other: &LambdaRef) -> bool {
+        Rc::ptr_eq(&self.0, &other.0)
     }
 }
 
-impl TypedVisitor for RedundantBindingRemover {
-    fn visit_statement(&mut self, statement: &TypedStatement) -> Option<TypedStatement> {
-        match statement {
-            TypedStatement::Binding(binding) =>
-                if self.redundant_bindings.contains(binding) {
-                    let unit = TypedExpr::Unit(binding.borrow().source.clone());
-                    Some(TypedStatement::Expr(ExprRef::from(unit)))
-                } else {
-                    Some(TypedStatement::Binding(self.visit_binding(binding)))
-                },
-            TypedStatement::Expr(expr) => Some(TypedStatement::Expr(self.visit_expr(expr)))
-        }
+impl Eq for LambdaRef {}
+
+impl Hash for LambdaRef {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        Rc::into_raw(self.0.clone()).hash(state)
     }
 }
 
-impl Reachability {
-    fn compute(code: &ExprRef) -> (ReachabilityGraph, BindingToNodeMap) {
-        let mut computer = Reachability {
-            graph: ReachabilityGraph::new(),
-            map: HashMap::new()
-        };
-        computer.compute_expr_reachability(code, &None);
-        (computer.graph, computer.map)
-    }
-
-    fn compute_expr_reachability(&mut self, expr: &ExprRef, origin: &Option<BindingRef>) {
+impl Detector {
+    fn process(&mut self, expr: &ExprRef) {
         match expr as &TypedExpr {
-            TypedExpr::Phantom |
-            TypedExpr::Unit(_) |
-            TypedExpr::Int(_, _) |
-            TypedExpr::String(_, _) => {},
-            TypedExpr::Deref(binding, source) => {
-                let src = origin.as_ref()
-                    .map(|origin| self.map[origin])
-                    .unwrap_or_else(|| self.graph.add_node(source.clone()));
-                let dst = self.map[binding];
-                self.graph.add_edge(src, dst, 0);
-            },
-            TypedExpr::Lambda(lambda, _) => {
-                lambda.parameters.iter().for_each(|parameter| self.register(parameter));
-                self.compute_expr_reachability(&lambda.body, origin);
-            },
-            TypedExpr::Application { function, arguments, .. } => {
-                self.compute_expr_reachability(function, origin);
-                arguments.iter().for_each(|argument| self.compute_expr_reachability(argument, origin));
+            TypedExpr::Deref(name, _, _) => {
+                let binding = self.env.resolve(name).unwrap();
+                self.register_binding_usages(binding.clone());
+                (*self.binding_usages.get_mut(&binding).unwrap()) += 1;
             },
             TypedExpr::AddInt(left, right, _) |
             TypedExpr::SubInt(left, right, _) |
             TypedExpr::MulInt(left, right, _) |
             TypedExpr::DivInt(left, right, _) |
             TypedExpr::AddStr(left, right, _) => {
-                self.compute_expr_reachability(left, origin);
-                self.compute_expr_reachability(right, origin);
+                self.process(left);
+                self.process(right);
             },
-            TypedExpr::Assign(_, value, _) => {
-                self.compute_expr_reachability(value, origin);
+            TypedExpr::Assign(name, value, _, _) => {
+                let binding = self.env.resolve(name).unwrap();
+                (*self.binding_usages.get_mut(&binding).unwrap()) += 1;
+                self.process(value);
+            },
+            TypedExpr::Application { function, arguments, .. } => {
+                self.process(function);
+                for argument in arguments {
+                    self.process(argument);
+                }
+            },
+            // TODO cache results for functions
+            TypedExpr::Lambda(lambda, _) => {
+                let cache_key = LambdaRef(lambda.clone());
+                if !self.lambdas_processed.contains(&cache_key) {
+                    self.lambdas_processed.insert(cache_key);
+                    self.env.push();
+                    for parameter in &lambda.parameters {
+                        let name = parameter.name.text().to_owned();
+                        let binding = Self::new_fake_binding(name.clone(), parameter.name.clone());
+                        self.env.bind(name, binding.clone());
+                        self.register_binding_usages(binding);
+                    }
+                    self.process(&lambda.body);
+                    self.pop_env();
+                }
             }
             TypedExpr::Conditional { condition, positive, negative, .. } => {
-                self.compute_expr_reachability(condition, origin);
-                self.compute_expr_reachability(positive, origin);
-                if let Some(clause) = negative.as_ref() {
-                    self.compute_expr_reachability(clause, origin)
+                self.process(condition);
+                self.process(positive);
+                if let Some(negative) = negative {
+                    self.process(negative);
                 }
             },
-            TypedExpr::Block(Block { statements, .. }) => {
-                for statement in statements {
-                    match &statement {
-                        TypedStatement::Binding(binding) => self.register(binding),
-                        TypedStatement::Expr(expr) => self.compute_expr_reachability(expr, origin)
-                    }
-                }
+            TypedExpr::Block(block) => self.process_block(block),
+            TypedExpr::Phantom(_) |
+            TypedExpr::Unit(_) |
+            TypedExpr::Int(_, _) |
+            TypedExpr::String(_, _) |
+            TypedExpr::Reference(_, _) => {}
+        }
+    }
+
+    fn process_block(&mut self, block: &Block) {
+        let mut bindings = Vec::<BindingRef>::new();
+        self.env.push();
+        for statement in &block.statements {
+            self.process_statement(statement);
+            if let TypedStatement::Binding(binding) = statement {
+                bindings.push(binding.clone());
+            }
+        }
+        self.pop_env();
+    }
+
+    fn process_statement(&mut self, statement: &TypedStatement) {
+        match statement {
+            TypedStatement::Binding(binding) => {
+                self.process(&binding.borrow().data);
+                self.env.bind(binding.borrow().name.clone(), binding.clone());
+                self.register_binding_usages(binding.clone());
+            },
+            TypedStatement::Expr(expr) => self.process(expr)
+        }
+    }
+
+    fn register_binding_usages(&mut self, binding: BindingRef) {
+        self.binding_usages.entry(binding).or_insert(0);
+    }
+
+    fn pop_env(&mut self) {
+        let scope = self.env.pop();
+        for binding in scope.values() {
+            if self.binding_usages[binding] == 0 {
+                self.redundant_bindings.push(binding.borrow().source.clone());
             }
         }
     }
 
-    fn register(&mut self, binding: &BindingRef) {
-        let node = self.graph.add_node(binding.borrow().source.clone());
-        self.map.insert(binding.clone(), node);
-        if let BindingValue::Var(value) = &binding.borrow().data {
-             self.compute_expr_reachability(value, &Some(binding.clone()));
-        }
+    fn new_fake_binding(name: String, source: Source) -> BindingRef {
+        BindingRef::from(Binding {
+            name,
+            data: ExprRef::from(TypedExpr::Unit(source.clone())),
+            source,
+            assigned: false,
+            dirty: false,
+        })
     }
 }

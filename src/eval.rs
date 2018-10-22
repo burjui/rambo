@@ -1,6 +1,4 @@
 use crate::env::Environment;
-use crate::semantics::BindingRef;
-use crate::semantics::BindingValue;
 use crate::semantics::Block;
 use crate::semantics::Lambda;
 use crate::semantics::TypedExpr;
@@ -10,7 +8,7 @@ use num_traits::Zero;
 use std::error::Error;
 use std::rc::Rc;
 
-type Env = Environment<BindingRef, Evalue>;
+type Env = Environment<String, Evalue>;
 
 crate struct Evaluator {
     env: Env,
@@ -25,7 +23,7 @@ impl<'a> Evaluator {
 
     crate fn eval(&mut self, expr: &TypedExpr) -> Result<Evalue, Box<dyn Error>> {
         match expr {
-            TypedExpr::Phantom => unreachable!(),
+            TypedExpr::Phantom(_) => unreachable!(),
             TypedExpr::Unit(_) => Ok(Evalue::Unit),
             TypedExpr::Int(value, _) => Ok(Evalue::Int(value.clone())),
             TypedExpr::String(value, _) => Ok(Evalue::String(value.clone())),
@@ -58,12 +56,13 @@ impl<'a> Evaluator {
                     unreachable!()
                 }
             },
-            TypedExpr::Assign(binding, value, _) => {
+            TypedExpr::Assign(name, value, _, _) => {
                 let value = self.eval(value)?;
-                self.env.bind_force(binding.clone(), value.clone());
+                self.env.bind(name.clone(), value.clone());
                 Ok(value)
             },
-            TypedExpr::Deref(binding, _) => Ok(self.env.resolve(binding).unwrap()),
+            TypedExpr::Deref(name, _, _) => self.env.resolve(name),
+            TypedExpr::Reference(binding, _) => self.eval(&binding.borrow().data),
             TypedExpr::Application { function, arguments, .. } => {
                 let arguments: Result<Vec<Evalue>, Box<dyn Error>> = arguments.iter()
                     .map(|argument| self.eval(argument)).collect();
@@ -74,7 +73,7 @@ impl<'a> Evaluator {
                 };
                 self.env.push();
                 for (parameter, argument) in lambda.parameters.iter().zip(arguments.into_iter()) {
-                    self.env.bind(parameter.clone(), argument).unwrap();
+                    self.env.bind(parameter.name.text().to_owned(), argument);
                 }
                 let result = self.eval(&lambda.body);
                 self.env.pop();
@@ -110,11 +109,9 @@ impl<'a> Evaluator {
         match statement {
             TypedStatement::Expr(expr) => Ok(self.eval(expr)?),
             TypedStatement::Binding(binding) => {
-                let value = match &binding.borrow().data {
-                    BindingValue::Var(expr) => self.eval(expr)?,
-                    BindingValue::Arg(_) => panic!("{:?}", binding.borrow().data)
-                };
-                self.env.bind_force(binding.clone(), value);
+                let binding = binding.borrow();
+                let value = self.eval(&binding.data)?;
+                self.env.bind(binding.name.clone(), value);
                 Ok(Evalue::Unit)
             }
         }

@@ -4,6 +4,7 @@ use crate::lexer::LexerStats;
 use crate::lexer::Token;
 use crate::semantics::Type;
 use crate::source::Source;
+use std::collections::HashMap;
 use std::error::Error;
 use std::fmt::Debug;
 use std::fmt::Formatter;
@@ -11,14 +12,20 @@ use std::fmt::Write;
 
 #[derive(Clone)]
 crate struct Parameter {
-    crate name: String,
+    crate name: Source,
+    crate type_: Type,
     crate source: Source,
-    crate type_: Type
+}
+
+impl PartialEq<Parameter> for Parameter {
+    fn eq(&self, other: &Parameter) -> bool {
+        self.type_ == other.type_
+    }
 }
 
 impl Debug for Parameter {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(formatter, "({:?}: {:?})", self.name, self.type_)
+        write!(formatter, "({}: {:?})", self.name.text(), self.type_)
     }
 }
 
@@ -348,20 +355,29 @@ impl Parser {
         let mut parameters = vec![];
         let lparen = self.expect(Token::LParen, "`('")?;
         if self.lexeme.token == Token::RParen {
-            let rparen_source = self.lexeme.source.clone();
+            let source = lparen.source.extend(&self.lexeme.source);
             self.read_lexeme()?;
             parameters.push(Parameter {
-                name: "_".to_string(),
-                source: lparen.source.extend(&rparen_source),
+                name: source.clone(),
+                source,
                 type_: Type::Unit
             });
         } else {
             let mut first = true;
+            let mut already_declared = HashMap::<String, Source>::new();
             while self.lexeme.token != Token::RParen {
                 if !first {
                     self.expect(Token::Comma, "`,'")?;
                 }
                 let parameter = self.parse_parameter()?;
+                let parameter_name_str = parameter.name.text();
+                if let Some(previous_definition) = already_declared.get(parameter_name_str) {
+                    let message = format!(
+                        "redefinition of parameter `{}', previous definition is at {}",
+                        parameter_name_str, previous_definition);
+                    return error!(self, &message, &parameter.name);
+                }
+                already_declared.insert(parameter_name_str.to_owned(), parameter.name.clone());
                 parameters.push(parameter);
                 first = false;
             }
@@ -386,7 +402,7 @@ impl Parser {
         self.expect(Token::Colon, ":")?;
         let type_ = self.parse_type()?;
         Ok(Parameter {
-            name: id.source.text().to_string(),
+            name: id.source.clone(),
             source: id.source.extend(&self.previous_lexeme_source),
             type_
         })

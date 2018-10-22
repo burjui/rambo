@@ -5,6 +5,7 @@ use std::error::Error;
 use std::fmt::Debug;
 use std::hash::Hash;
 
+// TODO implement as RefCell<Vec<(Key, Value)>> and pop() as setting length
 crate struct Environment<Key, Value> {
     scopes: Vec<RefCell<HashMap<Key, Value>>>
 }
@@ -17,16 +18,7 @@ where Key: Eq + Debug + Hash, Value: Clone + Debug {
         }
     }
 
-    crate fn bind(&self, key: Key, value: Value) -> Result<(), Box<dyn Error>> {
-        if self.last().borrow().contains_key(&key) {
-            error!("redefinition of key {:?}", key)
-        } else {
-            self.last().borrow_mut().insert(key, value);
-            Ok(())
-        }
-    }
-
-    crate fn bind_force(&self, key: Key, value: Value) {
+    crate fn bind(&self, key: Key, value: Value) {
         self.last().borrow_mut().insert(key, value);
     }
 
@@ -43,11 +35,8 @@ where Key: Eq + Debug + Hash, Value: Clone + Debug {
         self.scopes.push(RefCell::new(HashMap::new()))
     }
 
-    crate fn pop(&mut self) {
-        if self.scopes.len() == 1 {
-            panic!("Dropping the base scope")
-        }
-        self.scopes.pop();
+    crate fn pop(&mut self) -> HashMap<Key, Value> {
+        self.scopes.pop().unwrap().into_inner()
     }
 
     fn last(&self) -> &RefCell<HashMap<Key, Value>> {

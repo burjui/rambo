@@ -1,4 +1,3 @@
-use crate::semantics::BindingValue;
 use crate::semantics::Block;
 use crate::semantics::ExprRef;
 use crate::semantics::TypedExpr;
@@ -119,23 +118,7 @@ fn scan_basic_blocks_expr(cfg: &mut CFG, entry: NodeIndex, expr: &ExprRef) -> Op
             negative_node.map(|negative_node| cfg.add_edge(negative_node, exit_node, ()));
             Some((exit_block, exit_node))
         },
-        TypedExpr::Application { function, .. } => {
-            let binding = if let TypedExpr::Deref(binding, _) = function as &TypedExpr {
-                binding
-            } else {
-                unreachable!()
-            };
-            let lambda = if let BindingValue::Var(value) = &binding.borrow().data {
-                if let TypedExpr::Lambda(lambda, _) = value as &TypedExpr {
-                    lambda.clone()
-                } else {
-                    unreachable!()
-                }
-            } else {
-                unreachable!()
-            };
-            scan_basic_blocks_expr(cfg, entry, &lambda.body)
-        },
+        TypedExpr::Application { function, .. } => scan_basic_blocks_expr(cfg, entry, function),
         TypedExpr::Block(Block { statements, .. }) => Some(scan_basic_blocks(cfg, entry, statements)),
         _ => {
             let (block, node) = new_basic_block(cfg);

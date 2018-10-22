@@ -2,6 +2,7 @@ use crate::parser::BinaryOperation;
 use crate::parser::Block as ASTBlock;
 use crate::parser::Expr;
 use crate::parser::Parameter as ParsedParameter;
+use crate::parser::Parameter;
 use crate::parser::Statement;
 use crate::source::Source;
 use itertools::Itertools;
@@ -19,20 +20,8 @@ use std::rc::Rc;
 crate type FunctionTypeRef = Rc<FunctionType>;
 
 #[derive(Clone, PartialEq)]
-crate struct Parameter {
-    crate name: String,
-    crate type_: Type
-}
-
-impl Debug for Parameter {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(formatter, "({}: {:?})", self.name, self.type_)
-    }
-}
-
-#[derive(Clone, PartialEq)]
 crate struct FunctionType {
-    crate parameters: Vec<Parameter>,
+    crate parameters: Vec<Parameter>, // TODO Vec<Parameter> -> Rc<Vec<Parameter>>
     crate result: Type
 }
 
@@ -89,7 +78,7 @@ impl Debug for ExprRef {
 #[derive(Clone)]
 crate struct Lambda {
     crate type_: FunctionTypeRef,
-    crate parameters: Vec<BindingRef>,
+    crate parameters: Vec<Parameter>,
     crate body: ExprRef
 }
 
@@ -114,12 +103,14 @@ impl Debug for Block {
     }
 }
 
+// TODO String -> Rc<String>
 crate enum TypedExpr {
-    Phantom, // TODO rename to PseudoArg
+    Phantom(Type), // TODO rename to PseudoArg
     Unit(Source),
     Int(BigInt, Source),
     String(String, Source),
-    Deref(BindingRef, Source),
+    Deref(String, Type, Source),
+    Reference(BindingRef, Source),
     Lambda(Rc<Lambda>, Source),
     Application {
         type_: Type,
@@ -132,7 +123,7 @@ crate enum TypedExpr {
     MulInt(ExprRef, ExprRef, Source),
     DivInt(ExprRef, ExprRef, Source),
     AddStr(ExprRef, ExprRef, Source),
-    Assign(BindingRef, ExprRef, Source), // TODO turn first arg into binding
+    Assign(String, ExprRef, Type, Source), // TODO turn first arg into binding
     Conditional {
         condition: ExprRef,
         positive: ExprRef,
@@ -145,17 +136,18 @@ crate enum TypedExpr {
 impl Debug for TypedExpr {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            TypedExpr::Phantom => write!(formatter, "@"),
+            TypedExpr::Phantom(_) => write!(formatter, "@"),
             TypedExpr::Unit(_) => write!(formatter, "()"),
             TypedExpr::Int(value, _) => write!(formatter, "{}", value),
             TypedExpr::String(value, _) => write!(formatter, "\"{}\"", value),
-            TypedExpr::Deref(binding, _) => write!(formatter, "#{}", binding.borrow().name),
+            TypedExpr::Deref(name, _, _) => write!(formatter, "#{}", name),
+            TypedExpr::Reference(binding, _) => write!(formatter, "&{}", binding.borrow().name),
             TypedExpr::AddInt(left, right, _) => write!(formatter, "({:?} + {:?})", left, right),
             TypedExpr::SubInt(left, right, _) => write!(formatter, "({:?} - {:?})", left, right),
             TypedExpr::MulInt(left, right, _) => write!(formatter, "({:?} * {:?})", left, right),
             TypedExpr::DivInt(left, right, _) => write!(formatter, "({:?} / {:?})", left, right),
             TypedExpr::AddStr(left, right, _) => write!(formatter, "({:?} + {:?})", left, right),
-            TypedExpr::Assign(left, right, _) => write!(formatter, "({:?} = {:?})", left.borrow().name, right),
+            TypedExpr::Assign(name, value, _, _) => write!(formatter, "({} = {:?})", name, value),
             TypedExpr::Lambda(lambda, _) => lambda.fmt(formatter),
             TypedExpr::Application { function, arguments, .. } => write!(formatter, "({:?} @ {:?})", function, arguments),
             TypedExpr::Conditional { condition, positive, negative, .. } => {
@@ -173,7 +165,7 @@ impl Debug for TypedExpr {
 impl TypedExpr {
     crate fn type_(&self) -> Type {
         match self {
-            TypedExpr::Phantom => unreachable!(),
+            TypedExpr::Phantom(type_) => type_.clone(),
             TypedExpr::Unit(_) => Type::Unit,
 
             TypedExpr::Int(_, _) |
@@ -185,8 +177,9 @@ impl TypedExpr {
             TypedExpr::String(_, _) |
             TypedExpr::AddStr(_, _, _) => Type::String,
 
-            TypedExpr::Deref(binding, _) => binding.borrow().type_(),
-            TypedExpr::Assign(binding, _, _) => binding.borrow().data.type_(),
+            TypedExpr::Deref(_, type_, _) => type_.clone(),
+            TypedExpr::Reference(binding, _) => binding.borrow().data.type_(),
+            TypedExpr::Assign(_, _, type_, _) => type_.clone(),
             TypedExpr::Lambda(lambda, _) => Type::Function(lambda.type_.clone()),
             TypedExpr::Application { type_, .. } => type_.clone(),
             TypedExpr::Conditional { positive, negative, .. } => {
@@ -202,7 +195,7 @@ impl TypedExpr {
 
     crate fn clone_at(&self, source: Source) -> ExprRef {
         ExprRef::from(match self {
-            TypedExpr::Phantom => TypedExpr::Phantom,
+            TypedExpr::Phantom(type_) => TypedExpr::Phantom(type_.clone()),
             TypedExpr::Unit(_) => TypedExpr::Unit(source),
             TypedExpr::Int(value, _) => TypedExpr::Int(value.clone(), source),
             TypedExpr::AddInt(left, right, _) => TypedExpr::AddInt(left.clone(), right.clone(), source),
@@ -211,8 +204,9 @@ impl TypedExpr {
             TypedExpr::DivInt(left, right, _) => TypedExpr::DivInt(left.clone(), right.clone(), source),
             TypedExpr::String(value, _) => TypedExpr::String(value.clone(), source),
             TypedExpr::AddStr(left, right, _) => TypedExpr::AddStr(left.clone(), right.clone(), source),
-            TypedExpr::Deref(binding, _) => TypedExpr::Deref(binding.clone(), source),
-            TypedExpr::Assign(left, right, _) => TypedExpr::Assign(left.clone(), right.clone(), source),
+            TypedExpr::Deref(name, type_, _) => TypedExpr::Deref(name.clone(), type_.clone(), source),
+            TypedExpr::Reference(binding, _) => TypedExpr::Reference(binding.clone(), source),
+            TypedExpr::Assign(left, right, type_, _) => TypedExpr::Assign(left.clone(), right.clone(), type_.clone(), source),
             TypedExpr::Lambda(lambda, _) => TypedExpr::Lambda(lambda.clone(), source),
             TypedExpr::Application { type_, function, arguments, .. } => TypedExpr::Application {
                 type_: type_.clone(),
@@ -234,29 +228,14 @@ impl TypedExpr {
     }
 }
 
-#[derive(Debug, Clone)]
-crate enum BindingValue {
-    Var(ExprRef),
-    Arg(Type)
-}
-
-impl BindingValue {
-    crate fn type_(&self) -> Type {
-        match self {
-            BindingValue::Var(expr) => expr.type_(),
-            BindingValue::Arg(type_) => type_.clone()
-        }
-    }
-}
-
 crate type BindingCell = RefCell<Binding>;
 
 #[derive(Clone)]
 crate struct BindingRef(Rc<BindingCell>);
 
-impl From<Rc<BindingCell>> for BindingRef {
-    fn from(cell: Rc<BindingCell>) -> Self {
-        Self(cell)
+impl From<Binding> for BindingRef {
+    fn from(binding: Binding) -> Self {
+        Self(Rc::new(BindingCell::new(binding)))
     }
 }
 
@@ -278,7 +257,7 @@ impl Eq for BindingRef {}
 
 impl Hash for BindingRef {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        self.0.as_ptr().hash(state)
+        Rc::into_raw(self.0.clone()).hash(state)
     }
 }
 
@@ -290,15 +269,20 @@ impl Debug for BindingRef {
 
 crate struct Binding {
     crate name: String,
-    crate data: BindingValue,
+    crate data: ExprRef,
+    crate source: Source,
     crate assigned: bool,
     crate dirty: bool,
-    crate source: Source
 }
 
+// TODO introduce constructors?
 impl Binding {
-    crate fn type_(&self) -> Type {
-        self.data.type_()
+    crate fn new(name: String, data: ExprRef, source: Source) -> Binding {
+        Binding {
+            name, data, source,
+            assigned: false,
+            dirty: false
+        }
     }
 }
 
@@ -311,7 +295,7 @@ impl Debug for Binding {
 #[derive(Clone)]
 crate enum TypedStatement {
     Expr(ExprRef),
-    Binding(BindingRef)
+    Binding(BindingRef) // TODO replace with Binding(name, type, source...)
 }
 
 impl Debug for TypedStatement {
@@ -354,14 +338,14 @@ fn check_statement(env: &mut Environment, statement: &Statement) -> CheckResult<
         },
         Statement::Binding { name, value, source } => {
             let value = check_expr(env, &value)?;
-            let binding = BindingRef(Rc::new(RefCell::new(Binding {
+            let binding = BindingRef::from(Binding {
                 name: name.text().to_string(),
-                data: BindingValue::Var(value),
+                data: value,
+                source: source.clone(),
                 assigned: false,
                 dirty: false,
-                source: source.clone()
-            })));
-            env.bind(&binding)?;
+            });
+            env.bind(binding.clone());
             Ok(TypedStatement::Binding(binding))
         }
     }
@@ -381,40 +365,46 @@ fn check_expr(env: &mut Environment, expr: &Expr) -> CheckResult<ExprRef> {
         },
         Expr::Id(name) => env.resolve(name),
         Expr::Binary { operation, left, right, .. } => {
-            let left_checked = check_expr(env, left)?;
-            let right_checked = check_expr(env, right)?;
-            let left_type = left_checked.type_();
-            let right_type = right_checked.type_();
-            if left_type != right_type {
-                return error!("operands of `{:?}' have incompatible types:\n  {:?}: {:?}\n  {:?}: {:?}",
-                              operation, left, left_type, right, right_type);
-            }
-
             match operation {
                 BinaryOperation::Assign => {
-                    if let TypedExpr::Deref(binding, _) = &*left_checked {
-                        Ok(ExprRef::from(TypedExpr::Assign(binding.clone(), right_checked, expr.source().clone())))
+                    if let Expr::Id(name) = left as &Expr {
+                        let var = env.resolve(name)?;
+                        let right_checked = check_expr(env, right)?;
+                        Ok(ExprRef::from(TypedExpr::Assign(name.text().to_owned(), right_checked, var.type_(), expr.source().clone())))
                     } else {
-                        error!("a variable expected at the left side of assignment, but found: {:?}", left_checked)
+                        error!("a variable expected at the left side of assignment, but found: {:?}", left)
                     }
                 },
-                BinaryOperation::Add => match left_type {
-                    Type::Int => Ok(ExprRef::from(TypedExpr::AddInt(left_checked, right_checked, expr.source().clone()))),
-                    Type::String => Ok(ExprRef::from(TypedExpr::AddStr(left_checked, right_checked, expr.source().clone()))),
-                    _ => error!("operation `{:?}' is not implemented for type `{:?}'", operation, left_type)
-                },
-                operation => {
-                    if let Type::Int = left_type {
-                        let constructor =
-                            match operation {
-                                BinaryOperation::Subtract => TypedExpr::SubInt,
-                                BinaryOperation::Multiply => TypedExpr::MulInt,
-                                BinaryOperation::Divide => TypedExpr::DivInt,
-                                _ => unreachable!()
-                            };
-                        Ok(ExprRef::from(constructor(left_checked, right_checked, expr.source().clone())))
-                    } else {
-                        error!("operation `{:?}' is not implemented for type `{:?}'", operation, left_type)
+                _ => {
+                    let left_checked = check_expr(env, left)?;
+                    let right_checked = check_expr(env, right)?;
+                    let left_type = left_checked.type_();
+                    let right_type = right_checked.type_();
+                    if left_type != right_type {
+                        return error!("operands of `{:?}' have incompatible types:\n  {:?}: {:?}\n  {:?}: {:?}",
+                                      operation, left, left_type, right, right_type);
+                    }
+
+                    match operation {
+                        BinaryOperation::Add => match left_type {
+                            Type::Int => Ok(ExprRef::from(TypedExpr::AddInt(left_checked, right_checked, expr.source().clone()))),
+                            Type::String => Ok(ExprRef::from(TypedExpr::AddStr(left_checked, right_checked, expr.source().clone()))),
+                            _ => error!("operation `{:?}' is not implemented for type `{:?}'", operation, left_type)
+                        },
+                        operation => {
+                            if let Type::Int = left_type {
+                                let constructor =
+                                    match operation {
+                                        BinaryOperation::Subtract => TypedExpr::SubInt,
+                                        BinaryOperation::Multiply => TypedExpr::MulInt,
+                                        BinaryOperation::Divide => TypedExpr::DivInt,
+                                        _ => unreachable!()
+                                    };
+                                Ok(ExprRef::from(constructor(left_checked, right_checked, expr.source().clone())))
+                            } else {
+                                error!("operation `{:?}' is not implemented for type `{:?}'", operation, left_type)
+                            }
+                        }
                     }
                 }
             }
@@ -516,33 +506,27 @@ fn check_expr(env: &mut Environment, expr: &Expr) -> CheckResult<ExprRef> {
 
 fn check_function(env: &mut Environment, parameters: &[ParsedParameter], body: &Expr) -> CheckResult<Lambda> {
     env.push();
-    let mut parameter_bindings = vec![];
-    for parameter in parameters.iter() {
-        let binding = BindingRef(Rc::new(RefCell::new(Binding {
-            name: parameter.name.to_string(),
-            data: BindingValue::Arg(parameter.type_.clone()),
+    for parameter in parameters {
+        // TODO make the name a Source and use it instead
+        env.bind(BindingRef::from(Binding {
+            name: parameter.name.text().to_string(), // TODO replace ALL to_string -> to_owned()
+            data: ExprRef::from(TypedExpr::Phantom(parameter.type_.clone())),
+            source: parameter.source.clone(),
             assigned: false,
             dirty: false,
-            source: parameter.source.clone()
-        })));
-        parameter_bindings.push(binding.clone());
-        env.bind(&binding)?;
+        }));
     }
     let body = check_expr(env, body)?;
     env.pop();
-    let parameters = parameters.iter()
-        .map(|parameter| Parameter {
-            name: parameter.name.to_string(),
-            type_: parameter.type_.clone()
-        })
-        .collect();
+
+    let parameters = parameters.to_vec();
     let function_type = Rc::new(FunctionType {
-        parameters,
+        parameters: parameters.clone(),
         result: body.type_()
     });
     Ok(Lambda{
         type_: function_type,
-        parameters: parameter_bindings,
+        parameters,
         body
     })
 }
@@ -559,7 +543,7 @@ fn check_block<'a, BlockIterator>(env: &mut Environment, block: BlockIterator, s
     })))
 }
 
-crate struct Environment {
+struct Environment {
     scopes: Vec<RefCell<HashMap<String, BindingRef>>>
 }
 
@@ -570,24 +554,20 @@ impl Environment {
         }
     }
 
-    crate fn bind(&self, binding: &BindingRef) -> Result<(), Box<dyn Error>> {
-        let name = &binding.borrow().name;
-        if let BindingValue::Arg(_) = &binding.borrow().data {
-            if self.last().borrow().contains_key(name) {
-                return error!("redefinition of parameter {}", name)
-            }
-        }
-        self.last().borrow_mut().insert(name.to_string(), binding.clone());
-        Ok(())
+    crate fn bind(&self, binding: BindingRef) {
+        let name = binding.borrow().name.to_owned();
+        self.last().borrow_mut().insert(name, binding);
     }
 
     crate fn resolve(&self, name: &Source) -> Result<ExprRef, Box<dyn Error>> {
         for scope in self.scopes.iter().rev() {
             if let Some(binding) = scope.borrow().get(name.text()) {
-                return Ok(ExprRef::from(TypedExpr::Deref(binding.clone(), name.clone())));
+                let value = &binding.borrow().data;
+                // TODO Cache name strings
+                return Ok(ExprRef::from(TypedExpr::Deref(name.text().to_owned(), value.type_(), name.clone())));
             }
         }
-        error!("`{:?}' is undefined'", name)
+        error!("`{:?}' is undefined", name.text())
     }
 
     fn push(&mut self) {

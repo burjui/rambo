@@ -16,8 +16,7 @@ use crate::pipeline::Pipeline;
 use crate::pipeline::PipelineOptions;
 use crate::pipeline::PropagateConstants1;
 use crate::pipeline::PropagateConstants2;
-use crate::pipeline::RemoveRedundantBindings1;
-use crate::pipeline::RemoveRedundantBindings2;
+use crate::pipeline::ReportRedundantBindings;
 use crate::pipeline::StandardStreamUtils;
 use crate::pipeline::VerifySemantics;
 use getopts::Options;
@@ -40,10 +39,9 @@ mod eval;
 mod semantics;
 mod constants;
 mod env;
-mod redundant_bindings;
-mod typed_visitor;
 mod cfg;
 mod pipeline;
+mod redundant_bindings;
 
 fn main() -> Result<(), std::io::Error> {
     let is_tty = unsafe { libc::isatty(libc::STDOUT_FILENO as i32) } != 0;
@@ -129,9 +127,8 @@ fn process(path: String, stdout: &mut StandardStream, options: &PipelineOptions)
         .map(Parse)?
         .map(VerifySemantics)?
         .map(ConstructCFG)?
-        .map(RemoveRedundantBindings1)?
+        .map(ReportRedundantBindings)?
         .map(PropagateConstants1)?
-        .map(RemoveRedundantBindings2)?
         .map(PropagateConstants2)?
         .map(ConstructCFGOptimized)?
         .map(Evaluate)

@@ -6,8 +6,7 @@ use crate::eval::Evalue;
 use crate::lexer::Lexer;
 use crate::parser::Block as ASTBlock;
 use crate::parser::Parser;
-use crate::redundant_bindings::RedundantBindings;
-use crate::redundant_bindings::Warnings;
+use crate::redundant_bindings::report_redundant_bindings;
 use crate::semantics::check_module;
 use crate::semantics::ExprRef;
 use crate::source::SourceFile;
@@ -54,9 +53,8 @@ crate struct Load;
 crate struct Parse;
 crate struct VerifySemantics;
 crate struct ConstructCFG;
-crate struct RemoveRedundantBindings1;
+crate struct ReportRedundantBindings;
 crate struct PropagateConstants1;
-crate struct RemoveRedundantBindings2;
 crate struct PropagateConstants2;
 crate struct ConstructCFGOptimized;
 crate struct Evaluate;
@@ -67,22 +65,20 @@ crate enum PassId {
     Parse,
     VerifySemantics,
     ConstructCFG,
-    RemoveRedundantBindings1,
+    ReportRedundantBindings,
     PropagateConstants1,
-    RemoveRedundantBindings2,
     PropagateConstants2,
     ConstructCFGOptimized,
     Evaluate
 }
 
-crate static ALL_PASS_IDS: [PassId; 10] = [
+crate static ALL_PASS_IDS: [PassId; 9] = [
     PassId::Load,
     PassId::Parse,
     PassId::VerifySemantics,
     PassId::ConstructCFG,
-    PassId::RemoveRedundantBindings1,
+    PassId::ReportRedundantBindings,
     PassId::PropagateConstants1,
-    PassId::RemoveRedundantBindings2,
     PassId::PropagateConstants2,
     PassId::ConstructCFGOptimized,
     PassId::Evaluate
@@ -95,9 +91,8 @@ impl PassId {
             PassId::Parse => "parse",
             PassId::VerifySemantics => "sem",
             PassId::ConstructCFG => "cfg",
-            PassId::RemoveRedundantBindings1 => "rb1",
+            PassId::ReportRedundantBindings => "rb",
             PassId::PropagateConstants1 => "cfp1",
-            PassId::RemoveRedundantBindings2 => "rb2",
             PassId::PropagateConstants2 => "cfp2",
             PassId::ConstructCFGOptimized => "cfgopt",
             PassId::Evaluate => "eval"
@@ -110,9 +105,8 @@ impl PassId {
             PassId::Parse => "Parsing",
             PassId::VerifySemantics => "Verifying semantics",
             PassId::ConstructCFG => "Constructing CFG",
-            PassId::RemoveRedundantBindings1 => "Removing redundant bindings (pass 1)",
+            PassId::ReportRedundantBindings => "Detecting redundant bindings",
             PassId::PropagateConstants1 => "Propagating constants (pass 1)",
-            PassId::RemoveRedundantBindings2 => "Removing redundant bindings (pass 2)",
             PassId::PropagateConstants2 => "Propagating constants (pass 2)",
             PassId::ConstructCFGOptimized => "Constructing CFG (optimized)",
             PassId::Evaluate => "Evaluating"
@@ -209,30 +203,13 @@ impl CompilerPass<ExprRef, ExprRef> for ConstructCFGOptimized {
     }
 }
 
-impl RemoveRedundantBindings1 {
-    fn apply(hir: ExprRef, stdout: &mut StandardStream, options: &PipelineOptions, warnings: Warnings) -> Result<ExprRef, Box<dyn Error>> {
-        let result = RedundantBindings::remove(&hir, warnings);
-        drop(hir);
-        if options.dump_intermediate {
-            writeln!(stdout, "{:?}", result);
-        }
-        Ok(result)
-    }
-}
+impl CompilerPass<ExprRef, ExprRef> for ReportRedundantBindings {
+    const ID: PassId = PassId::ReportRedundantBindings;
 
-impl CompilerPass<ExprRef, ExprRef> for RemoveRedundantBindings1 {
-    const ID: PassId = PassId::RemoveRedundantBindings1;
-
-    fn apply_impl(hir: ExprRef, stdout: &mut StandardStream, options: &PipelineOptions) -> Result<ExprRef, Box<dyn Error>> {
-        Self::apply(hir, stdout, options, if options.warnings { Warnings::On } else { Warnings::Off })
-    }
-}
-
-impl CompilerPass<ExprRef, ExprRef> for RemoveRedundantBindings2 {
-    const ID: PassId = PassId::RemoveRedundantBindings2;
-
-    fn apply_impl(hir: ExprRef, stdout: &mut StandardStream, options: &PipelineOptions) -> Result<ExprRef, Box<dyn Error>> {
-        RemoveRedundantBindings1::apply(hir, stdout, options, Warnings::Off)
+    fn apply_impl(hir: ExprRef, _stdout: &mut StandardStream, _options: &PipelineOptions) -> Result<ExprRef, Box<dyn Error>> {
+        // TODO pass stdout to report_redundant_bindings()
+        report_redundant_bindings(&hir);
+        Ok(hir)
     }
 }
 
