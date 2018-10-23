@@ -103,7 +103,6 @@ impl Debug for Block {
     }
 }
 
-// TODO String -> Rc<String>
 crate enum TypedExpr {
     Phantom(Type), // TODO rename to PseudoArg
     Unit(Source),
@@ -123,7 +122,7 @@ crate enum TypedExpr {
     MulInt(ExprRef, ExprRef, Source),
     DivInt(ExprRef, ExprRef, Source),
     AddStr(ExprRef, ExprRef, Source),
-    Assign(String, ExprRef, Type, Source), // TODO turn first arg into binding
+    Assign(String, ExprRef, Source), // TODO turn first arg into binding
     Conditional {
         condition: ExprRef,
         positive: ExprRef,
@@ -147,7 +146,7 @@ impl Debug for TypedExpr {
             TypedExpr::MulInt(left, right, _) => write!(formatter, "({:?} * {:?})", left, right),
             TypedExpr::DivInt(left, right, _) => write!(formatter, "({:?} / {:?})", left, right),
             TypedExpr::AddStr(left, right, _) => write!(formatter, "({:?} + {:?})", left, right),
-            TypedExpr::Assign(name, value, _, _) => write!(formatter, "({} = {:?})", name, value),
+            TypedExpr::Assign(name, value, _) => write!(formatter, "({} = {:?})", name, value),
             TypedExpr::Lambda(lambda, _) => lambda.fmt(formatter),
             TypedExpr::Application { function, arguments, .. } => write!(formatter, "({:?} @ {:?})", function, arguments),
             TypedExpr::Conditional { condition, positive, negative, .. } => {
@@ -179,7 +178,7 @@ impl TypedExpr {
 
             TypedExpr::Deref(_, type_, _) => type_.clone(),
             TypedExpr::Reference(binding, _) => binding.borrow().data.type_(),
-            TypedExpr::Assign(_, _, type_, _) => type_.clone(),
+            TypedExpr::Assign(_, value, _) => value.type_(),
             TypedExpr::Lambda(lambda, _) => Type::Function(lambda.type_.clone()),
             TypedExpr::Application { type_, .. } => type_.clone(),
             TypedExpr::Conditional { positive, negative, .. } => {
@@ -206,7 +205,7 @@ impl TypedExpr {
             TypedExpr::AddStr(left, right, _) => TypedExpr::AddStr(left.clone(), right.clone(), source),
             TypedExpr::Deref(name, type_, _) => TypedExpr::Deref(name.clone(), type_.clone(), source),
             TypedExpr::Reference(binding, _) => TypedExpr::Reference(binding.clone(), source),
-            TypedExpr::Assign(left, right, type_, _) => TypedExpr::Assign(left.clone(), right.clone(), type_.clone(), source),
+            TypedExpr::Assign(left, right, _) => TypedExpr::Assign(left.clone(), right.clone(), source),
             TypedExpr::Lambda(lambda, _) => TypedExpr::Lambda(lambda.clone(), source),
             TypedExpr::Application { type_, function, arguments, .. } => TypedExpr::Application {
                 type_: type_.clone(),
@@ -368,9 +367,9 @@ fn check_expr(env: &mut Environment, expr: &Expr) -> CheckResult<ExprRef> {
             match operation {
                 BinaryOperation::Assign => {
                     if let Expr::Id(name) = left as &Expr {
-                        let var = env.resolve(name)?;
+                        env.resolve(name)?;
                         let right_checked = check_expr(env, right)?;
-                        Ok(ExprRef::from(TypedExpr::Assign(name.text().to_owned(), right_checked, var.type_(), expr.source().clone())))
+                        Ok(ExprRef::from(TypedExpr::Assign(name.text().to_owned(), right_checked, expr.source().clone())))
                     } else {
                         error!("a variable expected at the left side of assignment, but found: {:?}", left)
                     }

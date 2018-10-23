@@ -66,7 +66,7 @@ impl Detector {
                 self.process(left);
                 self.process(right);
             },
-            TypedExpr::Assign(name, value, _, _) => {
+            TypedExpr::Assign(name, value, _) => {
                 let binding = self.env.resolve(name).unwrap();
                 (*self.binding_usages.get_mut(&binding).unwrap()) += 1;
                 self.process(value);

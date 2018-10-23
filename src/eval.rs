@@ -56,7 +56,7 @@ impl<'a> Evaluator {
                     unreachable!()
                 }
             },
-            TypedExpr::Assign(name, value, _, _) => {
+            TypedExpr::Assign(name, value, _) => {
                 let value = self.eval(value)?;
                 self.env.bind(name.clone(), value.clone());
                 Ok(value)
