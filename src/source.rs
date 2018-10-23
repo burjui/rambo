@@ -138,7 +138,7 @@ impl<'a> SourceFile {
         }?;
 
         use std::str::from_utf8;
-        Ok(from_utf8(&data[offset..]).map(str::to_string)?)
+        Ok(from_utf8(&data[offset..]).map(str::to_owned)?)
     }
 
     fn detect_bom(data: &[u8]) -> Option<&'static BOM> {

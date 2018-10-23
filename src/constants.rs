@@ -72,7 +72,7 @@ impl CFP {
                 let right = self.fold(right);
                 match (&left as &TypedExpr, &right as &TypedExpr) {
                     (TypedExpr::String(left, _), TypedExpr::String(right, _)) =>
-                        ExprRef::from(TypedExpr::String(left.to_string() + right, source.clone())),
+                        ExprRef::from(TypedExpr::String(left.to_owned() + right, source.clone())),
                     _ => ExprRef::from(TypedExpr::AddStr(left.clone(), right.clone(), source.clone()))
                 }
             },
@@ -80,7 +80,7 @@ impl CFP {
                 let binding = self.env.resolve(name).unwrap();
                 binding.borrow_mut().assigned = true;
                 (*self.binding_usages.get_mut(&binding).unwrap()) += 1;
-                ExprRef::from(TypedExpr::Assign(name.to_string(), self.fold(value), source.clone()))
+                ExprRef::from(TypedExpr::Assign(name.to_owned(), self.fold(value), source.clone()))
             },
             TypedExpr::Application { function, arguments, source, .. } => {
                 let function_ = function;

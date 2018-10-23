@@ -122,7 +122,7 @@ crate enum TypedExpr {
     MulInt(ExprRef, ExprRef, Source),
     DivInt(ExprRef, ExprRef, Source),
     AddStr(ExprRef, ExprRef, Source),
-    Assign(String, ExprRef, Source), // TODO turn first arg into binding
+    Assign(String, ExprRef, Source),
     Conditional {
         condition: ExprRef,
         positive: ExprRef,
@@ -152,7 +152,7 @@ impl Debug for TypedExpr {
             TypedExpr::Conditional { condition, positive, negative, .. } => {
                 let negative = match negative {
                     Some(negative) => format!(" else {:?})", negative),
-                    _ => "".to_string()
+                    _ => "".to_owned()
                 };
                 write!(formatter, "(if {:?} {:?}{})", condition, positive, negative)
             },
@@ -274,7 +274,6 @@ crate struct Binding {
     crate dirty: bool,
 }
 
-// TODO introduce constructors?
 impl Binding {
     crate fn new(name: String, data: ExprRef, source: Source) -> Binding {
         Binding {
@@ -338,7 +337,7 @@ fn check_statement(env: &mut Environment, statement: &Statement) -> CheckResult<
         Statement::Binding { name, value, source } => {
             let value = check_expr(env, &value)?;
             let binding = BindingRef::from(Binding {
-                name: name.text().to_string(),
+                name: name.text().to_owned(),
                 data: value,
                 source: source.clone(),
                 assigned: false,
@@ -359,7 +358,7 @@ fn check_expr(env: &mut Environment, expr: &Expr) -> CheckResult<ExprRef> {
         },
         Expr::String(source) => {
             let text = source.text();
-            let value = text[1..text.len() - 1].to_string();
+            let value = text[1..text.len() - 1].to_owned();
             Ok(ExprRef::from(TypedExpr::String(value, source.clone())))
         },
         Expr::Id(name) => env.resolve(name),
@@ -508,7 +507,7 @@ fn check_function(env: &mut Environment, parameters: &[ParsedParameter], body: &
     for parameter in parameters {
         // TODO make the name a Source and use it instead
         env.bind(BindingRef::from(Binding {
-            name: parameter.name.text().to_string(), // TODO replace ALL to_string -> to_owned()
+            name: parameter.name.text().to_owned(),
             data: ExprRef::from(TypedExpr::Phantom(parameter.type_.clone())),
             source: parameter.source.clone(),
             assigned: false,

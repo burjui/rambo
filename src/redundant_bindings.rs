@@ -77,7 +77,6 @@ impl Detector {
                     self.process(argument);
                 }
             },
-            // TODO cache results for functions
             TypedExpr::Lambda(lambda, _) => {
                 let cache_key = LambdaRef(lambda.clone());
                 if !self.lambdas_processed.contains(&cache_key) {

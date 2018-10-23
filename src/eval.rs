@@ -51,7 +51,7 @@ impl<'a> Evaluator {
                 let left = self.eval(left)?;
                 let right = self.eval(right)?;
                 if let (Evalue::String(left), Evalue::String(right)) = (left, right) {
-                    Ok(Evalue::String(left.to_string() + &right))
+                    Ok(Evalue::String(left.to_owned() + &right))
                 } else {
                     unreachable!()
                 }
