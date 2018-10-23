@@ -1,4 +1,3 @@
-use std::cell::RefCell;
 use std::cmp::Eq;
 use std::collections::HashMap;
 use std::error::Error;
@@ -7,24 +6,27 @@ use std::hash::Hash;
 
 // TODO implement as RefCell<Vec<(Key, Value)>> and pop() as setting length
 crate struct Environment<Key, Value> {
-    scopes: Vec<RefCell<HashMap<Key, Value>>>
+    scopes: Vec<HashMap<Key, Value>>,
+    current_scope_log: Vec<(Key, Value)>
 }
 
 impl<Key, Value> Environment<Key, Value>
-where Key: Eq + Debug + Hash, Value: Clone + Debug {
+where Key: Eq + Debug + Hash + Clone, Value: Clone + Debug {
     crate fn new() -> Environment<Key, Value> {
         Environment {
-            scopes: vec![RefCell::new(HashMap::new())]
+            scopes: vec![HashMap::new()],
+            current_scope_log: vec![]
         }
     }
 
-    crate fn bind(&self, key: Key, value: Value) {
-        self.last().borrow_mut().insert(key, value);
+    crate fn bind(&mut self, key: Key, value: Value) {
+        self.current_scope_log.push((key.clone(), value.clone()));
+        self.scopes.last_mut().unwrap().insert(key, value);
     }
 
     crate fn resolve(&self, key: &Key) -> Result<Value, Box<dyn Error>> {
         for scope in self.scopes.iter().rev() {
-            if let Some(value) = scope.borrow().get(key) {
+            if let Some(value) = scope.get(key) {
                 return Ok(value.clone());
             }
         }
@@ -32,14 +34,11 @@ where Key: Eq + Debug + Hash, Value: Clone + Debug {
     }
 
     crate fn push(&mut self) {
-        self.scopes.push(RefCell::new(HashMap::new()))
+        self.scopes.push(HashMap::new())
     }
 
-    crate fn pop(&mut self) -> HashMap<Key, Value> {
-        self.scopes.pop().unwrap().into_inner()
-    }
-
-    fn last(&self) -> &RefCell<HashMap<Key, Value>> {
-        self.scopes.last().unwrap()
+    crate fn pop(&mut self) -> Vec<(Key, Value)> {
+        self.scopes.pop();
+        std::mem::replace(&mut self.current_scope_log, vec![])
     }
 }

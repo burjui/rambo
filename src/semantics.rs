@@ -542,24 +542,24 @@ fn check_block<'a, BlockIterator>(env: &mut Environment, block: BlockIterator, s
 }
 
 struct Environment {
-    scopes: Vec<RefCell<HashMap<String, BindingRef>>>
+    scopes: Vec<HashMap<String, BindingRef>>
 }
 
 impl Environment {
     crate fn new() -> Environment {
         Environment {
-            scopes: vec![RefCell::new(HashMap::new())]
+            scopes: vec![HashMap::new()]
         }
     }
 
-    crate fn bind(&self, binding: BindingRef) {
+    crate fn bind(&mut self, binding: BindingRef) {
         let name = binding.borrow().name.to_owned();
-        self.last().borrow_mut().insert(name, binding);
+        self.scopes.last_mut().unwrap().insert(name, binding);
     }
 
     crate fn resolve(&self, name: &Source) -> Result<ExprRef, Box<dyn Error>> {
         for scope in self.scopes.iter().rev() {
-            if let Some(binding) = scope.borrow().get(name.text()) {
+            if let Some(binding) = scope.get(name.text()) {
                 let value = &binding.borrow().data;
                 // TODO Cache name strings
                 return Ok(ExprRef::from(TypedExpr::Deref(name.text().to_owned(), value.type_(), name.clone())));
@@ -569,17 +569,10 @@ impl Environment {
     }
 
     fn push(&mut self) {
-        self.scopes.push(RefCell::new(HashMap::new()))
+        self.scopes.push(HashMap::new())
     }
 
     fn pop(&mut self) {
-        if self.scopes.len() == 1 {
-            panic!("Dropping the base scope")
-        }
         self.scopes.pop();
-    }
-
-    fn last(&self) -> &RefCell<HashMap<String, BindingRef>> {
-        self.scopes.last().unwrap()
     }
 }

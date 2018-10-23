@@ -24,6 +24,7 @@ crate fn report_redundant_bindings(code: &ExprRef, Warnings(warnings): Warnings)
     };
     detector.process(code);
     if warnings {
+        detector.redundant_bindings.sort_by(|s1, s2| s1.range.start.cmp(&s2.range.start));
         for source in detector.redundant_bindings {
             warning_at!(source, "unused definition: {}", source.text())
         }
@@ -140,9 +141,9 @@ impl Detector {
     }
 
     fn pop_env(&mut self) {
-        let scope = self.env.pop();
-        for binding in scope.values() {
-            if self.binding_usages[binding] == 0 {
+        let scope_log = self.env.pop();
+        for (_, binding) in scope_log {
+            if self.binding_usages[&binding] == 0 {
                 self.redundant_bindings.push(binding.borrow().source.clone());
             }
         }
