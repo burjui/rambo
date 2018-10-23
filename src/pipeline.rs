@@ -17,6 +17,7 @@ use termcolor::Color;
 use termcolor::ColorSpec;
 use termcolor::StandardStream;
 use termcolor::WriteColor;
+use crate::redundant_bindings::Warnings;
 
 type PipelineInput<'a, T> = Option<(T, &'a mut StandardStream)>;
 
@@ -206,9 +207,9 @@ impl CompilerPass<ExprRef, ExprRef> for ConstructCFGOptimized {
 impl CompilerPass<ExprRef, ExprRef> for ReportRedundantBindings {
     const ID: PassId = PassId::ReportRedundantBindings;
 
-    fn apply_impl(hir: ExprRef, _stdout: &mut StandardStream, _options: &PipelineOptions) -> Result<ExprRef, Box<dyn Error>> {
+    fn apply_impl(hir: ExprRef, _stdout: &mut StandardStream, options: &PipelineOptions) -> Result<ExprRef, Box<dyn Error>> {
         // TODO pass stdout to report_redundant_bindings()
-        report_redundant_bindings(&hir);
+        report_redundant_bindings(&hir, Warnings(options.warnings));
         Ok(hir)
     }
 }

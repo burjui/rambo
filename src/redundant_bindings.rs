@@ -13,7 +13,9 @@ use std::hash::Hash;
 use std::hash::Hasher;
 use std::rc::Rc;
 
-crate fn report_redundant_bindings(code: &ExprRef) {
+crate struct Warnings(crate bool);
+
+crate fn report_redundant_bindings(code: &ExprRef, Warnings(warnings): Warnings) {
     let mut detector = Detector {
         env: Environment::new(),
         binding_usages: HashMap::new(),
@@ -21,8 +23,10 @@ crate fn report_redundant_bindings(code: &ExprRef) {
         redundant_bindings: Vec::new()
     };
     detector.process(code);
-    for source in detector.redundant_bindings {
-        warning_at!(source, "unused definition: {}", source.text())
+    if warnings {
+        for source in detector.redundant_bindings {
+            warning_at!(source, "unused definition: {}", source.text())
+        }
     }
 }
 
