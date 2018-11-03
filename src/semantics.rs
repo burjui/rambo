@@ -109,7 +109,6 @@ crate enum TypedExpr {
     Int(BigInt, Source),
     String(String, Source),
     Deref(String, Type, Source),
-    Reference(BindingRef, Source),
     Lambda(Rc<Lambda>, Source),
     Application {
         type_: Type,
@@ -140,7 +139,6 @@ impl Debug for TypedExpr {
             TypedExpr::Int(value, _) => write!(formatter, "{}", value),
             TypedExpr::String(value, _) => write!(formatter, "\"{}\"", value),
             TypedExpr::Deref(name, _, _) => write!(formatter, "#{}", name),
-            TypedExpr::Reference(binding, _) => write!(formatter, "&{}", binding.borrow().name),
             TypedExpr::AddInt(left, right, _) => write!(formatter, "({:?} + {:?})", left, right),
             TypedExpr::SubInt(left, right, _) => write!(formatter, "({:?} - {:?})", left, right),
             TypedExpr::MulInt(left, right, _) => write!(formatter, "({:?} * {:?})", left, right),
@@ -177,7 +175,6 @@ impl TypedExpr {
             TypedExpr::AddStr(_, _, _) => Type::String,
 
             TypedExpr::Deref(_, type_, _) => type_.clone(),
-            TypedExpr::Reference(binding, _) => binding.borrow().data.type_(),
             TypedExpr::Assign(_, value, _) => value.type_(),
             TypedExpr::Lambda(lambda, _) => Type::Function(lambda.type_.clone()),
             TypedExpr::Application { type_, .. } => type_.clone(),
@@ -204,7 +201,6 @@ impl TypedExpr {
             TypedExpr::String(value, _) => TypedExpr::String(value.clone(), source),
             TypedExpr::AddStr(left, right, _) => TypedExpr::AddStr(left.clone(), right.clone(), source),
             TypedExpr::Deref(name, type_, _) => TypedExpr::Deref(name.clone(), type_.clone(), source),
-            TypedExpr::Reference(binding, _) => TypedExpr::Reference(binding.clone(), source),
             TypedExpr::Assign(left, right, _) => TypedExpr::Assign(left.clone(), right.clone(), source),
             TypedExpr::Lambda(lambda, _) => TypedExpr::Lambda(lambda.clone(), source),
             TypedExpr::Application { type_, function, arguments, .. } => TypedExpr::Application {
@@ -271,7 +267,6 @@ crate struct Binding {
     crate data: ExprRef,
     crate source: Source,
     crate assigned: bool,
-    crate dirty: bool,
 }
 
 impl Binding {
@@ -279,7 +274,6 @@ impl Binding {
         Binding {
             name, data, source,
             assigned: false,
-            dirty: false
         }
     }
 }
@@ -341,7 +335,6 @@ fn check_statement(env: &mut Environment, statement: &Statement) -> CheckResult<
                 data: value,
                 source: source.clone(),
                 assigned: false,
-                dirty: false,
             });
             env.bind(binding.clone());
             Ok(TypedStatement::Binding(binding))
@@ -511,7 +504,6 @@ fn check_function(env: &mut Environment, parameters: &[ParsedParameter], body: &
             data: ExprRef::from(TypedExpr::Phantom(parameter.type_.clone())),
             source: parameter.source.clone(),
             assigned: false,
-            dirty: false,
         }));
     }
     let body = check_expr(env, body)?;

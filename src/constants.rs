@@ -15,7 +15,6 @@ use std::ops::Mul;
 use std::ops::Sub;
 
 // TODO implement operation-specific optimizations, such as "x*1 = x", "x+0 = x" and so on
-// TODO get rid of unreachable()
 
 crate struct CFP {
     env: Environment<String, BindingRef>,
@@ -33,19 +32,13 @@ impl CFP {
 
     #[must_use]
     crate fn fold(&mut self, expr: &ExprRef) -> ExprRef {
-        let result = self.fold_impl(expr);
-        if let TypedExpr::Reference(_, _) = &result as &TypedExpr {
-            self.fold(&result)
-        } else {
-            result
-        }
+        self.fold_impl(expr)
     }
 
     fn fold_impl(&mut self, expr: &ExprRef) -> ExprRef {
         match expr as &TypedExpr {
             TypedExpr::Deref(name, _, source) => {
                 let binding = self.env.resolve(name).unwrap();
-                self.register_binding(binding.clone());
                 if !binding.borrow().assigned {
                     let value = &binding.borrow().data;
                     if is_primitive_constant(value) {
@@ -53,15 +46,8 @@ impl CFP {
                     }
                 }
                 (*self.binding_usages.get_mut(&binding).unwrap()) += 1;
-                ExprRef::from(TypedExpr::Reference(binding, source.clone()))
-            },
-            TypedExpr::Reference(binding, source) => {
                 let value = &binding.borrow().data;
-                if let TypedExpr::Phantom(_) = value as &TypedExpr {
-                    expr.clone()
-                } else {
-                    binding.borrow().data.clone_at(source.clone())
-                }
+                value.clone_at(source.clone())
             },
             TypedExpr::AddInt(left, right, source) => self.try_fold_numeric(&left, &right, Add::add, TypedExpr::AddInt, source),
             TypedExpr::SubInt(left, right, source) => self.try_fold_numeric(&left, &right, Sub::sub, TypedExpr::SubInt, source),
@@ -83,6 +69,10 @@ impl CFP {
                 ExprRef::from(TypedExpr::Assign(name.to_owned(), self.fold(value), source.clone()))
             },
             TypedExpr::Application { function, arguments, source, .. } => {
+                let function_binding = match function as &TypedExpr {
+                    TypedExpr::Deref(name, _, _) => Some(self.env.resolve(name).unwrap()),
+                    _ => None
+                };
                 let function_ = function;
                 let mut function = self.fold(function_);
                 if is_primitive_constant(&function) {
@@ -102,13 +92,16 @@ impl CFP {
                                 let parameter_name = parameter.name.text().to_owned();
                                 let binding = BindingRef::from(Binding::new(parameter_name.clone(), argument, parameter.name.clone()));
                                 self.env.bind(parameter_name, binding.clone());
-                                self.register_binding(binding);
+                                self.register_binding_usages(binding);
                                 // TODO factor out functions for less indentation
                             }
                             let result = self.fold(&lambda.body);
                             self.env.pop();
 
                             if is_primitive_constant(&result) {
+                                if let Some(binding) = function_binding {
+                                    (*self.binding_usages.get_mut(&binding).unwrap()) -= 1;
+                                }
                                 return result.clone_at(source.clone())
                             }
                         }
@@ -193,19 +186,13 @@ impl CFP {
     }
 
     fn process_binding(&mut self, binding: &BindingRef) {
+        let value = self.fold(&binding.borrow().data);
+        binding.borrow_mut().data = value;
         self.env.bind(binding.borrow().name.clone(), binding.clone());
-        let value = binding.borrow().data.clone();
-        if !binding.borrow().dirty {
-            let value = self.fold(&value);
-            let mut binding = binding.borrow_mut();
-            binding.dirty = true;
-            binding.data = value;
-        }
-        self.register_binding(binding.clone());
+        self.register_binding_usages(binding.clone());
     }
 
-    // TODO rename to register_binding_usages
-    fn register_binding(&mut self, binding: BindingRef) {
+    fn register_binding_usages(&mut self, binding: BindingRef) {
         self.binding_usages.entry(binding).or_insert(0);
     }
 

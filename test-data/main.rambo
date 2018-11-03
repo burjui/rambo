@@ -12,3 +12,8 @@ else {
     z a "/test"
 }
 let nn = 1
+let a1 = 0
+let a2 = a1
+let a3 = a1 + a2
+let c = \ (a:num, b:num) -> 4
+c 1 2

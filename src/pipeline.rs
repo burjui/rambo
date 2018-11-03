@@ -55,8 +55,7 @@ crate struct Parse;
 crate struct VerifySemantics;
 crate struct ConstructCFG;
 crate struct ReportRedundantBindings;
-crate struct PropagateConstants1;
-crate struct PropagateConstants2;
+crate struct PropagateConstants;
 crate struct ConstructCFGOptimized;
 crate struct Evaluate;
 
@@ -67,20 +66,18 @@ crate enum PassId {
     VerifySemantics,
     ConstructCFG,
     ReportRedundantBindings,
-    PropagateConstants1,
-    PropagateConstants2,
+    PropagateConstants,
     ConstructCFGOptimized,
     Evaluate
 }
 
-crate static ALL_PASS_IDS: [PassId; 9] = [
+crate static ALL_PASS_IDS: [PassId; 8] = [
     PassId::Load,
     PassId::Parse,
     PassId::VerifySemantics,
     PassId::ConstructCFG,
     PassId::ReportRedundantBindings,
-    PassId::PropagateConstants1,
-    PassId::PropagateConstants2,
+    PassId::PropagateConstants,
     PassId::ConstructCFGOptimized,
     PassId::Evaluate
 ];
@@ -93,8 +90,7 @@ impl PassId {
             PassId::VerifySemantics => "sem",
             PassId::ConstructCFG => "cfg",
             PassId::ReportRedundantBindings => "rb",
-            PassId::PropagateConstants1 => "cfp1",
-            PassId::PropagateConstants2 => "cfp2",
+            PassId::PropagateConstants => "cfp",
             PassId::ConstructCFGOptimized => "cfgopt",
             PassId::Evaluate => "eval"
         }
@@ -107,8 +103,7 @@ impl PassId {
             PassId::VerifySemantics => "Verifying semantics",
             PassId::ConstructCFG => "Constructing CFG",
             PassId::ReportRedundantBindings => "Detecting redundant bindings",
-            PassId::PropagateConstants1 => "Propagating constants (pass 1)",
-            PassId::PropagateConstants2 => "Propagating constants (pass 2)",
+            PassId::PropagateConstants => "Propagating constants",
             PassId::ConstructCFGOptimized => "Constructing CFG (optimized)",
             PassId::Evaluate => "Evaluating"
         }
@@ -214,8 +209,10 @@ impl CompilerPass<ExprRef, ExprRef> for ReportRedundantBindings {
     }
 }
 
-impl PropagateConstants1 {
-    fn apply(hir: ExprRef, stdout: &mut StandardStream, options: &PipelineOptions) -> Result<ExprRef, Box<dyn Error>> {
+impl CompilerPass<ExprRef, ExprRef> for PropagateConstants {
+    const ID: PassId = PassId::PropagateConstants;
+
+    fn apply_impl(hir: ExprRef, stdout: &mut StandardStream, options: &PipelineOptions) -> Result<ExprRef, Box<dyn Error>> {
         let mut cfp = CFP::new();
         let result = cfp.fold(&hir);
         drop(hir);
@@ -223,22 +220,6 @@ impl PropagateConstants1 {
             writeln!(stdout, "{:?}", result);
         }
         Ok(result)
-    }
-}
-
-impl CompilerPass<ExprRef, ExprRef> for PropagateConstants1 {
-    const ID: PassId = PassId::PropagateConstants1;
-
-    fn apply_impl(hir: ExprRef, stdout: &mut StandardStream, options: &PipelineOptions) -> Result<ExprRef, Box<dyn Error>> {
-        Self::apply(hir, stdout, options)
-    }
-}
-
-impl CompilerPass<ExprRef, ExprRef> for PropagateConstants2 {
-    const ID: PassId = PassId::PropagateConstants2;
-
-    fn apply_impl(hir: ExprRef, stdout: &mut StandardStream, options: &PipelineOptions) -> Result<ExprRef, Box<dyn Error>> {
-        PropagateConstants1::apply(hir, stdout, options)
     }
 }
 

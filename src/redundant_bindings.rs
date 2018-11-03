@@ -107,8 +107,7 @@ impl Detector {
             TypedExpr::Phantom(_) |
             TypedExpr::Unit(_) |
             TypedExpr::Int(_, _) |
-            TypedExpr::String(_, _) |
-            TypedExpr::Reference(_, _) => {}
+            TypedExpr::String(_, _) => {}
         }
     }
 
@@ -150,7 +149,6 @@ impl Detector {
             data: ExprRef::from(TypedExpr::Unit(source.clone())),
             source,
             assigned: false,
-            dirty: false,
         })
     }
 }

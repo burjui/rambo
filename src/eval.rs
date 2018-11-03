@@ -62,7 +62,6 @@ impl<'a> Evaluator {
                 Ok(value)
             },
             TypedExpr::Deref(name, _, _) => self.env.resolve(name),
-            TypedExpr::Reference(binding, _) => self.eval(&binding.borrow().data),
             TypedExpr::Application { function, arguments, .. } => {
                 let arguments: Result<Vec<Evalue>, Box<dyn Error>> = arguments.iter()
                     .map(|argument| self.eval(argument)).collect();
