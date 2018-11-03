@@ -60,7 +60,6 @@ impl Detector {
         match expr as &TypedExpr {
             TypedExpr::Deref(name, _, _) => {
                 let binding = self.env.resolve(name).unwrap();
-                self.register_binding_usages(binding.clone());
                 (*self.binding_usages.get_mut(&binding).unwrap()) += 1;
             },
             TypedExpr::AddInt(left, right, _) |
@@ -114,13 +113,9 @@ impl Detector {
     }
 
     fn process_block(&mut self, block: &Block) {
-        let mut bindings = Vec::<BindingRef>::new();
         self.env.push();
         for statement in &block.statements {
             self.process_statement(statement);
-            if let TypedStatement::Binding(binding) = statement {
-                bindings.push(binding.clone());
-            }
         }
         self.pop_env();
     }
@@ -142,7 +137,7 @@ impl Detector {
 
     fn pop_env(&mut self) {
         let scope_log = self.env.pop();
-        for (_, binding) in scope_log {
+        for binding in scope_log {
             if self.binding_usages[&binding] == 0 {
                 self.redundant_bindings.push(binding.borrow().source.clone());
             }
