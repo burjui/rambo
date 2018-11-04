@@ -45,15 +45,10 @@ impl CFP {
             TypedExpr::Deref(name, _, source) => {
                 let binding = self.env.resolve(name).unwrap();
                 let stats = self.binding_stats(&binding);
-                if !stats.assigned {
-                    let value = &binding.borrow().data;
-                    if is_primitive_constant(value) {
-                        return value.clone_at(source.clone())
-                    }
+                if stats.assigned || !is_primitive_constant(&binding.data) {
+                    stats.usages += 1;
                 }
-                stats.usages += 1;
-                let value = &binding.borrow().data;
-                value.clone_at(source.clone())
+                binding.data.clone_at(source.clone())
             },
             TypedExpr::AddInt(left, right, source) => self.try_fold_numeric(&left, &right, Add::add, TypedExpr::AddInt, source),
             TypedExpr::SubInt(left, right, source) => self.try_fold_numeric(&left, &right, Sub::sub, TypedExpr::SubInt, source),
@@ -91,7 +86,7 @@ impl CFP {
                     if arguments.iter().all(|argument| is_constant(argument)) {
                         while let TypedExpr::Deref(name, _, source) = &function.clone() as &TypedExpr {
                             let binding = self.env.resolve(name).unwrap();
-                            function = binding.borrow().data.clone_at(source.clone());
+                            function = binding.data.clone_at(source.clone());
                         }
                         if let TypedExpr::Lambda(lambda, _) = &function as &TypedExpr {
                             self.env.push();
@@ -149,7 +144,7 @@ impl CFP {
                     if self.binding_stats(&binding).usages > 0 {
                         statement.clone()
                     } else {
-                        TypedStatement::Expr(ExprRef::from(TypedExpr::Unit(binding.borrow().source.clone())))
+                        TypedStatement::Expr(ExprRef::from(TypedExpr::Unit(binding.source.clone())))
                     },
                 TypedStatement::Expr(_) => statement.clone()
             })
@@ -188,17 +183,20 @@ impl CFP {
     fn fold_statement(&mut self, statement: &TypedStatement) -> TypedStatement {
         match statement {
             TypedStatement::Binding(binding) => {
-                let value = self.fold(&binding.borrow().data);
-                binding.borrow_mut().data = value;
-                self.register_binding(binding);
-                statement.clone()
+                let binding = BindingRef::from(Binding {
+                    name: binding.name.clone(),
+                    data: self.fold(&binding.data),
+                    source: binding.source.clone()
+                });
+                self.register_binding(&binding);
+                TypedStatement::Binding(binding)
             },
             TypedStatement::Expr(expr) => TypedStatement::Expr(self.fold(&expr))
         }
     }
 
     fn register_binding(&mut self, binding: &BindingRef) {
-        self.env.bind(binding.borrow().name.clone(), binding.clone());
+        self.env.bind(binding.name.clone(), binding.clone());
         self.binding_stats.entry(binding.clone()).or_insert(BindingStats {
             usages: 0,
             assigned: false

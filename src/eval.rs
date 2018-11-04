@@ -108,7 +108,6 @@ impl<'a> Evaluator {
         match statement {
             TypedStatement::Expr(expr) => Ok(self.eval(expr)?),
             TypedStatement::Binding(binding) => {
-                let binding = binding.borrow();
                 let value = self.eval(&binding.data)?;
                 self.env.bind(binding.name.clone(), value);
                 Ok(Evalue::Unit)

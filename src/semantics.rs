@@ -7,7 +7,6 @@ use crate::parser::Statement;
 use crate::source::Source;
 use itertools::Itertools;
 use num_bigint::BigInt;
-use std::cell::RefCell;
 use std::collections::HashMap;
 use std::error::Error;
 use std::fmt::Debug;
@@ -223,19 +222,17 @@ impl TypedExpr {
     }
 }
 
-crate type BindingCell = RefCell<Binding>;
-
 #[derive(Clone)]
-crate struct BindingRef(Rc<BindingCell>);
+crate struct BindingRef(Rc<Binding>);
 
 impl From<Binding> for BindingRef {
     fn from(binding: Binding) -> Self {
-        Self(Rc::new(BindingCell::new(binding)))
+        Self(Rc::new(binding))
     }
 }
 
 impl Deref for BindingRef {
-    type Target = Rc<BindingCell>;
+    type Target = Rc<Binding>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -258,12 +255,12 @@ impl Hash for BindingRef {
 
 impl Debug for BindingRef {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        self.0.borrow().fmt(formatter)
+        self.0.fmt(formatter)
     }
 }
 
 crate struct Binding {
-    crate name: String,
+    crate name: String, // TODO Rc<str>
     crate data: ExprRef,
     crate source: Source,
 }
@@ -290,7 +287,7 @@ impl Debug for TypedStatement {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             TypedStatement::Expr(expr) => expr.fmt(formatter),
-            TypedStatement::Binding(binding) => binding.borrow().fmt(formatter)
+            TypedStatement::Binding(binding) => binding.fmt(formatter)
         }
     }
 }
@@ -538,15 +535,15 @@ impl Environment {
     }
 
     crate fn bind(&mut self, binding: BindingRef) {
-        let name = binding.borrow().name.to_owned();
+        let name = binding.name.to_owned();
         self.scopes.last_mut().unwrap().insert(name, binding);
     }
 
     crate fn resolve(&self, name: &Source) -> Result<ExprRef, Box<dyn Error>> {
         for scope in self.scopes.iter().rev() {
             if let Some(binding) = scope.get(name.text()) {
-                let value = &binding.borrow().data;
-                return Ok(ExprRef::from(TypedExpr::Deref(name.text().to_owned(), value.type_(), name.clone())));
+                return Ok(ExprRef::from(TypedExpr::Deref(
+                    name.text().to_owned(), binding.data.type_(), name.clone())));
             }
         }
         error!("`{:?}' is undefined", name.text())

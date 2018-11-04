@@ -122,8 +122,8 @@ impl Detector {
     fn process_statement(&mut self, statement: &TypedStatement) {
         match statement {
             TypedStatement::Binding(binding) => {
-                self.process(&binding.borrow().data);
-                self.env.bind(binding.borrow().name.clone(), binding.clone());
+                self.process(&binding.data);
+                self.env.bind(binding.name.clone(), binding.clone());
                 self.register_binding_usages(binding.clone());
             },
             TypedStatement::Expr(expr) => self.process(expr)
@@ -138,7 +138,7 @@ impl Detector {
         let scope_log = self.env.pop();
         for binding in scope_log {
             if self.binding_usages[&binding] == 0 {
-                self.redundant_bindings.push(binding.borrow().source.clone());
+                self.redundant_bindings.push(binding.source.clone());
             }
         }
     }
