@@ -16,9 +16,14 @@ use std::ops::Sub;
 
 // TODO implement operation-specific optimizations, such as "x*1 = x", "x+0 = x" and so on
 
+struct BindingStats {
+    usages: usize,
+    assigned: bool
+}
+
 crate struct CFP {
     env: Environment<String, BindingRef>,
-    binding_usages: HashMap<BindingRef, usize>,
+    binding_stats: HashMap<BindingRef, BindingStats>,
 }
 
 
@@ -26,7 +31,7 @@ impl CFP {
     crate fn new() -> CFP {
         CFP {
             env: Environment::new(),
-            binding_usages: HashMap::new()
+            binding_stats: HashMap::new()
         }
     }
 
@@ -39,13 +44,14 @@ impl CFP {
         match expr as &TypedExpr {
             TypedExpr::Deref(name, _, source) => {
                 let binding = self.env.resolve(name).unwrap();
-                if !binding.borrow().assigned {
+                let stats = self.binding_stats(&binding);
+                if !stats.assigned {
                     let value = &binding.borrow().data;
                     if is_primitive_constant(value) {
                         return value.clone_at(source.clone())
                     }
                 }
-                (*self.binding_usages.get_mut(&binding).unwrap()) += 1;
+                stats.usages += 1;
                 let value = &binding.borrow().data;
                 value.clone_at(source.clone())
             },
@@ -64,8 +70,9 @@ impl CFP {
             },
             TypedExpr::Assign(name, value, source) => {
                 let binding = self.env.resolve(name).unwrap();
-                binding.borrow_mut().assigned = true;
-                (*self.binding_usages.get_mut(&binding).unwrap()) += 1;
+                let stats = self.binding_stats(&binding);
+                stats.assigned = true;
+                stats.usages += 1;
                 ExprRef::from(TypedExpr::Assign(name.to_owned(), self.fold(value), source.clone()))
             },
             TypedExpr::Application { function, arguments, source, .. } => {
@@ -91,8 +98,7 @@ impl CFP {
                             for (parameter, argument) in lambda.parameters.iter().zip(arguments.into_iter()) {
                                 let parameter_name = parameter.name.text().to_owned();
                                 let binding = BindingRef::from(Binding::new(parameter_name.clone(), argument, parameter.name.clone()));
-                                self.env.bind(parameter_name, binding.clone());
-                                self.register_binding_usages(binding);
+                                self.register_binding(&binding);
                                 // TODO factor out functions for less indentation
                             }
                             let result = self.fold(&lambda.body);
@@ -100,7 +106,7 @@ impl CFP {
 
                             if is_primitive_constant(&result) {
                                 if let Some(binding) = function_binding {
-                                    (*self.binding_usages.get_mut(&binding).unwrap()) -= 1;
+                                    self.binding_stats(&binding).usages -= 1;
                                 }
                                 return result.clone_at(source.clone())
                             }
@@ -140,7 +146,7 @@ impl CFP {
         let statements = statements.iter()
             .map(|statement| match statement {
                 TypedStatement::Binding(binding) =>
-                    if self.binding_usages[binding] > 0 {
+                    if self.binding_stats(&binding).usages > 0 {
                         statement.clone()
                     } else {
                         TypedStatement::Expr(ExprRef::from(TypedExpr::Unit(binding.borrow().source.clone())))
@@ -175,25 +181,28 @@ impl CFP {
         }))
     }
 
+    fn binding_stats(&mut self, binding: &BindingRef) -> &mut BindingStats {
+        self.binding_stats.get_mut(&binding).unwrap()
+    }
+
     fn fold_statement(&mut self, statement: &TypedStatement) -> TypedStatement {
         match statement {
             TypedStatement::Binding(binding) => {
-                self.process_binding(binding);
+                let value = self.fold(&binding.borrow().data);
+                binding.borrow_mut().data = value;
+                self.register_binding(binding);
                 statement.clone()
             },
             TypedStatement::Expr(expr) => TypedStatement::Expr(self.fold(&expr))
         }
     }
 
-    fn process_binding(&mut self, binding: &BindingRef) {
-        let value = self.fold(&binding.borrow().data);
-        binding.borrow_mut().data = value;
+    fn register_binding(&mut self, binding: &BindingRef) {
         self.env.bind(binding.borrow().name.clone(), binding.clone());
-        self.register_binding_usages(binding.clone());
-    }
-
-    fn register_binding_usages(&mut self, binding: BindingRef) {
-        self.binding_usages.entry(binding).or_insert(0);
+        self.binding_stats.entry(binding.clone()).or_insert(BindingStats {
+            usages: 0,
+            assigned: false
+        });
     }
 
     #[must_use]

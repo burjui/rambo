@@ -148,7 +148,6 @@ impl Detector {
             name,
             data: ExprRef::from(TypedExpr::Unit(source.clone())),
             source,
-            assigned: false,
         })
     }
 }

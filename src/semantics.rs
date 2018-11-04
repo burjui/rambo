@@ -21,7 +21,7 @@ crate type FunctionTypeRef = Rc<FunctionType>;
 
 #[derive(Clone, PartialEq)]
 crate struct FunctionType {
-    crate parameters: Vec<Parameter>, // TODO Vec<Parameter> -> Rc<Vec<Parameter>>
+    crate parameters: Vec<Parameter>,
     crate result: Type
 }
 
@@ -266,15 +266,11 @@ crate struct Binding {
     crate name: String,
     crate data: ExprRef,
     crate source: Source,
-    crate assigned: bool,
 }
 
 impl Binding {
     crate fn new(name: String, data: ExprRef, source: Source) -> Binding {
-        Binding {
-            name, data, source,
-            assigned: false,
-        }
+        Binding { name, data, source }
     }
 }
 
@@ -334,7 +330,6 @@ fn check_statement(env: &mut Environment, statement: &Statement) -> CheckResult<
                 name: name.text().to_owned(),
                 data: value,
                 source: source.clone(),
-                assigned: false,
             });
             env.bind(binding.clone());
             Ok(TypedStatement::Binding(binding))
@@ -498,12 +493,10 @@ fn check_expr(env: &mut Environment, expr: &Expr) -> CheckResult<ExprRef> {
 fn check_function(env: &mut Environment, parameters: &[ParsedParameter], body: &Expr) -> CheckResult<Lambda> {
     env.push();
     for parameter in parameters {
-        // TODO make the name a Source and use it instead
         env.bind(BindingRef::from(Binding {
             name: parameter.name.text().to_owned(),
             data: ExprRef::from(TypedExpr::Phantom(parameter.type_.clone())),
             source: parameter.source.clone(),
-            assigned: false,
         }));
     }
     let body = check_expr(env, body)?;
@@ -553,7 +546,6 @@ impl Environment {
         for scope in self.scopes.iter().rev() {
             if let Some(binding) = scope.get(name.text()) {
                 let value = &binding.borrow().data;
-                // TODO Cache name strings
                 return Ok(ExprRef::from(TypedExpr::Deref(name.text().to_owned(), value.type_(), name.clone())));
             }
         }
