@@ -14,6 +14,7 @@ use std::ops::Div;
 use std::ops::Mul;
 use std::ops::Sub;
 use std::rc::Rc;
+use crate::semantics::Type;
 
 // TODO implement operation-specific optimizations, such as "x*1 = x", "x+0 = x" and so on
 
@@ -46,10 +47,10 @@ impl CFP {
             TypedExpr::DivInt(left, right, source) => self.try_fold_numeric(&left, &right, Div::div, TypedExpr::DivInt, source),
             TypedExpr::AddStr(left, right, source) => self.fold_addstr(left, right, source),
             TypedExpr::Assign(name, value, source) =>  self.fold_assign(name, value, source),
-            TypedExpr::Application { function, arguments, source, .. } => self.fold_application(expr, function, arguments, source),
+            TypedExpr::Application { type_, function, arguments, source } => self.fold_application(type_, function, arguments, source),
             TypedExpr::Lambda(_, _) => expr.clone(),
             TypedExpr::Conditional { condition, positive, negative, source } =>
-                self.fold_conditional(expr, condition, positive, negative.as_ref(), source),
+                self.fold_conditional(condition, positive, negative.as_ref(), source),
             TypedExpr::Block(block) => self.fold_block(block),
             TypedExpr::Phantom(_) |
             TypedExpr::Unit(_) |
@@ -105,7 +106,7 @@ impl CFP {
         ExprRef::from(TypedExpr::Assign(name.clone(), self.fold(value), source.clone()))
     }
 
-    fn fold_application(&mut self, expr: &ExprRef, function: &ExprRef, arguments: &[ExprRef], source: &Source) -> ExprRef {
+    fn fold_application(&mut self, type_: &Type, function: &ExprRef, arguments: &[ExprRef], source: &Source) -> ExprRef {
         let function_binding = match function as &TypedExpr {
             TypedExpr::Deref(name, _, _) => Some(self.env.resolve(name).unwrap()),
             _ => None
@@ -125,9 +126,9 @@ impl CFP {
                 }
                 if let TypedExpr::Lambda(lambda, _) = &function as &TypedExpr {
                     self.env.push();
-                    for (parameter, argument) in lambda.parameters.iter().zip(arguments.into_iter()) {
+                    for (parameter, argument) in lambda.parameters.iter().zip(arguments.iter()) {
                         let parameter_name = Rc::new(parameter.name.text().to_owned());
-                        let binding = BindingRef::from(Binding::new(parameter_name, argument, parameter.name.clone()));
+                        let binding = BindingRef::from(Binding::new(parameter_name, argument.clone(), parameter.name.clone()));
                         self.register_binding(binding);
                         // TODO factor out functions for less indentation
                     }
@@ -142,23 +143,30 @@ impl CFP {
                     }
                 }
             }
-            expr.clone()
+            ExprRef::from(TypedExpr::Application {
+                type_: type_.clone(),
+                function: function.clone(),
+                arguments: arguments,
+                source: source.clone(),
+            })
         }
     }
 
-    fn fold_conditional(&mut self, expr: &ExprRef, condition: &ExprRef, positive: &ExprRef,
+    fn fold_conditional(&mut self, condition: &ExprRef, positive: &ExprRef,
                         negative: Option<&ExprRef>, source: &Source) -> ExprRef {
         let condition = self.fold(condition);
+        let positive = self.fold(positive);
+        let negative = negative.map(|negative| self.fold(negative));
         if let TypedExpr::Int(n, _) = &condition as &TypedExpr {
             return if n == &BigInt::zero() {
-                negative.as_ref()
-                    .map(|clause| self.fold(clause))
-                    .unwrap_or_else(|| ExprRef::from(TypedExpr::Unit(source.clone())))
+                negative.unwrap_or_else(|| ExprRef::from(TypedExpr::Unit(source.clone())))
             } else {
-                self.fold(positive).clone_at(source.clone())
+                positive.clone_at(source.clone())
             }
         }
-        expr.clone()
+        ExprRef::from(TypedExpr::Conditional {
+            condition, positive, negative, source: source.clone()
+        })
     }
 
     fn fold_block(&mut self, block: &Block) -> ExprRef {
