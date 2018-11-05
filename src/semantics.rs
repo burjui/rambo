@@ -280,7 +280,7 @@ impl Debug for Binding {
 #[derive(Clone)]
 crate enum TypedStatement {
     Expr(ExprRef),
-    Binding(BindingRef) // TODO replace with Binding(name, type, source...)
+    Binding(BindingRef)
 }
 
 impl Debug for TypedStatement {

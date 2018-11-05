@@ -38,103 +38,127 @@ impl CFP {
 
     #[must_use]
     crate fn fold(&mut self, expr: &ExprRef) -> ExprRef {
-        self.fold_impl(expr)
-    }
-
-    fn fold_impl(&mut self, expr: &ExprRef) -> ExprRef {
         match expr as &TypedExpr {
-            TypedExpr::Deref(name, _, source) => {
-                let binding = self.env.resolve(name).unwrap();
-                let stats = self.binding_stats(&binding);
-                if stats.assigned || !is_primitive_constant(&binding.data) {
-                    stats.usages += 1;
-                }
-                binding.data.clone_at(source.clone())
-            },
+            TypedExpr::Deref(name, _, source) => self.fold_deref(name, source),
             TypedExpr::AddInt(left, right, source) => self.try_fold_numeric(&left, &right, Add::add, TypedExpr::AddInt, source),
             TypedExpr::SubInt(left, right, source) => self.try_fold_numeric(&left, &right, Sub::sub, TypedExpr::SubInt, source),
             TypedExpr::MulInt(left, right, source) => self.try_fold_numeric(&left, &right, Mul::mul, TypedExpr::MulInt, source),
             TypedExpr::DivInt(left, right, source) => self.try_fold_numeric(&left, &right, Div::div, TypedExpr::DivInt, source),
-            TypedExpr::AddStr(left, right, source) => {
-                let left = self.fold(left);
-                let right = self.fold(right);
-                match (&left as &TypedExpr, &right as &TypedExpr) {
-                    (TypedExpr::String(left, _), TypedExpr::String(right, _)) => {
-                        let mut result = String::with_capacity(left.len() + right.len());
-                        result.push_str(left);
-                        result.push_str(right);
-                        ExprRef::from(TypedExpr::String(Rc::new(result), source.clone()))
-                    },
-                    _ => ExprRef::from(TypedExpr::AddStr(left.clone(), right.clone(), source.clone()))
-                }
-            },
-            TypedExpr::Assign(name, value, source) => {
-                let binding = self.env.resolve(name).unwrap();
-                let stats = self.binding_stats(&binding);
-                stats.assigned = true;
-                stats.usages += 1;
-                ExprRef::from(TypedExpr::Assign(name.clone(), self.fold(value), source.clone()))
-            },
-            TypedExpr::Application { function, arguments, source, .. } => {
-                let function_binding = match function as &TypedExpr {
-                    TypedExpr::Deref(name, _, _) => Some(self.env.resolve(name).unwrap()),
-                    _ => None
-                };
-                let function_ = function;
-                let mut function = self.fold(function_);
-                if is_primitive_constant(&function) {
-                    function
-                } else {
-                    let arguments = arguments.iter()
-                        .map(|argument| self.fold(argument))
-                        .collect::<Vec<_>>();
-                    if arguments.iter().all(|argument| is_constant(argument)) {
-                        while let TypedExpr::Deref(name, _, source) = &function.clone() as &TypedExpr {
-                            let binding = self.env.resolve(name).unwrap();
-                            function = binding.data.clone_at(source.clone());
-                        }
-                        if let TypedExpr::Lambda(lambda, _) = &function as &TypedExpr {
-                            self.env.push();
-                            for (parameter, argument) in lambda.parameters.iter().zip(arguments.into_iter()) {
-                                let parameter_name = Rc::new(parameter.name.text().to_owned());
-                                let binding = BindingRef::from(Binding::new(parameter_name, argument, parameter.name.clone()));
-                                self.register_binding(binding);
-                                // TODO factor out functions for less indentation
-                            }
-                            let result = self.fold(&lambda.body);
-                            self.env.pop();
-
-                            if is_primitive_constant(&result) {
-                                if let Some(binding) = function_binding {
-                                    self.binding_stats(&binding).usages -= 1;
-                                }
-                                return result.clone_at(source.clone())
-                            }
-                        }
-                    }
-                    expr.clone()
-                }
-            },
+            TypedExpr::AddStr(left, right, source) => self.fold_addstr(left, right, source),
+            TypedExpr::Assign(name, value, source) =>  self.fold_assign(name, value, source),
+            TypedExpr::Application { function, arguments, source, .. } => self.fold_application(expr, function, arguments, source),
             TypedExpr::Lambda(_, _) => expr.clone(),
-            TypedExpr::Conditional { condition, positive, negative, source } => {
-                let condition = self.fold(condition);
-                if let TypedExpr::Int(n, _) = &condition as &TypedExpr {
-                    return if n == &BigInt::zero() {
-                        negative.as_ref()
-                            .map(|clause| self.fold(clause))
-                            .unwrap_or_else(|| ExprRef::from(TypedExpr::Unit(source.clone())))
-                    } else {
-                        self.fold(positive).clone_at(source.clone())
-                    }
-                }
-                expr.clone()
-            },
+            TypedExpr::Conditional { condition, positive, negative, source } =>
+                self.fold_conditional(expr, condition, positive, negative.as_ref(), source),
             TypedExpr::Block(block) => self.fold_block(block),
             TypedExpr::Phantom(_) |
             TypedExpr::Unit(_) |
             TypedExpr::Int(_, _) |
             TypedExpr::String(_, _) => expr.clone()
         }
+    }
+
+    fn fold_deref(&mut self, name: &Rc<String>, source: &Source) -> ExprRef {
+        let binding = self.env.resolve(name).unwrap();
+        let stats = self.binding_stats(&binding);
+        if stats.assigned || !is_primitive_constant(&binding.data) {
+            stats.usages += 1;
+        }
+        binding.data.clone_at(source.clone())
+    }
+
+    fn try_fold_numeric<FoldFn, Constructor>(
+        &mut self, left: &ExprRef, right: &ExprRef,
+        fold_impl: FoldFn, constructor: Constructor, source: &Source) -> ExprRef
+        where FoldFn: FnOnce(BigInt, BigInt) -> BigInt,
+              Constructor: FnOnce(ExprRef, ExprRef, Source) -> TypedExpr
+    {
+        let (left, right) = (self.fold(left), self.fold(right));
+        match (&left as &TypedExpr, &right as &TypedExpr) {
+            (TypedExpr::Int(left, _), TypedExpr::Int(right, _)) => {
+                let result = fold_impl(left.clone(), right.clone());
+                ExprRef::from(TypedExpr::Int(result, source.clone()))
+            },
+            _ => ExprRef::from(constructor(left.clone(), right.clone(), source.clone()))
+        }
+    }
+
+    fn fold_addstr(&mut self, left: &ExprRef, right: &ExprRef, source: &Source) -> ExprRef {
+        let left = self.fold(left);
+        let right = self.fold(right);
+        match (&left as &TypedExpr, &right as &TypedExpr) {
+            (TypedExpr::String(left, _), TypedExpr::String(right, _)) => {
+                let mut result = String::with_capacity(left.len() + right.len());
+                result.push_str(left);
+                result.push_str(right);
+                ExprRef::from(TypedExpr::String(Rc::new(result), source.clone()))
+            },
+            _ => ExprRef::from(TypedExpr::AddStr(left.clone(), right.clone(), source.clone()))
+        }
+    }
+
+    fn fold_assign(&mut self, name: &Rc<String>, value: &ExprRef, source: &Source) -> ExprRef {
+        let binding = self.env.resolve(name).unwrap();
+        let stats = self.binding_stats(&binding);
+        stats.assigned = true;
+        stats.usages += 1;
+        ExprRef::from(TypedExpr::Assign(name.clone(), self.fold(value), source.clone()))
+    }
+
+    fn fold_application(&mut self, expr: &ExprRef, function: &ExprRef, arguments: &[ExprRef], source: &Source) -> ExprRef {
+        let function_binding = match function as &TypedExpr {
+            TypedExpr::Deref(name, _, _) => Some(self.env.resolve(name).unwrap()),
+            _ => None
+        };
+        let function_ = function;
+        let mut function = self.fold(function_);
+        if is_primitive_constant(&function) {
+            function
+        } else {
+            let arguments = arguments.iter()
+                .map(|argument| self.fold(argument))
+                .collect::<Vec<_>>();
+            if arguments.iter().all(|argument| is_constant(argument)) {
+                while let TypedExpr::Deref(name, _, source) = &function.clone() as &TypedExpr {
+                    let binding = self.env.resolve(name).unwrap();
+                    function = binding.data.clone_at(source.clone());
+                }
+                if let TypedExpr::Lambda(lambda, _) = &function as &TypedExpr {
+                    self.env.push();
+                    for (parameter, argument) in lambda.parameters.iter().zip(arguments.into_iter()) {
+                        let parameter_name = Rc::new(parameter.name.text().to_owned());
+                        let binding = BindingRef::from(Binding::new(parameter_name, argument, parameter.name.clone()));
+                        self.register_binding(binding);
+                        // TODO factor out functions for less indentation
+                    }
+                    let result = self.fold(&lambda.body);
+                    self.env.pop();
+
+                    if is_primitive_constant(&result) {
+                        if let Some(binding) = function_binding {
+                            self.binding_stats(&binding).usages -= 1;
+                        }
+                        return result.clone_at(source.clone())
+                    }
+                }
+            }
+            expr.clone()
+        }
+    }
+
+    fn fold_conditional(&mut self, expr: &ExprRef, condition: &ExprRef, positive: &ExprRef,
+                        negative: Option<&ExprRef>, source: &Source) -> ExprRef {
+        let condition = self.fold(condition);
+        if let TypedExpr::Int(n, _) = &condition as &TypedExpr {
+            return if n == &BigInt::zero() {
+                negative.as_ref()
+                    .map(|clause| self.fold(clause))
+                    .unwrap_or_else(|| ExprRef::from(TypedExpr::Unit(source.clone())))
+            } else {
+                self.fold(positive).clone_at(source.clone())
+            }
+        }
+        expr.clone()
     }
 
     fn fold_block(&mut self, block: &Block) -> ExprRef {
@@ -205,23 +229,6 @@ impl CFP {
             usages: 0,
             assigned: false
         });
-    }
-
-    #[must_use]
-    fn try_fold_numeric<FoldFn, Constructor>(
-        &mut self, left: &ExprRef, right: &ExprRef,
-        fold_impl: FoldFn, constructor: Constructor, source: &Source) -> ExprRef
-    where FoldFn: FnOnce(BigInt, BigInt) -> BigInt,
-          Constructor: FnOnce(ExprRef, ExprRef, Source) -> TypedExpr
-    {
-        let (left, right) = (self.fold(left), self.fold(right));
-        match (&left as &TypedExpr, &right as &TypedExpr) {
-            (TypedExpr::Int(left, _), TypedExpr::Int(right, _)) => {
-                let result = fold_impl(left.clone(), right.clone());
-                ExprRef::from(TypedExpr::Int(result, source.clone()))
-            },
-            _ => ExprRef::from(constructor(left.clone(), right.clone(), source.clone()))
-        }
     }
 }
 
