@@ -13,6 +13,7 @@ use std::ops::Add;
 use std::ops::Div;
 use std::ops::Mul;
 use std::ops::Sub;
+use std::rc::Rc;
 
 // TODO implement operation-specific optimizations, such as "x*1 = x", "x+0 = x" and so on
 
@@ -22,7 +23,7 @@ struct BindingStats {
 }
 
 crate struct CFP {
-    env: Environment<String, BindingRef>,
+    env: Environment<Rc<String>, BindingRef>,
     binding_stats: HashMap<BindingRef, BindingStats>,
 }
 
@@ -58,8 +59,12 @@ impl CFP {
                 let left = self.fold(left);
                 let right = self.fold(right);
                 match (&left as &TypedExpr, &right as &TypedExpr) {
-                    (TypedExpr::String(left, _), TypedExpr::String(right, _)) =>
-                        ExprRef::from(TypedExpr::String(left.to_owned() + right, source.clone())),
+                    (TypedExpr::String(left, _), TypedExpr::String(right, _)) => {
+                        let mut result = String::with_capacity(left.len() + right.len());
+                        result.push_str(left);
+                        result.push_str(right);
+                        ExprRef::from(TypedExpr::String(Rc::new(result), source.clone()))
+                    },
                     _ => ExprRef::from(TypedExpr::AddStr(left.clone(), right.clone(), source.clone()))
                 }
             },
@@ -68,7 +73,7 @@ impl CFP {
                 let stats = self.binding_stats(&binding);
                 stats.assigned = true;
                 stats.usages += 1;
-                ExprRef::from(TypedExpr::Assign(name.to_owned(), self.fold(value), source.clone()))
+                ExprRef::from(TypedExpr::Assign(name.clone(), self.fold(value), source.clone()))
             },
             TypedExpr::Application { function, arguments, source, .. } => {
                 let function_binding = match function as &TypedExpr {
@@ -91,9 +96,9 @@ impl CFP {
                         if let TypedExpr::Lambda(lambda, _) = &function as &TypedExpr {
                             self.env.push();
                             for (parameter, argument) in lambda.parameters.iter().zip(arguments.into_iter()) {
-                                let parameter_name = parameter.name.text().to_owned();
-                                let binding = BindingRef::from(Binding::new(parameter_name.clone(), argument, parameter.name.clone()));
-                                self.register_binding(&binding);
+                                let parameter_name = Rc::new(parameter.name.text().to_owned());
+                                let binding = BindingRef::from(Binding::new(parameter_name, argument, parameter.name.clone()));
+                                self.register_binding(binding);
                                 // TODO factor out functions for less indentation
                             }
                             let result = self.fold(&lambda.body);
@@ -110,7 +115,6 @@ impl CFP {
                     expr.clone()
                 }
             },
-            // TODO cache results for functions
             TypedExpr::Lambda(_, _) => expr.clone(),
             TypedExpr::Conditional { condition, positive, negative, source } => {
                 let condition = self.fold(condition);
@@ -188,16 +192,16 @@ impl CFP {
                     data: self.fold(&binding.data),
                     source: binding.source.clone()
                 });
-                self.register_binding(&binding);
+                self.register_binding(binding.clone());
                 TypedStatement::Binding(binding)
             },
             TypedStatement::Expr(expr) => TypedStatement::Expr(self.fold(&expr))
         }
     }
 
-    fn register_binding(&mut self, binding: &BindingRef) {
+    fn register_binding(&mut self, binding: BindingRef) {
         self.env.bind(binding.name.clone(), binding.clone());
-        self.binding_stats.entry(binding.clone()).or_insert(BindingStats {
+        self.binding_stats.insert(binding, BindingStats {
             usages: 0,
             assigned: false
         });

@@ -106,8 +106,8 @@ crate enum TypedExpr {
     Phantom(Type), // TODO rename to PseudoArg
     Unit(Source),
     Int(BigInt, Source),
-    String(String, Source),
-    Deref(String, Type, Source),
+    String(Rc<String>, Source),
+    Deref(Rc<String>, Type, Source),
     Lambda(Rc<Lambda>, Source),
     Application {
         type_: Type,
@@ -120,7 +120,7 @@ crate enum TypedExpr {
     MulInt(ExprRef, ExprRef, Source),
     DivInt(ExprRef, ExprRef, Source),
     AddStr(ExprRef, ExprRef, Source),
-    Assign(String, ExprRef, Source),
+    Assign(Rc<String>, ExprRef, Source),
     Conditional {
         condition: ExprRef,
         positive: ExprRef,
@@ -260,13 +260,13 @@ impl Debug for BindingRef {
 }
 
 crate struct Binding {
-    crate name: String, // TODO Rc<str>
+    crate name: Rc<String>,
     crate data: ExprRef,
     crate source: Source,
 }
 
 impl Binding {
-    crate fn new(name: String, data: ExprRef, source: Source) -> Binding {
+    crate fn new(name: Rc<String>, data: ExprRef, source: Source) -> Binding {
         Binding { name, data, source }
     }
 }
@@ -323,11 +323,8 @@ fn check_statement(env: &mut Environment, statement: &Statement) -> CheckResult<
         },
         Statement::Binding { name, value, source } => {
             let value = check_expr(env, &value)?;
-            let binding = BindingRef::from(Binding {
-                name: name.text().to_owned(),
-                data: value,
-                source: source.clone(),
-            });
+            let binding = BindingRef::from(Binding::new(
+                Rc::new(name.text().to_owned()), value, source.clone()));
             env.bind(binding.clone());
             Ok(TypedStatement::Binding(binding))
         }
@@ -343,7 +340,7 @@ fn check_expr(env: &mut Environment, expr: &Expr) -> CheckResult<ExprRef> {
         },
         Expr::String(source) => {
             let text = source.text();
-            let value = text[1..text.len() - 1].to_owned();
+            let value = Rc::new(text[1..text.len() - 1].to_owned());
             Ok(ExprRef::from(TypedExpr::String(value, source.clone())))
         },
         Expr::Id(name) => env.resolve(name),
@@ -353,7 +350,8 @@ fn check_expr(env: &mut Environment, expr: &Expr) -> CheckResult<ExprRef> {
                     if let Expr::Id(name) = left as &Expr {
                         env.resolve(name)?;
                         let right_checked = check_expr(env, right)?;
-                        Ok(ExprRef::from(TypedExpr::Assign(name.text().to_owned(), right_checked, expr.source().clone())))
+                        Ok(ExprRef::from(TypedExpr::Assign(
+                            Rc::new(name.text().to_owned()), right_checked, expr.source().clone())))
                     } else {
                         error!("a variable expected at the left side of assignment, but found: {:?}", left)
                     }
@@ -490,11 +488,9 @@ fn check_expr(env: &mut Environment, expr: &Expr) -> CheckResult<ExprRef> {
 fn check_function(env: &mut Environment, parameters: &[ParsedParameter], body: &Expr) -> CheckResult<Lambda> {
     env.push();
     for parameter in parameters {
-        env.bind(BindingRef::from(Binding {
-            name: parameter.name.text().to_owned(),
-            data: ExprRef::from(TypedExpr::Phantom(parameter.type_.clone())),
-            source: parameter.source.clone(),
-        }));
+        let name = Rc::new(parameter.name.text().to_owned());
+        let value = ExprRef::from(TypedExpr::Phantom(parameter.type_.clone()));
+        env.bind(BindingRef::from(Binding::new(name, value, parameter.source.clone())));
     }
     let body = check_expr(env, body)?;
     env.pop();
@@ -535,15 +531,14 @@ impl Environment {
     }
 
     crate fn bind(&mut self, binding: BindingRef) {
-        let name = binding.name.to_owned();
-        self.scopes.last_mut().unwrap().insert(name, binding);
+        self.scopes.last_mut().unwrap().insert(binding.name.as_str().to_owned(), binding);
     }
 
     crate fn resolve(&self, name: &Source) -> Result<ExprRef, Box<dyn Error>> {
         for scope in self.scopes.iter().rev() {
             if let Some(binding) = scope.get(name.text()) {
                 return Ok(ExprRef::from(TypedExpr::Deref(
-                    name.text().to_owned(), binding.data.type_(), name.clone())));
+                    binding.name.clone(), binding.data.type_(), name.clone())));
             }
         }
         error!("`{:?}' is undefined", name.text())

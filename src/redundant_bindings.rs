@@ -32,7 +32,7 @@ crate fn report_redundant_bindings(code: &ExprRef, Warnings(warnings): Warnings)
 }
 
 struct Detector {
-    env: Environment<String, BindingRef>,
+    env: Environment<Rc<String>, BindingRef>,
     binding_usages: HashMap<BindingRef, usize>,
     lambdas_processed: HashSet<LambdaRef>,
     redundant_bindings: Vec<Source>,
@@ -87,10 +87,9 @@ impl Detector {
                     self.lambdas_processed.insert(cache_key);
                     self.env.push();
                     for parameter in &lambda.parameters {
-                        let name = parameter.name.text().to_owned();
+                        let name = Rc::new(parameter.name.text().to_owned());
                         let binding = Self::new_fake_binding(name.clone(), parameter.name.clone());
-                        self.env.bind(name, binding.clone());
-                        self.register_binding_usages(binding);
+                        self.register_binding(binding);
                     }
                     self.process(&lambda.body);
                     self.pop_env();
@@ -123,15 +122,15 @@ impl Detector {
         match statement {
             TypedStatement::Binding(binding) => {
                 self.process(&binding.data);
-                self.env.bind(binding.name.clone(), binding.clone());
-                self.register_binding_usages(binding.clone());
+                self.register_binding(binding.clone());
             },
             TypedStatement::Expr(expr) => self.process(expr)
         }
     }
 
-    fn register_binding_usages(&mut self, binding: BindingRef) {
-        self.binding_usages.entry(binding).or_insert(0);
+    fn register_binding(&mut self, binding: BindingRef) {
+        self.env.bind(binding.name.clone(), binding.clone());
+        assert!(self.binding_usages.insert(binding, 0).is_none());
     }
 
     fn pop_env(&mut self) {
@@ -143,11 +142,8 @@ impl Detector {
         }
     }
 
-    fn new_fake_binding(name: String, source: Source) -> BindingRef {
-        BindingRef::from(Binding {
-            name,
-            data: ExprRef::from(TypedExpr::Unit(source.clone())),
-            source,
-        })
+    fn new_fake_binding(name: Rc<String>, source: Source) -> BindingRef {
+        let value = ExprRef::from(TypedExpr::Unit(source.clone()));
+        BindingRef::from(Binding::new(name, value, source))
     }
 }

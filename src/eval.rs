@@ -8,16 +8,14 @@ use num_traits::Zero;
 use std::error::Error;
 use std::rc::Rc;
 
-type Env = Environment<String, Evalue>;
-
 crate struct Evaluator {
-    env: Env,
+    env: Environment<Rc<String>, Evalue>,
 }
 
 impl<'a> Evaluator {
     crate fn new() -> Evaluator {
         Evaluator {
-            env: Env::new()
+            env: Environment::new()
         }
     }
 
@@ -51,7 +49,10 @@ impl<'a> Evaluator {
                 let left = self.eval(left)?;
                 let right = self.eval(right)?;
                 if let (Evalue::String(left), Evalue::String(right)) = (left, right) {
-                    Ok(Evalue::String(left.to_owned() + &right))
+                    let mut result = String::with_capacity(left.len() + right.len());
+                    result.push_str(&left);
+                    result.push_str(&right);
+                    Ok(Evalue::String(Rc::new(result)))
                 } else {
                     unreachable!()
                 }
@@ -72,7 +73,7 @@ impl<'a> Evaluator {
                 };
                 self.env.push();
                 for (parameter, argument) in lambda.parameters.iter().zip(arguments.into_iter()) {
-                    self.env.bind(parameter.name.text().to_owned(), argument);
+                    self.env.bind(Rc::new(parameter.name.text().to_owned()), argument);
                 }
                 let result = self.eval(&lambda.body);
                 self.env.pop();
@@ -131,7 +132,7 @@ impl<'a> Evaluator {
 crate enum Evalue {
     Unit,
     Int(BigInt),
-    String(String),
+    String(Rc<String>),
     Lambda(Rc<Lambda>)
 }
 

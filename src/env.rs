@@ -4,7 +4,6 @@ use std::error::Error;
 use std::fmt::Debug;
 use std::hash::Hash;
 
-// TODO implement as RefCell<Vec<(Key, Value)>> and pop() as setting length
 crate struct Environment<Key, Value> {
     scopes: Vec<HashMap<Key, Value>>,
     scope_logs: Vec<Vec<Value>>
