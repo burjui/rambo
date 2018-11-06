@@ -63,7 +63,7 @@ fn main() -> Result<(), std::io::Error> {
             stdout.set_color(ColorSpec::new()
                 .set_fg(Some(Color::Red))
                 .set_bold(true))?;
-            write!(&mut stdout, "error: ");
+            write!(&mut stdout, "error: ")?;
             stdout.reset()?;
             writeln!(&mut stdout, "{}", error)?;
         }

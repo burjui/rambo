@@ -140,7 +140,7 @@ impl CompilerPass<String, SourceFile> for Load {
         let source_code_length = source_code.len();
         let source_file = SourceFile::from(&path, &source_code)?;
         let line_count = source_file.lines.len();
-        writeln!(stdout, "{}, {} lines", Self::file_size_pretty(source_code_length), line_count);
+        writeln!(stdout, "{}, {} lines", Self::file_size_pretty(source_code_length), line_count)?;
         Ok(source_file)
     }
 }
@@ -153,9 +153,9 @@ impl CompilerPass<SourceFile, ASTBlock> for Parse {
         let mut parser = Parser::new(lexer);
         let ast = parser.parse()?;
         let stats = { parser.lexer_stats() };
-        writeln!(stdout, "{} lexemes", stats.lexeme_count);
+        writeln!(stdout, "{} lexemes", stats.lexeme_count)?;
         if options.dump_intermediate {
-            writeln!(stdout, "-----------\n{}", ast.statements.iter().join_as_strings("\n"));
+            writeln!(stdout, "-----------\n{}", ast.statements.iter().join_as_strings("\n"))?;
         }
         Ok(ast)
     }
@@ -167,7 +167,7 @@ impl CompilerPass<ASTBlock, ExprRef> for VerifySemantics {
     fn apply_impl(ast: ASTBlock, stdout: &mut StandardStream, options: &PipelineOptions) -> Result<ExprRef, Box<dyn Error>> {
         let hir = check_module(&ast)?;
         if options.dump_intermediate {
-            writeln!(stdout, "{:?}", hir);
+            writeln!(stdout, "{:?}", hir)?;
         }
         Ok(hir)
     }
@@ -217,7 +217,7 @@ impl CompilerPass<ExprRef, ExprRef> for PropagateConstants {
         let result = cfp.fold(&hir);
         drop(hir);
         if options.dump_intermediate {
-            writeln!(stdout, "{:?}", result);
+            writeln!(stdout, "{:?}", result)?;
         }
         Ok(result)
     }
@@ -229,7 +229,7 @@ impl CompilerPass<ExprRef, Evalue> for Evaluate {
     fn apply_impl(hir: ExprRef, stdout: &mut StandardStream, _: &PipelineOptions) -> Result<Evalue, Box<dyn Error>> {
         let mut evaluator = Evaluator::new();
         let value = evaluator.eval(&hir)?;
-        writeln!(stdout, "{:?}", value);
+        writeln!(stdout, "{:?}", value)?;
         Ok(value)
     }
 }
@@ -242,9 +242,9 @@ crate trait StandardStreamUtils {
 impl StandardStreamUtils for StandardStream {
     fn write_title(&mut self, prefix: &str, title: &str, color: Color) -> std::io::Result<()> {
         self.write_colored(prefix, Color::Blue)?;
-        write!(self, " ");
+        write!(self, " ")?;
         self.write_colored(title, color)?;
-        writeln!(self);
+        writeln!(self)?;
         self.set_color(ColorSpec::new()
             .set_fg(Some(Color::Black))
             .set_intense(true)

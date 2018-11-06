@@ -143,7 +143,7 @@ impl<'a> SourceFile {
 
     fn detect_bom(data: &[u8]) -> Option<&'static BOM> {
         const BOMS: [BOM; 5] = [ BOM::UTF8, BOM::UTF32LE, BOM::UTF32BE, BOM::UTF16LE, BOM::UTF16BE ];
-        BOMS.into_iter().find(|bom| data.starts_with(bom.bytes()))
+        BOMS.iter().find(|bom| data.starts_with(bom.bytes()))
     }
 
     fn collect_lines(text: &str) -> Vec<Range> {
