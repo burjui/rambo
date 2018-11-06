@@ -3,20 +3,22 @@ use crate::semantics::Binding;
 use crate::semantics::BindingRef;
 use crate::semantics::Block;
 use crate::semantics::ExprRef;
+use crate::semantics::Type;
 use crate::semantics::TypedExpr;
 use crate::semantics::TypedStatement;
 use crate::source::Source;
 use num_bigint::BigInt;
-use num_traits::Zero;
+use num_traits::identities::One;
+use num_traits::identities::Zero;
 use std::collections::HashMap;
 use std::ops::Add;
 use std::ops::Div;
 use std::ops::Mul;
 use std::ops::Sub;
 use std::rc::Rc;
-use crate::semantics::Type;
+use lazy_static::lazy_static;
 
-// TODO implement operation-specific optimizations, such as "x*1 = x", "x+0 = x" and so on
+// TODO tests
 
 struct BindingStats {
     usages: usize,
@@ -28,6 +30,101 @@ crate struct CFP {
     binding_stats: HashMap<BindingRef, BindingStats>,
 }
 
+type BinaryOpConstructor = fn(ExprRef, ExprRef, Source) -> TypedExpr;
+type NumericFoldFn = fn(BigInt, BigInt) -> BigInt;
+type BinaryOptimizeFn = fn(left: &ExprRef, right: &ExprRef, source: &Source) -> Option<ExprRef>;
+
+trait NumericOptimizer {
+    const NEW: BinaryOpConstructor;
+    const FOLD: NumericFoldFn;
+    const OPTIMIZE: BinaryOptimizeFn;
+}
+
+struct AddFolder;
+struct SubFolder;
+struct MulFolder;
+struct DivFolder;
+
+fn is_int(expr: &ExprRef, predicate: fn(&BigInt) -> bool) -> bool {
+    match expr as &TypedExpr {
+        TypedExpr::Int(n, _) if predicate(n) => true,
+        _ => false
+    }
+}
+
+fn is_zero(expr: &ExprRef) -> bool {
+    is_int(expr, Zero::is_zero)
+}
+
+fn if_true_then_other(predicate: fn(&BigInt) -> bool, left: &ExprRef, right: &ExprRef) -> Option<ExprRef> {
+    if is_int(left, predicate) {
+        Some(right.clone())
+    } else if is_int(right, predicate) {
+        Some(left.clone())
+    } else {
+        None
+    }
+}
+
+fn new_zero_expr(source: &Source) -> ExprRef {
+    ExprRef::from(TypedExpr::Int(BigInt::zero(), source.clone()))
+}
+
+// TODO optimizations that require arguments without side-effects: x + x = 2 * x, x - x = 0
+
+impl NumericOptimizer for AddFolder {
+    const NEW: BinaryOpConstructor = TypedExpr::AddInt;
+    const FOLD: NumericFoldFn = Add::add;
+    const OPTIMIZE: BinaryOptimizeFn = |left, right, _| if_true_then_other(Zero::is_zero, left, right);
+}
+
+impl NumericOptimizer for SubFolder {
+    const NEW: BinaryOpConstructor = TypedExpr::SubInt;
+    const FOLD: NumericFoldFn = Sub::sub;
+    const OPTIMIZE: BinaryOptimizeFn = |left, right, _| {
+        if is_zero(right) {
+            Some(left.clone())
+        } else {
+            None
+        }
+    };
+}
+
+impl NumericOptimizer for MulFolder {
+    const NEW: BinaryOpConstructor = TypedExpr::MulInt;
+    const FOLD: NumericFoldFn = Mul::mul;
+    const OPTIMIZE: BinaryOptimizeFn = |left, right, source| {
+        lazy_static!{ static ref NEGATIVE_ONE: BigInt = -BigInt::one(); }
+
+        if is_zero(left) || is_zero(right) {
+            Some(new_zero_expr(source))
+        } else {
+            if_true_then_other(One::is_one, left, right).or_else(||
+                if_true_then_other(|n| n == &*NEGATIVE_ONE, left, right).and_then(|expr|
+                    match &expr as &TypedExpr {
+                        TypedExpr::SubInt(left, right, _) =>
+                            Some(ExprRef::from(TypedExpr::SubInt(right.clone(), left.clone(), source.clone()))),
+                        _ => None
+                    })
+            )
+        }
+    };
+}
+
+impl NumericOptimizer for DivFolder {
+    const NEW: BinaryOpConstructor = TypedExpr::DivInt;
+    const FOLD: NumericFoldFn = Div::div;
+    const OPTIMIZE: BinaryOptimizeFn = |left, right, source| {
+        // TODO if is_zero(right) { error_div_by_zero(); }
+        if is_zero(left) {
+            Some(new_zero_expr(source))
+        } else if is_int(right, One::is_one) {
+            Some(left.clone())
+        } else {
+            None
+        }
+    };
+}
 
 impl CFP {
     crate fn new() -> CFP {
@@ -40,11 +137,11 @@ impl CFP {
     #[must_use]
     crate fn fold(&mut self, expr: &ExprRef) -> ExprRef {
         match expr as &TypedExpr {
-            TypedExpr::Deref(name, _, source) => self.fold_deref(name, source),
-            TypedExpr::AddInt(left, right, source) => self.try_fold_numeric(&left, &right, Add::add, TypedExpr::AddInt, source),
-            TypedExpr::SubInt(left, right, source) => self.try_fold_numeric(&left, &right, Sub::sub, TypedExpr::SubInt, source),
-            TypedExpr::MulInt(left, right, source) => self.try_fold_numeric(&left, &right, Mul::mul, TypedExpr::MulInt, source),
-            TypedExpr::DivInt(left, right, source) => self.try_fold_numeric(&left, &right, Div::div, TypedExpr::DivInt, source),
+            TypedExpr::Deref(name, _, source) => self.fold_deref(expr, name, source),
+            TypedExpr::AddInt(left, right, source) => self.fold_numeric::<AddFolder>(&left, &right, source),
+            TypedExpr::SubInt(left, right, source) => self.fold_numeric::<SubFolder>(&left, &right, source),
+            TypedExpr::MulInt(left, right, source) => self.fold_numeric::<MulFolder>(&left, &right, source),
+            TypedExpr::DivInt(left, right, source) => self.fold_numeric::<DivFolder>(&left, &right, source),
             TypedExpr::AddStr(left, right, source) => self.fold_addstr(left, right, source),
             TypedExpr::Assign(name, value, source) =>  self.fold_assign(name, value, source),
             TypedExpr::Application { type_, function, arguments, source } => self.fold_application(type_, function, arguments, source),
@@ -59,28 +156,29 @@ impl CFP {
         }
     }
 
-    fn fold_deref(&mut self, name: &Rc<String>, source: &Source) -> ExprRef {
+    fn fold_deref(&mut self, expr: &ExprRef, name: &Rc<String>, source: &Source) -> ExprRef {
         let binding = self.env.resolve(name).unwrap();
         let stats = self.binding_stats(&binding);
         if stats.assigned || !is_primitive_constant(&binding.data) {
             stats.usages += 1;
+            expr.clone()
+        } else {
+            binding.data.clone_at(source.clone())
         }
-        binding.data.clone_at(source.clone())
     }
 
-    fn try_fold_numeric<FoldFn, Constructor>(
-        &mut self, left: &ExprRef, right: &ExprRef,
-        fold_impl: FoldFn, constructor: Constructor, source: &Source) -> ExprRef
-        where FoldFn: FnOnce(BigInt, BigInt) -> BigInt,
-              Constructor: FnOnce(ExprRef, ExprRef, Source) -> TypedExpr
+    fn fold_numeric<Optimizer: NumericOptimizer>(
+        &mut self, left: &ExprRef, right: &ExprRef, source: &Source) -> ExprRef
     {
         let (left, right) = (self.fold(left), self.fold(right));
         match (&left as &TypedExpr, &right as &TypedExpr) {
             (TypedExpr::Int(left, _), TypedExpr::Int(right, _)) => {
-                let result = fold_impl(left.clone(), right.clone());
+                let result = Optimizer::FOLD(left.clone(), right.clone());
                 ExprRef::from(TypedExpr::Int(result, source.clone()))
             },
-            _ => ExprRef::from(constructor(left.clone(), right.clone(), source.clone()))
+            _ => Optimizer::OPTIMIZE(&left, &right, source)
+                .map(|result| self.fold(&result.clone_at(source.clone())))
+                .unwrap_or_else(|| ExprRef::from(Optimizer::NEW(left.clone(), right.clone(), source.clone())))
         }
     }
 
@@ -130,7 +228,6 @@ impl CFP {
                         let parameter_name = Rc::new(parameter.name.text().to_owned());
                         let binding = BindingRef::from(Binding::new(parameter_name, argument.clone(), parameter.name.clone()));
                         self.register_binding(binding);
-                        // TODO factor out functions for less indentation
                     }
                     let result = self.fold(&lambda.body);
                     self.env.pop();
@@ -146,7 +243,7 @@ impl CFP {
             ExprRef::from(TypedExpr::Application {
                 type_: type_.clone(),
                 function: function.clone(),
-                arguments: arguments,
+                arguments,
                 source: source.clone(),
             })
         }
@@ -169,6 +266,7 @@ impl CFP {
         })
     }
 
+    // TODO warn about and remove statements without side-effects, such as expressions
     fn fold_block(&mut self, block: &Block) -> ExprRef {
         self.env.push();
         let statements = block.statements.iter()
@@ -185,7 +283,6 @@ impl CFP {
                 TypedStatement::Expr(_) => statement.clone()
             })
             .fold(Vec::new(), |mut result, statement| {
-                // TODO eliminate subsequent assignments to the same var
                 if let Some(TypedStatement::Expr(e1)) = result.last() {
                     if is_primitive_constant(e1) {
                         (*result.last_mut().unwrap()) = statement.clone();

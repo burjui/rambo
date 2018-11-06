@@ -7,6 +7,7 @@ use crate::lexer::Lexer;
 use crate::parser::Block as ASTBlock;
 use crate::parser::Parser;
 use crate::redundant_bindings::report_redundant_bindings;
+use crate::redundant_bindings::Warnings;
 use crate::semantics::check_module;
 use crate::semantics::ExprRef;
 use crate::source::SourceFile;
@@ -17,7 +18,6 @@ use termcolor::Color;
 use termcolor::ColorSpec;
 use termcolor::StandardStream;
 use termcolor::WriteColor;
-use crate::redundant_bindings::Warnings;
 
 type PipelineInput<'a, T> = Option<(T, &'a mut StandardStream)>;
 

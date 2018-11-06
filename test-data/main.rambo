@@ -17,3 +17,7 @@ let a2 = a1
 let a3 = a1 + a2
 let c = \ (a:num, b:num) -> 4
 c 1 2
+a1 = 10
+(0 - a1) * (0 - 1)
+(a1 + a1)
+(a1 - a1)
