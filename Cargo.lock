@@ -72,7 +72,7 @@ dependencies = [
 
 [[package]]
 name = "rambo"
-version = "0.0.1"
+version = "0.1.2"
 dependencies = [
  "getopts 0.2.18 (registry+https://github.com/rust-lang/crates.io-index)",
  "itertools 0.7.8 (registry+https://github.com/rust-lang/crates.io-index)",
