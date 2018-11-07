@@ -26,3 +26,6 @@ panic = "abort"
 
 [profile.release]
 panic = "abort"
+debug = true
+lto = true
+codegen-units = 1
