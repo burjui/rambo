@@ -103,7 +103,7 @@ impl Debug for Block {
 }
 
 crate enum TypedExpr {
-    Phantom(Type), // TODO rename to PseudoArg
+    Phantom(Type), // TODO rename to ArgumentPlaceholder
     Unit(Source),
     Int(BigInt, Source),
     String(Rc<String>, Source),

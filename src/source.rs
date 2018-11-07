@@ -3,6 +3,7 @@ use std::fmt::Debug;
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::rc::Rc;
+use crate::unique_rc::UniqueRc;
 
 #[derive(Copy, Clone)]
 crate struct Position {
@@ -16,15 +17,17 @@ impl Debug for Position {
     }
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, PartialEq, Eq, Hash)]
 crate struct Range {
     crate start: usize,
     crate end: usize
 }
 
-#[derive(Clone)]
+// TODO Range::new()
+
+#[derive(Clone, PartialEq, Eq, Hash)]
 crate struct Source {
-    crate file: Rc<SourceFile>,
+    crate file: UniqueRc<SourceFile>,
     crate range: Range
 }
 
@@ -64,31 +67,6 @@ crate struct SourceFile {
     crate path: String,
     crate text: String,
     crate lines: Vec<Range>,
-}
-
-#[derive(Debug)]
-enum BOM { UTF8, UTF16LE, UTF16BE, UTF32LE, UTF32BE }
-
-impl BOM {
-    fn bytes(&self) -> &[u8] {
-        match self {
-            BOM::UTF8 => &[0xEF, 0xBB, 0xBF],
-            BOM::UTF16LE => &[0xFF, 0xFE],
-            BOM::UTF16BE => &[0xFE, 0xFF],
-            BOM::UTF32LE => &[0xFF, 0xFE, 0x00, 0x00],
-            BOM::UTF32BE => &[0x00, 0x00, 0xFE, 0xFF],
-        }
-    }
-
-    fn name(&self) -> &str {
-        match self {
-            BOM::UTF8 => "UTF-8",
-            BOM::UTF16LE => "UTF-16LE",
-            BOM::UTF16BE => "UTF-16BE",
-            BOM::UTF32LE => "UTF-32LE",
-            BOM::UTF32BE => "UTF-32BE",
-        }
-    }
 }
 
 impl<'a> SourceFile {
@@ -163,5 +141,35 @@ impl<'a> SourceFile {
             }
         }
         lines
+    }
+}
+
+impl PartialEq<SourceFile> for SourceFile {
+    fn eq(&self, other: &SourceFile) -> bool {
+        self.path == other.path
+    }
+}
+
+enum BOM { UTF8, UTF16LE, UTF16BE, UTF32LE, UTF32BE }
+
+impl BOM {
+    fn bytes(&self) -> &[u8] {
+        match self {
+            BOM::UTF8 => &[0xEF, 0xBB, 0xBF],
+            BOM::UTF16LE => &[0xFF, 0xFE],
+            BOM::UTF16BE => &[0xFE, 0xFF],
+            BOM::UTF32LE => &[0xFF, 0xFE, 0x00, 0x00],
+            BOM::UTF32BE => &[0x00, 0x00, 0xFE, 0xFF],
+        }
+    }
+
+    fn name(&self) -> &str {
+        match self {
+            BOM::UTF8 => "UTF-8",
+            BOM::UTF16LE => "UTF-16LE",
+            BOM::UTF16BE => "UTF-16BE",
+            BOM::UTF32LE => "UTF-32LE",
+            BOM::UTF32BE => "UTF-32BE",
+        }
     }
 }

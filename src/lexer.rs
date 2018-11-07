@@ -7,7 +7,7 @@ use std::fmt::Debug;
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::iter::once;
-use std::rc::Rc;
+use crate::unique_rc::UniqueRc;
 
 #[derive(Debug, PartialEq, Copy, Clone)]
 crate enum Token {
@@ -49,7 +49,7 @@ crate struct LexerStats {
 crate struct Lexer {
     crate eof_lexeme: Lexeme,
     eof_offset: usize,
-    file: Rc<SourceFile>,
+    file: UniqueRc<SourceFile>,
     lexeme_offset: usize,
     lexeme_line: usize,
     current_offset: usize,
@@ -65,7 +65,7 @@ crate type LexerResult<T> = Result<T, Box<dyn Error>>;
 impl Lexer {
     crate fn new(file: SourceFile) -> Lexer {
         let eof_offset = file.text.len();
-        let file = Rc::new(file);
+        let file = UniqueRc::from(file);
         let eof_lexeme = Lexeme {
             token: Token::EOF,
             source: Source {

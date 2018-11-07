@@ -41,6 +41,7 @@ mod env;
 mod cfg;
 mod pipeline;
 mod redundant_bindings;
+mod unique_rc;
 
 fn main() -> Result<(), std::io::Error> {
     let is_tty = unsafe { libc::isatty(libc::STDOUT_FILENO as i32) } != 0;

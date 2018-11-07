@@ -1,6 +1,4 @@
 use crate::env::Environment;
-use crate::semantics::Binding;
-use crate::semantics::BindingRef;
 use crate::semantics::Block;
 use crate::semantics::ExprRef;
 use crate::semantics::Lambda;
@@ -20,22 +18,23 @@ crate fn report_redundant_bindings(code: &ExprRef, Warnings(warnings): Warnings)
         env: Environment::new(),
         binding_usages: HashMap::new(),
         lambdas_processed: HashSet::new(),
-        redundant_bindings: Vec::new()
     };
     detector.process(code);
     if warnings {
-        detector.redundant_bindings.sort_by(|s1, s2| s1.range.start.cmp(&s2.range.start));
-        for source in detector.redundant_bindings {
+        let mut redundant_bindings = detector.binding_usages.iter()
+            .filter_map(|(source, usages)| if *usages == 0 { Some(source.clone()) } else { None })
+            .collect::<Vec<_>>();
+        redundant_bindings.sort_unstable_by(|s1, s2| s1.range.start.cmp(&s2.range.start));
+        for source in redundant_bindings {
             warning_at!(source, "unused definition: {}", source.text())
         }
     }
 }
 
 struct Detector {
-    env: Environment<Rc<String>, BindingRef>,
-    binding_usages: HashMap<BindingRef, usize>,
+    env: Environment<Rc<String>, Source>,
+    binding_usages: HashMap<Source, usize>,
     lambdas_processed: HashSet<LambdaRef>,
-    redundant_bindings: Vec<Source>,
 }
 
 #[derive(Clone)]
@@ -88,11 +87,10 @@ impl Detector {
                     self.env.push();
                     for parameter in &lambda.parameters {
                         let name = Rc::new(parameter.name.text().to_owned());
-                        let binding = Self::new_fake_binding(name.clone(), parameter.name.clone());
-                        self.register_binding(binding);
+                        self.register_binding(name, parameter.name.clone());
                     }
                     self.process(&lambda.body);
-                    self.pop_env();
+                    self.env.pop();
                 }
             }
             TypedExpr::Conditional { condition, positive, negative, .. } => {
@@ -115,35 +113,21 @@ impl Detector {
         for statement in &block.statements {
             self.process_statement(statement);
         }
-        self.pop_env();
+        self.env.pop();
     }
 
     fn process_statement(&mut self, statement: &TypedStatement) {
         match statement {
             TypedStatement::Binding(binding) => {
                 self.process(&binding.data);
-                self.register_binding(binding.clone());
+                self.register_binding(binding.name.clone(), binding.source.clone());
             },
             TypedStatement::Expr(expr) => self.process(expr)
         }
     }
 
-    fn register_binding(&mut self, binding: BindingRef) {
-        self.env.bind(binding.name.clone(), binding.clone());
-        assert!(self.binding_usages.insert(binding, 0).is_none());
-    }
-
-    fn pop_env(&mut self) {
-        let scope_log = self.env.pop();
-        for binding in scope_log {
-            if self.binding_usages[&binding] == 0 {
-                self.redundant_bindings.push(binding.source.clone());
-            }
-        }
-    }
-
-    fn new_fake_binding(name: Rc<String>, source: Source) -> BindingRef {
-        let value = ExprRef::from(TypedExpr::Unit(source.clone()));
-        BindingRef::from(Binding::new(name, value, source))
+    fn register_binding(&mut self, name: Rc<String>, source: Source) {
+        self.env.bind(name, source.clone());
+        assert!(self.binding_usages.insert(source, 0).is_none());
     }
 }
