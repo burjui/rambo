@@ -73,6 +73,13 @@ impl Debug for ExprRef {
     }
 }
 
+#[cfg(not(feature = "expr_clone_at"))]
+impl ExprRef {
+    crate fn clone_at(&self, _: Source) -> ExprRef {
+        self.clone()
+    }
+}
+
 #[derive(Clone)]
 crate struct Lambda {
     crate type_: FunctionTypeRef,
@@ -187,6 +194,7 @@ impl TypedExpr {
         }
     }
 
+    #[cfg(feature = "expr_clone_at")]
     crate fn clone_at(&self, source: Source) -> ExprRef {
         ExprRef::from(match self {
             TypedExpr::ArgumentPlaceholder(type_) => TypedExpr::ArgumentPlaceholder(type_.clone()),

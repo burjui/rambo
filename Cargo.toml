@@ -17,3 +17,6 @@ petgraph = "0.4.12"
 termcolor = "1.0.4"
 libc = "0.2.43"
 lazy_static = "1.2.0"
+
+[features]
+expr_clone_at = []
