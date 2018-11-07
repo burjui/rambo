@@ -2,7 +2,6 @@ use std::error::Error;
 use std::fmt::Debug;
 use std::fmt::Display;
 use std::fmt::Formatter;
-use std::rc::Rc;
 use crate::unique_rc::UniqueRc;
 
 #[derive(Copy, Clone)]
@@ -27,7 +26,7 @@ crate struct Range {
 
 #[derive(Clone, PartialEq, Eq, Hash)]
 crate struct Source {
-    crate file: UniqueRc<SourceFile>,
+    crate file: SourceFileRef,
     crate range: Range
 }
 
@@ -37,7 +36,7 @@ impl Source {
     }
 
     crate fn extend(&self, until: &Source) -> Source {
-        assert!(Rc::ptr_eq(&self.file, &until.file));
+        assert!(self.file == until.file);
         let end = until.range.end;
         assert!(end >= self.range.end);
         assert!(end <= self.file.text.len());
@@ -144,11 +143,7 @@ impl<'a> SourceFile {
     }
 }
 
-impl PartialEq<SourceFile> for SourceFile {
-    fn eq(&self, other: &SourceFile) -> bool {
-        self.path == other.path
-    }
-}
+crate type SourceFileRef = UniqueRc<SourceFile>;
 
 enum BOM { UTF8, UTF16LE, UTF16BE, UTF32LE, UTF32BE }
 

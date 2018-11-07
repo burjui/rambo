@@ -11,10 +11,9 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::fmt::Debug;
 use std::fmt::Formatter;
-use std::hash::Hash;
-use std::hash::Hasher;
 use std::ops::Deref;
 use std::rc::Rc;
+use crate::unique_rc::UniqueRc;
 
 crate type FunctionTypeRef = Rc<FunctionType>;
 
@@ -108,7 +107,7 @@ crate enum TypedExpr {
     Int(BigInt, Source),
     String(Rc<String>, Source),
     Deref(Rc<String>, Type, Source),
-    Lambda(Rc<Lambda>, Source),
+    Lambda(LambdaRef, Source),
     Application {
         type_: Type,
         function: ExprRef,
@@ -222,40 +221,19 @@ impl TypedExpr {
     }
 }
 
-#[derive(Clone)]
-crate struct BindingRef(Rc<Binding>);
+crate type LambdaRef = UniqueRc<Lambda>;
 
-impl From<Binding> for BindingRef {
-    fn from(binding: Binding) -> Self {
-        Self(Rc::new(binding))
+impl Debug for LambdaRef {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        Debug::fmt(&**self, formatter)
     }
 }
 
-impl Deref for BindingRef {
-    type Target = Rc<Binding>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl PartialEq<BindingRef> for BindingRef {
-    fn eq(&self, other: &BindingRef) -> bool {
-        Rc::ptr_eq(self, other)
-    }
-}
-
-impl Eq for BindingRef {}
-
-impl Hash for BindingRef {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        Rc::into_raw(self.0.clone()).hash(state)
-    }
-}
+crate type BindingRef = UniqueRc<Binding>;
 
 impl Debug for BindingRef {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        self.0.fmt(formatter)
+        Debug::fmt(&**self, formatter)
     }
 }
 
@@ -391,7 +369,7 @@ fn check_expr(env: &mut Environment, expr: &Expr) -> CheckResult<ExprRef> {
             }
         },
         Expr::Lambda { source, parameters, body } => Ok(ExprRef::from(TypedExpr::Lambda(
-            Rc::new(check_function(env, parameters.as_slice(), &body)?), source.clone()))),
+            LambdaRef::from(check_function(env, parameters.as_slice(), &body)?), source.clone()))),
         Expr::Application { source, function, arguments } => {
             let function = check_expr(env, &function)?;
             let function_type = function.type_();

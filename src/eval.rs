@@ -1,12 +1,12 @@
 use crate::env::Environment;
 use crate::semantics::Block;
-use crate::semantics::Lambda;
 use crate::semantics::TypedExpr;
 use crate::semantics::TypedStatement;
 use num_bigint::BigInt;
 use num_traits::Zero;
 use std::error::Error;
 use std::rc::Rc;
+use crate::semantics::LambdaRef;
 
 crate struct Evaluator {
     env: Environment<Rc<String>, Evalue>,
@@ -133,7 +133,7 @@ crate enum Evalue {
     Unit,
     Int(BigInt),
     String(Rc<String>),
-    Lambda(Rc<Lambda>)
+    Lambda(LambdaRef)
 }
 
 impl std::fmt::Debug for Evalue {

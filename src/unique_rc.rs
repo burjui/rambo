@@ -18,7 +18,7 @@ impl<T> Clone for UniqueRc<T> {
 }
 
 impl<T> Deref for UniqueRc<T> {
-    type Target = Rc<T>;
+    type Target = Rc<T>; // FIXME for some reason this is faster than Target = T
 
     fn deref(&self) -> &Self::Target {
         &self.0

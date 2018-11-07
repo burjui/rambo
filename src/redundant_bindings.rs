@@ -1,15 +1,13 @@
 use crate::env::Environment;
 use crate::semantics::Block;
 use crate::semantics::ExprRef;
-use crate::semantics::Lambda;
 use crate::semantics::TypedExpr;
 use crate::semantics::TypedStatement;
 use crate::source::Source;
 use std::collections::HashMap;
 use std::collections::HashSet;
-use std::hash::Hash;
-use std::hash::Hasher;
 use std::rc::Rc;
+use crate::semantics::LambdaRef;
 
 crate struct Warnings(crate bool);
 
@@ -35,23 +33,6 @@ struct Detector {
     env: Environment<Rc<String>, Source>,
     binding_usages: HashMap<Source, usize>,
     lambdas_processed: HashSet<LambdaRef>,
-}
-
-#[derive(Clone)]
-struct LambdaRef(Rc<Lambda>);
-
-impl PartialEq<LambdaRef> for LambdaRef {
-    fn eq(&self, other: &LambdaRef) -> bool {
-        Rc::ptr_eq(&self.0, &other.0)
-    }
-}
-
-impl Eq for LambdaRef {}
-
-impl Hash for LambdaRef {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        Rc::into_raw(self.0.clone()).hash(state)
-    }
 }
 
 impl Detector {
@@ -81,7 +62,7 @@ impl Detector {
                 }
             },
             TypedExpr::Lambda(lambda, _) => {
-                let cache_key = LambdaRef(lambda.clone());
+                let cache_key = lambda.clone();
                 if !self.lambdas_processed.contains(&cache_key) {
                     self.lambdas_processed.insert(cache_key);
                     self.env.push();
