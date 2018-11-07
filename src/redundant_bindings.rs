@@ -22,7 +22,7 @@ crate fn report_redundant_bindings(code: &ExprRef, Warnings(warnings): Warnings)
         let mut redundant_bindings = detector.binding_usages.iter()
             .filter_map(|(source, usages)| if *usages == 0 { Some(source.clone()) } else { None })
             .collect::<Vec<_>>();
-        redundant_bindings.sort_unstable_by(|s1, s2| s1.range.start.cmp(&s2.range.start));
+        redundant_bindings.sort_unstable_by(|s1, s2| s1.range().start().cmp(&s2.range().start()));
         for source in redundant_bindings {
             warning_at!(source, "unused definition: {}", source.text())
         }

@@ -18,7 +18,7 @@ impl<T> Clone for UniqueRc<T> {
 }
 
 impl<T> Deref for UniqueRc<T> {
-    type Target = Rc<T>; // FIXME for some reason this is faster than Target = T
+    type Target = T;
 
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -27,7 +27,7 @@ impl<T> Deref for UniqueRc<T> {
 
 impl<T> PartialEq<UniqueRc<T>> for UniqueRc<T> {
     fn eq(&self, other: &UniqueRc<T>) -> bool {
-        Rc::ptr_eq(self, other)
+        Rc::ptr_eq(&self.0, &other.0)
     }
 }
 

@@ -139,7 +139,7 @@ impl CompilerPass<String, SourceFile> for Load {
         let source_code = SourceFile::read(&path)?;
         let source_code_length = source_code.len();
         let source_file = SourceFile::from(&path, &source_code)?;
-        let line_count = source_file.lines.len();
+        let line_count = source_file.lines().len();
         writeln!(stdout, "{}, {} lines", Self::file_size_pretty(source_code_length), line_count)?;
         Ok(source_file)
     }

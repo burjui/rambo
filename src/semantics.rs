@@ -233,7 +233,7 @@ crate type LambdaRef = UniqueRc<Lambda>;
 
 impl Debug for LambdaRef {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        Debug::fmt(&**self, formatter)
+        Debug::fmt(self.deref(), formatter)
     }
 }
 
@@ -241,7 +241,7 @@ crate type BindingRef = UniqueRc<Binding>;
 
 impl Debug for BindingRef {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        Debug::fmt(&**self, formatter)
+        Debug::fmt(self.deref(), formatter)
     }
 }
 

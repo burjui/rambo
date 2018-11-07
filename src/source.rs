@@ -3,11 +3,12 @@ use std::fmt::Debug;
 use std::fmt::Display;
 use std::fmt::Formatter;
 use crate::unique_rc::UniqueRc;
+use std::ops::Deref;
 
 #[derive(Copy, Clone)]
 crate struct Position {
-    crate line: usize,
-    crate column: usize
+    line: usize,
+    column: usize
 }
 
 impl Debug for Position {
@@ -18,17 +19,35 @@ impl Debug for Position {
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash)]
 crate struct Range {
-    crate start: usize,
-    crate end: usize
+    start: usize,
+    end: usize
 }
 
-// TODO Range::new()
+impl Range {
+    crate fn new(start: usize, end: usize) -> Self {
+        Self { start, end }
+    }
+
+    crate fn start(&self) -> usize { self.start }
+    crate fn end(&self) -> usize { self.end }
+}
 
 #[derive(Clone, PartialEq, Eq, Hash)]
 crate struct Source {
-    crate file: SourceFileRef,
-    crate range: Range
+    file: SourceFileRef,
+    range: Range
 }
+
+impl Source {
+    crate fn new(file: SourceFileRef, range: Range) -> Self {
+        Self { file, range }
+    }
+
+    crate fn file(&self) -> &SourceFileRef { &self.file }
+    crate fn range(&self) -> &Range { &self.range }
+}
+
+// TODO use Source::new()
 
 impl Source {
     crate fn text(&self) -> &str {
@@ -36,23 +55,17 @@ impl Source {
     }
 
     crate fn extend(&self, until: &Source) -> Source {
-        assert!(self.file == until.file);
+        assert_eq!(self.file, until.file);
         let end = until.range.end;
         assert!(end >= self.range.end);
         assert!(end <= self.file.text.len());
-        Source {
-            file: self.file.clone(),
-            range: Range {
-                start: self.range.start,
-                end
-            }
-        }
+        Source::new(self.file.clone(), Range::new(self.range.start, end))
     }
 }
 
 impl Display for Source {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(formatter, "{}({:?})", self.file.path, self.file.position(self.range.start).unwrap())
+        write!(formatter, "{}({:?})", self.file.path, self.file.position(self))
     }
 }
 
@@ -63,9 +76,9 @@ impl Debug for Source {
 }
 
 crate struct SourceFile {
-    crate path: String,
-    crate text: String,
-    crate lines: Vec<Range>,
+    path: String,
+    text: String,
+    lines: Vec<Range>,
 }
 
 impl<'a> SourceFile {
@@ -91,17 +104,9 @@ impl<'a> SourceFile {
         })
     }
 
-    crate fn position(&self, offset: usize) -> Result<Position, Box<dyn Error>> {
-        for (index, line) in self.lines.iter().enumerate() {
-            if offset <= line.end {
-                return Ok(Position {
-                    line: index,
-                    column: offset - line.start
-                })
-            }
-        }
-        error!("{:?}: offset {} is out of range", self.path, offset)
-    }
+    crate fn path(&self) -> &str { &self.path }
+    crate fn text(&self) -> &str { &self.text }
+    crate fn lines(&self) -> &[Range] { &self.lines }
 
     fn decode(data: &'a [u8], path: &str) -> Result<String, Box<dyn Error>> {
         let offset = match Self::detect_bom(&data) {
@@ -131,11 +136,7 @@ impl<'a> SourceFile {
         let eof = (text.len(), '\n');
         for (offset, character) in text.char_indices().chain(once(eof)) {
             if character == '\n' {
-                let range = Range {
-                    start: line_start,
-                    end: offset
-                };
-                lines.push(range);
+                lines.push(Range::new(line_start, offset));
                 line_start = offset + 1;
             }
         }
@@ -143,7 +144,35 @@ impl<'a> SourceFile {
     }
 }
 
+impl Debug for SourceFile {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        Debug::fmt(&self.path, formatter)
+    }
+}
+
 crate type SourceFileRef = UniqueRc<SourceFile>;
+
+impl SourceFileRef {
+    crate fn position(&self, source: &Source) -> Position {
+        assert_eq!(&source.file, self);
+        let offset = source.range.start;
+        for (index, line) in self.lines.iter().enumerate() {
+            if offset <= line.end {
+                return Position {
+                    line: index,
+                    column: offset - line.start
+                }
+            }
+        }
+        unreachable!("{:?}: offset {} is out of range", self.path, offset)
+    }
+}
+
+impl Debug for SourceFileRef {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        Debug::fmt(self.deref(), formatter)
+    }
+}
 
 enum BOM { UTF8, UTF16LE, UTF16BE, UTF32LE, UTF32BE }
 

@@ -31,7 +31,7 @@ impl Lexeme {
 impl Debug for Lexeme {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         formatter.write_str(&format!("{} | {:?} | {:?}",
-             self.text(), self.token, self.source.file.position(self.source.range.start).unwrap()))
+             self.text(), self.token, self.source.file().position(&self.source)))
     }
 }
 
@@ -64,17 +64,11 @@ crate type LexerResult<T> = Result<T, Box<dyn Error>>;
 
 impl Lexer {
     crate fn new(file: SourceFile) -> Lexer {
-        let eof_offset = file.text.len();
+        let eof_offset = file.text().len();
         let file = SourceFileRef::from(file);
         let eof_lexeme = Lexeme {
             token: Token::EOF,
-            source: Source {
-                file: file.clone(),
-                range: Range {
-                    start: eof_offset,
-                    end: eof_offset
-                }
-            }
+            source: Source::new(file.clone(), Range::new(eof_offset, eof_offset))
         };
         let mut lexer = Lexer {
             eof_lexeme,
@@ -109,9 +103,9 @@ impl Lexer {
                     }
                 }
                 error!("{:?}({:?}): unexpected character: {} ({})",
-                    self.file.path, self.file.position(self.current_offset)?, c, c as u32)
+                    self.file.path(), self.file.position(&self.current_source()), c, c as u32)
             },
-            None => Ok((self.eof_lexeme.clone(), self.file.lines.len()))
+            None => Ok((self.eof_lexeme.clone(), self.file.lines().len()))
         }
     }
 
@@ -167,17 +161,14 @@ impl Lexer {
                 match self.current_character {
                     Some('"') => {
                         self.read_char();
-                        let range = Range {
-                            start: self.lexeme_offset,
-                            end: self.current_offset
-                        };
+                        let range = Range::new(self.lexeme_offset, self.current_offset);
                         Ok(Some(self.new_lexeme(Token::String, Some(range))))
                     },
                     _ => {
-                        let start_position = self.file.position(self.lexeme_offset)?;
-                        let end_position = self.file.position(self.current_offset)?;
+                        let start_position = self.file.position(&self.lexeme_source());
+                        let end_position = self.file.position(&self.current_source());
                         error!("{:?}({:?}): unclosed string starting at {:?}",
-                            self.file.path, end_position, start_position)
+                            self.file.path(), end_position, start_position)
                     }
                 }
             },
@@ -221,14 +212,17 @@ impl Lexer {
     }
 
     fn new_lexeme(&self, token: Token, range: Option<Range>) -> Lexeme {
-        let source = Source {
-            file: self.file.clone(),
-            range: range.unwrap_or_else(|| Range {
-                start: self.lexeme_offset,
-                end: self.current_offset
-            })
-        };
+        let source = range.map(|range| Source::new(self.file.clone(), range))
+            .unwrap_or_else(|| self.lexeme_source());
         Lexeme { token, source }
+    }
+
+    fn current_source(&self) -> Source {
+        Source::new(self.file.clone(), Range::new(self.current_offset, self.current_offset))
+    }
+
+    fn lexeme_source(&self) -> Source {
+        Source::new(self.file.clone(), Range::new(self.lexeme_offset, self.current_offset))
     }
 
     fn skip_whitespace(&mut self) -> LexerResult<()> {
@@ -258,7 +252,7 @@ impl Lexer {
     }
 
     fn skip_multiline_comment(&mut self) -> LexerResult<()> {
-        let comment_start = self.current_offset;
+        let comment_start = self.current_source();
         self.read_char();
         self.read_char();
         const TERMINATOR: (char, char) = ('*', '/');
@@ -274,9 +268,9 @@ impl Lexer {
             self.read_char();
         } else {
             return error!("{}({:?}): unterminated comment starting at {:?}",
-            self.file.path,
-            self.file.position(self.current_offset)?,
-            self.file.position(comment_start)?);
+                          self.file.path(),
+                          self.file.position(&self.current_source()),
+                          self.file.position(&comment_start));
         }
         Ok(())
     }
@@ -287,13 +281,13 @@ impl Lexer {
 
     fn read_char(&mut self) {
         self.current_offset = self.next_character_offset;
-        let mut source_iterator = (&self.file.text[self.current_offset..])
+        let mut source_iterator = (&self.file.text()[self.current_offset..])
             .char_indices()
             .chain(once((self.eof_offset - self.current_offset, '\0')))
             .tuple_windows::<(_, _)>();
         if let Some(((_, character), (next_offset, next_character))) = source_iterator.next() {
             self.next_character_offset += next_offset;
-            if self.current_offset >= self.file.lines[self.current_line].end {
+            if self.current_offset >= self.file.lines()[self.current_line].end() {
                 self.current_line += 1;
             }
             self.current_character = Some(character);
@@ -309,6 +303,6 @@ impl Lexer {
 impl Debug for Lexer {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         formatter.write_str(
-            &format!("Lexer {{ {}({:?}) }}", self.file.path, self.file.position(self.current_offset).unwrap()))
+            &format!("Lexer {{ {}({:?}) }}", self.file.path(), self.file.position(&self.current_source())))
     }
 }
