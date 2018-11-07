@@ -103,7 +103,7 @@ impl Debug for Block {
 }
 
 crate enum TypedExpr {
-    Phantom(Type), // TODO rename to ArgumentPlaceholder
+    ArgumentPlaceholder(Type),
     Unit(Source),
     Int(BigInt, Source),
     String(Rc<String>, Source),
@@ -133,7 +133,7 @@ crate enum TypedExpr {
 impl Debug for TypedExpr {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            TypedExpr::Phantom(_) => write!(formatter, "@"),
+            TypedExpr::ArgumentPlaceholder(_) => write!(formatter, "@"),
             TypedExpr::Unit(_) => write!(formatter, "()"),
             TypedExpr::Int(value, _) => write!(formatter, "{}", value),
             TypedExpr::String(value, _) => write!(formatter, "\"{}\"", value),
@@ -161,7 +161,7 @@ impl Debug for TypedExpr {
 impl TypedExpr {
     crate fn type_(&self) -> Type {
         match self {
-            TypedExpr::Phantom(type_) => type_.clone(),
+            TypedExpr::ArgumentPlaceholder(type_) => type_.clone(),
             TypedExpr::Unit(_) => Type::Unit,
 
             TypedExpr::Int(_, _) |
@@ -190,7 +190,7 @@ impl TypedExpr {
 
     crate fn clone_at(&self, source: Source) -> ExprRef {
         ExprRef::from(match self {
-            TypedExpr::Phantom(type_) => TypedExpr::Phantom(type_.clone()),
+            TypedExpr::ArgumentPlaceholder(type_) => TypedExpr::ArgumentPlaceholder(type_.clone()),
             TypedExpr::Unit(_) => TypedExpr::Unit(source),
             TypedExpr::Int(value, _) => TypedExpr::Int(value.clone(), source),
             TypedExpr::AddInt(left, right, _) => TypedExpr::AddInt(left.clone(), right.clone(), source),
@@ -489,7 +489,7 @@ fn check_function(env: &mut Environment, parameters: &[ParsedParameter], body: &
     env.push();
     for parameter in parameters {
         let name = Rc::new(parameter.name.text().to_owned());
-        let value = ExprRef::from(TypedExpr::Phantom(parameter.type_.clone()));
+        let value = ExprRef::from(TypedExpr::ArgumentPlaceholder(parameter.type_.clone()));
         env.bind(BindingRef::from(Binding::new(name, value, parameter.source.clone())));
     }
     let body = check_expr(env, body)?;

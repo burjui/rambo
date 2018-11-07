@@ -101,7 +101,7 @@ impl Detector {
                 }
             },
             TypedExpr::Block(block) => self.process_block(block),
-            TypedExpr::Phantom(_) |
+            TypedExpr::ArgumentPlaceholder(_) |
             TypedExpr::Unit(_) |
             TypedExpr::Int(_, _) |
             TypedExpr::String(_, _) => {}

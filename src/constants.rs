@@ -149,7 +149,7 @@ impl CFP {
             TypedExpr::Conditional { condition, positive, negative, source } =>
                 self.fold_conditional(condition, positive, negative.as_ref(), source),
             TypedExpr::Block(block) => self.fold_block(block),
-            TypedExpr::Phantom(_) |
+            TypedExpr::ArgumentPlaceholder(_) |
             TypedExpr::Unit(_) |
             TypedExpr::Int(_, _) |
             TypedExpr::String(_, _) => expr.clone()
