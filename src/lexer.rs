@@ -1,12 +1,13 @@
-use crate::source::Range;
-use crate::source::Source;
-use crate::source::SourceFile;
-use itertools::Itertools;
 use std::error::Error;
 use std::fmt::Debug;
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::iter::once;
+
+use itertools::Itertools;
+
+use crate::source::Range;
+use crate::source::Source;
 use crate::source::SourceFileRef;
 
 #[derive(Debug, PartialEq, Copy, Clone)]
@@ -63,9 +64,8 @@ crate struct Lexer {
 crate type LexerResult<T> = Result<T, Box<dyn Error>>;
 
 impl Lexer {
-    crate fn new(file: SourceFile) -> Lexer {
+    crate fn new(file: SourceFileRef) -> Lexer {
         let eof_offset = file.text().len();
-        let file = SourceFileRef::from(file);
         let eof_lexeme = Lexeme {
             token: Token::EOF,
             source: Source::new(file.clone(), Range::new(eof_offset, eof_offset))
@@ -73,7 +73,7 @@ impl Lexer {
         let mut lexer = Lexer {
             eof_lexeme,
             eof_offset,
-            file: file.clone(),
+            file,
             lexeme_offset: 0,
             lexeme_line: 0,
             current_offset: 0,

@@ -1,22 +1,25 @@
-use crate::env::Environment;
-use crate::semantics::Binding;
-use crate::semantics::BindingRef;
-use crate::semantics::Block;
-use crate::semantics::ExprRef;
-use crate::semantics::Type;
-use crate::semantics::TypedExpr;
-use crate::semantics::TypedStatement;
-use crate::source::Source;
-use num_bigint::BigInt;
-use num_traits::identities::One;
-use num_traits::identities::Zero;
 use std::collections::HashMap;
 use std::ops::Add;
 use std::ops::Div;
 use std::ops::Mul;
 use std::ops::Sub;
 use std::rc::Rc;
+
 use lazy_static::lazy_static;
+use num_bigint::BigInt;
+use num_traits::identities::One;
+use num_traits::identities::Zero;
+
+use crate::env::Environment;
+use crate::semantics::Binding;
+use crate::semantics::BindingRef;
+use crate::semantics::Block;
+use crate::semantics::Expression;
+use crate::semantics::ExprRef;
+use crate::semantics::Type;
+use crate::semantics::TypedExpr;
+use crate::semantics::TypedStatement;
+use crate::source::Source;
 
 // TODO tests
 
@@ -159,7 +162,7 @@ impl CFP {
     fn fold_deref(&mut self, expr: &ExprRef, name: &Rc<String>, source: &Source) -> ExprRef {
         let binding = self.env.resolve(name).unwrap();
         let stats = self.binding_stats(&binding);
-        if stats.assigned || !is_primitive_constant(&binding.data) {
+        if stats.assigned || !binding.data.is_primitive_constant() {
             stats.usages += 1;
             expr.clone()
         } else {
@@ -211,13 +214,13 @@ impl CFP {
         };
         let function_ = function;
         let mut function = self.fold(function_);
-        if is_primitive_constant(&function) {
+        if function.is_primitive_constant() {
             function
         } else {
             let arguments = arguments.iter()
                 .map(|argument| self.fold(argument))
                 .collect::<Vec<_>>();
-            if arguments.iter().all(|argument| is_constant(argument)) {
+            if arguments.iter().all(Expression::is_constant) {
                 while let TypedExpr::Deref(name, _, source) = &function.clone() as &TypedExpr {
                     let binding = self.env.resolve(name).unwrap();
                     function = binding.data.clone_at(source.clone());
@@ -232,7 +235,7 @@ impl CFP {
                     let result = self.fold(&lambda.body);
                     self.env.pop();
 
-                    if is_primitive_constant(&result) {
+                    if result.is_primitive_constant() {
                         if let Some(binding) = function_binding {
                             self.binding_stats(&binding).usages -= 1;
                         }
@@ -284,7 +287,7 @@ impl CFP {
             })
             .fold(Vec::new(), |mut result, statement| {
                 if let Some(TypedStatement::Expr(e1)) = result.last() {
-                    if is_primitive_constant(e1) {
+                    if e1.is_primitive_constant() {
                         (*result.last_mut().unwrap()) = statement.clone();
                         return result;
                     }
@@ -337,16 +340,62 @@ impl CFP {
     }
 }
 
-fn is_constant(expr: &ExprRef) -> bool {
-    match expr as &TypedExpr {
-        TypedExpr::Unit(_) | TypedExpr::Int(_, _) | TypedExpr::String(_, _) | TypedExpr::Lambda(_, _) => true,
-        _ => false
-    }
+#[cfg(test)]
+macro_rules! dummy_source_file {
+    () => (SourceFile::empty(format!("{}({})", file!(), line!())))
 }
 
-fn is_primitive_constant(expr: &ExprRef) -> bool {
-    match expr as &TypedExpr {
-        TypedExpr::Unit(_) | TypedExpr::Int(_, _) | TypedExpr::String(_, _) => true,
-        _ => false
+#[cfg(test)]
+macro_rules! dummy_source {
+    () => (Source::new(dummy_source_file!(), Range::new(0, 0)))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::rc::Rc;
+
+    use num_bigint::BigInt;
+    use num_traits::One;
+
+    use crate::semantics::Expression;
+    use crate::semantics::ExprRef;
+    use crate::semantics::FunctionType;
+    use crate::semantics::FunctionTypeRef;
+    use crate::semantics::Lambda;
+    use crate::semantics::LambdaRef;
+    use crate::semantics::Type;
+    use crate::semantics::TypedExpr;
+    use crate::source::Range;
+    use crate::source::Source;
+    use crate::source::SourceFile;
+
+    #[test]
+    fn is_primitive_constant() {
+        // Incompatible types don't matter here
+        let arg1 = ExprRef::from(TypedExpr::Unit(dummy_source!()));
+        let arg2 = ExprRef::from(TypedExpr::Int(BigInt::one(), dummy_source!()));
+        let arg3 = ExprRef::from(TypedExpr::String(Rc::new("".to_owned()), dummy_source!()));
+        assert!(arg1.is_primitive_constant());
+        assert!(arg2.is_primitive_constant());
+        assert!(arg3.is_primitive_constant());
+        assert!(!TypedExpr::AddInt(arg1.clone(), arg2.clone(), dummy_source!()).is_primitive_constant());
+        let conditional = TypedExpr::Conditional {
+            condition: arg1, positive: arg2, negative: Some(arg3), source: dummy_source!()
+        };
+        assert!(!conditional.is_primitive_constant());
+    }
+
+    #[test]
+    fn is_constant() {
+        let lambda = LambdaRef::from(Lambda {
+            type_: FunctionTypeRef::new(FunctionType {
+                parameters: Vec::new(),
+                result: Type::Unit
+            }),
+            parameters: Vec::new(),
+            body: ExprRef::from(TypedExpr::Unit(dummy_source!()))
+        });
+        let lambda = TypedExpr::Lambda(lambda, dummy_source!());
+        assert!(lambda.is_constant());
     }
 }

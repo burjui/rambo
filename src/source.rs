@@ -2,8 +2,9 @@ use std::error::Error;
 use std::fmt::Debug;
 use std::fmt::Display;
 use std::fmt::Formatter;
-use crate::unique_rc::UniqueRc;
 use std::ops::Deref;
+
+use crate::unique_rc::UniqueRc;
 
 #[derive(Copy, Clone)]
 crate struct Position {
@@ -79,10 +80,11 @@ crate struct SourceFile {
     path: String,
     text: String,
     lines: Vec<Range>,
+    size: usize,
 }
 
-impl<'a> SourceFile {
-    crate fn read(path: &str) -> Result<Vec<u8>, Box<dyn Error>> {
+impl SourceFile {
+    crate fn load(path: &str) -> Result<SourceFileRef, Box<dyn Error>> {
         use std::fs::File;
         use std::io::Read;
         use std::io::BufReader;
@@ -91,24 +93,33 @@ impl<'a> SourceFile {
         let mut buf_reader = BufReader::new(file);
         let mut data = Vec::new();
         buf_reader.read_to_end(&mut data)?;
-        Ok(data)
-    }
-
-    crate fn from(path: &str, data: &[u8]) -> Result<SourceFile, Box<dyn Error>> {
+        let size = data.len();
         let text = Self::decode(&data, path)?;
         let lines = Self::collect_lines(&text);
-        Ok(SourceFile {
-            path: path.to_string(),
+        Ok(SourceFileRef::from(SourceFile {
+            path: path.to_owned(),
             text,
-            lines
+            lines,
+            size
+        }))
+    }
+
+    #[cfg(test)]
+    crate fn empty(name: String) -> SourceFileRef {
+        SourceFileRef::from(SourceFile {
+            path: name,
+            text: "".to_owned(),
+            lines: vec![ Range::new(0, 0) ],
+            size: 0
         })
     }
 
     crate fn path(&self) -> &str { &self.path }
     crate fn text(&self) -> &str { &self.text }
     crate fn lines(&self) -> &[Range] { &self.lines }
+    crate fn size(&self) -> usize { self.size }
 
-    fn decode(data: &'a [u8], path: &str) -> Result<String, Box<dyn Error>> {
+    fn decode(data: &[u8], path: &str) -> Result<String, Box<dyn Error>> {
         let offset = match Self::detect_bom(&data) {
             Some(bom) => if let BOM::UTF8 = bom {
                 Ok(bom.bytes().len())

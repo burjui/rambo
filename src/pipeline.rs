@@ -1,3 +1,11 @@
+use std::error::Error;
+use std::io::Write;
+
+use termcolor::Color;
+use termcolor::ColorSpec;
+use termcolor::StandardStream;
+use termcolor::WriteColor;
+
 use crate::cfg::construct_cfg;
 use crate::cfg::dump_graph;
 use crate::constants::CFP;
@@ -11,13 +19,8 @@ use crate::redundant_bindings::Warnings;
 use crate::semantics::check_module;
 use crate::semantics::ExprRef;
 use crate::source::SourceFile;
+use crate::source::SourceFileRef;
 use crate::utils::ByLine;
-use std::error::Error;
-use std::io::Write;
-use termcolor::Color;
-use termcolor::ColorSpec;
-use termcolor::StandardStream;
-use termcolor::WriteColor;
 
 type PipelineInput<'a, T> = Option<(T, &'a mut StandardStream)>;
 
@@ -132,23 +135,21 @@ impl Load {
     }
 }
 
-impl CompilerPass<String, SourceFile> for Load {
+impl CompilerPass<String, SourceFileRef> for Load {
     const ID: PassId = PassId::Load;
 
-    fn apply_impl(path: String, stdout: &mut StandardStream, _: &PipelineOptions) -> Result<SourceFile, Box<dyn Error>> {
-        let source_code = SourceFile::read(&path)?;
-        let source_code_length = source_code.len();
-        let source_file = SourceFile::from(&path, &source_code)?;
+    fn apply_impl(path: String, stdout: &mut StandardStream, _: &PipelineOptions) -> Result<SourceFileRef, Box<dyn Error>> {
+        let source_file = SourceFile::load(&path)?;
         let line_count = source_file.lines().len();
-        writeln!(stdout, "{}, {} lines", Self::file_size_pretty(source_code_length), line_count)?;
+        writeln!(stdout, "{}, {} lines", Self::file_size_pretty(source_file.size()), line_count)?;
         Ok(source_file)
     }
 }
 
-impl CompilerPass<SourceFile, ASTBlock> for Parse {
+impl CompilerPass<SourceFileRef, ASTBlock> for Parse {
     const ID: PassId = PassId::Parse;
 
-    fn apply_impl(source_file: SourceFile, stdout: &mut StandardStream, options: &PipelineOptions) -> Result<ASTBlock, Box<dyn Error>> {
+    fn apply_impl(source_file: SourceFileRef, stdout: &mut StandardStream, options: &PipelineOptions) -> Result<ASTBlock, Box<dyn Error>> {
         let lexer = Lexer::new(source_file);
         let mut parser = Parser::new(lexer);
         let ast = parser.parse()?;
