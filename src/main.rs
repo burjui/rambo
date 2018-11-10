@@ -5,6 +5,18 @@
 #![feature(transpose_result)]
 #![feature(self_struct_ctor)]
 
+use std::env::args as program_args;
+use std::error::Error;
+use std::io::Write;
+
+use getopts::Options;
+use itertools::join;
+use termcolor::Color;
+use termcolor::ColorChoice;
+use termcolor::ColorSpec;
+use termcolor::StandardStream;
+use termcolor::WriteColor;
+
 use crate::pipeline::ALL_PASS_IDS;
 use crate::pipeline::ConstructCFG;
 use crate::pipeline::ConstructCFGOptimized;
@@ -18,16 +30,6 @@ use crate::pipeline::PropagateConstants;
 use crate::pipeline::ReportRedundantBindings;
 use crate::pipeline::StandardStreamUtils;
 use crate::pipeline::VerifySemantics;
-use getopts::Options;
-use itertools::join;
-use std::env::args as program_args;
-use std::error::Error;
-use std::io::Write;
-use termcolor::Color;
-use termcolor::ColorChoice;
-use termcolor::ColorSpec;
-use termcolor::StandardStream;
-use termcolor::WriteColor;
 
 #[macro_use]
 mod utils;

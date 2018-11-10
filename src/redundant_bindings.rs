@@ -1,13 +1,14 @@
-use crate::env::Environment;
-use crate::semantics::Block;
-use crate::semantics::ExprRef;
-use crate::semantics::TypedExpr;
-use crate::semantics::TypedStatement;
-use crate::source::Source;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::rc::Rc;
+
+use crate::env::Environment;
+use crate::semantics::Block;
+use crate::semantics::ExprRef;
 use crate::semantics::LambdaRef;
+use crate::semantics::TypedExpr;
+use crate::semantics::TypedStatement;
+use crate::source::Source;
 
 crate struct Warnings(crate bool);
 

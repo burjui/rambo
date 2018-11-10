@@ -1,19 +1,21 @@
-use crate::semantics::Block;
-use crate::semantics::ExprRef;
-use crate::semantics::TypedExpr;
-use crate::semantics::TypedStatement;
-use crate::utils::ByLine;
+use std::cell::RefCell;
+use std::collections::HashSet;
+use std::fmt::Debug;
+use std::fmt::Formatter;
+use std::rc::Rc;
+
 use petgraph::Direction;
 use petgraph::dot::Config;
 use petgraph::dot::Dot;
 use petgraph::Graph;
 use petgraph::graph::NodeIndex;
 use petgraph::visit::EdgeRef;
-use std::cell::RefCell;
-use std::collections::HashSet;
-use std::fmt::Debug;
-use std::fmt::Formatter;
-use std::rc::Rc;
+
+use crate::semantics::Block;
+use crate::semantics::ExprRef;
+use crate::semantics::TypedExpr;
+use crate::semantics::TypedStatement;
+use crate::utils::ByLine;
 
 crate fn construct_cfg(code: &ExprRef) -> CFG {
     let mut cfg = CFG::new();

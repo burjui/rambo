@@ -1,3 +1,13 @@
+use std::collections::HashMap;
+use std::error::Error;
+use std::fmt::Debug;
+use std::fmt::Formatter;
+use std::ops::Deref;
+use std::rc::Rc;
+
+use itertools::Itertools;
+use num_bigint::BigInt;
+
 use crate::parser::BinaryOperation;
 use crate::parser::Block as ASTBlock;
 use crate::parser::Expr;
@@ -5,14 +15,6 @@ use crate::parser::Parameter as ParsedParameter;
 use crate::parser::Parameter;
 use crate::parser::Statement;
 use crate::source::Source;
-use itertools::Itertools;
-use num_bigint::BigInt;
-use std::collections::HashMap;
-use std::error::Error;
-use std::fmt::Debug;
-use std::fmt::Formatter;
-use std::ops::Deref;
-use std::rc::Rc;
 use crate::unique_rc::UniqueRc;
 
 crate type FunctionTypeRef = Rc<FunctionType>;

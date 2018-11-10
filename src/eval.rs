@@ -1,12 +1,14 @@
-use crate::env::Environment;
-use crate::semantics::Block;
-use crate::semantics::TypedExpr;
-use crate::semantics::TypedStatement;
-use num_bigint::BigInt;
-use num_traits::Zero;
 use std::error::Error;
 use std::rc::Rc;
+
+use num_bigint::BigInt;
+use num_traits::Zero;
+
+use crate::env::Environment;
+use crate::semantics::Block;
 use crate::semantics::LambdaRef;
+use crate::semantics::TypedExpr;
+use crate::semantics::TypedStatement;
 
 crate struct Evaluator {
     env: Environment<Rc<String>, Evalue>,

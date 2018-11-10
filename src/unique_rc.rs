@@ -1,7 +1,7 @@
-use std::rc::Rc;
-use std::ops::Deref;
 use std::hash::Hash;
 use std::hash::Hasher;
+use std::ops::Deref;
+use std::rc::Rc;
 
 crate struct UniqueRc<T>(Rc<T>);
 
