@@ -162,7 +162,7 @@ impl CFP {
     fn fold_deref(&mut self, expr: &ExprRef, name: &Rc<String>, source: &Source) -> ExprRef {
         let binding = self.env.resolve(name).unwrap();
         let stats = self.binding_stats(&binding);
-        if stats.assigned || !binding.data.is_primitive_constant() {
+        if stats.assigned || !binding.data.is_constant() {
             stats.usages += 1;
             expr.clone()
         } else {
@@ -214,7 +214,7 @@ impl CFP {
         };
         let function_ = function;
         let mut function = self.fold(function_);
-        if function.is_primitive_constant() {
+        if function.is_constant() {
             function
         } else {
             let arguments = arguments.iter()
@@ -235,7 +235,7 @@ impl CFP {
                     let result = self.fold(&lambda.body);
                     self.env.pop();
 
-                    if result.is_primitive_constant() {
+                    if result.is_constant() {
                         if let Some(binding) = function_binding {
                             self.binding_stats(&binding).usages -= 1;
                         }
@@ -287,7 +287,7 @@ impl CFP {
             })
             .fold(Vec::new(), |mut result, statement| {
                 if let Some(TypedStatement::Expr(e1)) = result.last() {
-                    if e1.is_primitive_constant() {
+                    if e1.is_constant() {
                         (*result.last_mut().unwrap()) = statement.clone();
                         return result;
                     }
@@ -370,23 +370,20 @@ mod tests {
     use crate::source::SourceFile;
 
     #[test]
-    fn is_primitive_constant() {
+    fn is_constant() {
         // Incompatible types don't matter here
         let arg1 = ExprRef::from(TypedExpr::Unit(dummy_source!()));
         let arg2 = ExprRef::from(TypedExpr::Int(BigInt::one(), dummy_source!()));
         let arg3 = ExprRef::from(TypedExpr::String(Rc::new("".to_owned()), dummy_source!()));
-        assert!(arg1.is_primitive_constant());
-        assert!(arg2.is_primitive_constant());
-        assert!(arg3.is_primitive_constant());
-        assert!(!TypedExpr::AddInt(arg1.clone(), arg2.clone(), dummy_source!()).is_primitive_constant());
+        assert!(arg1.is_constant());
+        assert!(arg2.is_constant());
+        assert!(arg3.is_constant());
+        assert!(!TypedExpr::AddInt(arg1.clone(), arg2.clone(), dummy_source!()).is_constant());
         let conditional = TypedExpr::Conditional {
             condition: arg1, positive: arg2, negative: Some(arg3), source: dummy_source!()
         };
-        assert!(!conditional.is_primitive_constant());
-    }
+        assert!(!conditional.is_constant());
 
-    #[test]
-    fn is_constant() {
         let lambda = LambdaRef::from(Lambda {
             type_: FunctionTypeRef::new(FunctionType {
                 parameters: Vec::new(),

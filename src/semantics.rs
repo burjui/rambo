@@ -54,20 +54,10 @@ impl Debug for Type {
 
 crate trait Expression {
     fn is_constant(&self) -> bool;
-    fn is_primitive_constant(&self) -> bool;
 }
 
 impl Expression for TypedExpr {
-    // TODO lambdas shouldn't be treated as constants
     fn is_constant(&self) -> bool {
-        if let TypedExpr::Lambda(_, _) = self {
-            true
-        } else {
-            self.is_primitive_constant()
-        }
-    }
-
-    fn is_primitive_constant(&self) -> bool {
         match self {
             TypedExpr::Unit(_) | TypedExpr::Int(_, _) | TypedExpr::String(_, _) => true,
             _ => false
@@ -77,7 +67,6 @@ impl Expression for TypedExpr {
 
 impl Expression for ExprRef {
     fn is_constant(&self) -> bool { TypedExpr::is_constant(self) }
-    fn is_primitive_constant(&self) -> bool { TypedExpr::is_primitive_constant(self) }
 }
 
 #[derive(Clone)]
