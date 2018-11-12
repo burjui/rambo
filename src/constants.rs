@@ -393,6 +393,6 @@ mod tests {
             body: ExprRef::from(TypedExpr::Unit(dummy_source!()))
         });
         let lambda = TypedExpr::Lambda(lambda, dummy_source!());
-        assert!(lambda.is_constant());
+        assert!(!lambda.is_constant());
     }
 }
