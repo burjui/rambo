@@ -44,11 +44,18 @@ mod cfg;
 mod pipeline;
 mod redundant_bindings;
 mod unique_rc;
-#[macro_use] mod vm;
+
+#[cfg(test)]
+#[macro_use]
+mod vm;
+
+#[cfg(test)]
 mod codegen;
+
+#[cfg(test)]
 mod runtime;
 
-fn main() -> Result<(), std::io::Error> {
+fn main() -> Result<(), Box<dyn Error>> {
     let mut stdout = stdout();
     let result = parse_command_line()
         .and_then(|command_line|
@@ -71,7 +78,8 @@ fn main() -> Result<(), std::io::Error> {
             writeln!(&mut stdout, "{}", error)?;
         }
     }
-    stdout.reset()
+    stdout.reset()?;
+    Ok(())
 }
 
 struct CommandLine {

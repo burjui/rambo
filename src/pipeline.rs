@@ -20,7 +20,7 @@ use crate::semantics::check_module;
 use crate::semantics::ExprRef;
 use crate::source::SourceFile;
 use crate::source::SourceFileRef;
-use crate::utils::ByLine;
+use itertools::Itertools;
 
 type PipelineInput<'a, T> = Option<(T, &'a mut StandardStream)>;
 
@@ -156,7 +156,7 @@ impl CompilerPass<SourceFileRef, ASTBlock> for Parse {
         let stats = { parser.lexer_stats() };
         writeln!(stdout, "{} lexemes", stats.lexeme_count)?;
         if options.dump_intermediate {
-            writeln!(stdout, "-----------\n{}", ast.statements.iter().join_as_strings("\n"))?;
+            writeln!(stdout, "{:?}", ast.statements.iter().format("\n"))?;
         }
         Ok(ast)
     }

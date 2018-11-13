@@ -5,6 +5,7 @@ use std::io::Write;
 use std::mem::size_of;
 use std::ops::Deref;
 use std::ops::Range;
+use std::convert::From;
 
 use itertools::Itertools;
 use num_enum::IntoPrimitive;
@@ -27,7 +28,7 @@ macro_rules! asm {
     })
 }
 
-crate fn asm(mut code: Vec<Instruction>, instructions: &[Instruction]) -> (Vec<Instruction>, u32) {
+fn asm(mut code: Vec<Instruction>, instructions: &[Instruction]) -> (Vec<Instruction>, u32) {
     let index = code.len() as u32;
     code.extend_from_slice(instructions);
     (code, index)
@@ -35,6 +36,16 @@ crate fn asm(mut code: Vec<Instruction>, instructions: &[Instruction]) -> (Vec<I
 
 const RAM_SIZE: usize = 1024 * 1024;
 const STACK_SIZE: usize = 8 * 1024;
+
+struct DebugPrint(bool);
+
+impl Deref for DebugPrint {
+    type Target = bool;
+
+    fn deref(&self) -> &<Self as Deref>::Target {
+        &self.0
+    }
+}
 
 struct VM {
     registers: [u32; Register::VARIANT_COUNT],
@@ -55,11 +66,12 @@ impl VM {
         vm
     }
 
-    fn run(&mut self, stdout: &mut StandardStream, program: &Program) -> Result<(), Box<dyn Error>> {
+    fn run(&mut self, stdout: &mut StandardStream, program: &Program, debug_print: DebugPrint) -> Result<(), Box<dyn Error>> {
         let executor = Executor {
             vm: self,
             program,
-            stdout
+            stdout,
+            debug_print
         };
         executor.run()
     }
@@ -107,6 +119,7 @@ impl VM {
         writeln!(stdout, "{}: {:08x} ({})", name, value, value)
     }
 
+    #[allow(unused)]
     fn dump_mem(&mut self, stdout: &mut StandardStream, range: Range<usize>) -> Result<(), std::io::Error> {
         stdout.set_color(ColorSpec::new()
             .set_fg(Some(Color::Yellow))
@@ -160,12 +173,18 @@ impl VM {
         *self.reg_mut(SP) += 4;
         Ok(*self.ram(sp)?)
     }
+
+    fn load<T: Into<u32> + Copy>(&mut self, address: u32, register: Register) -> Result<(), RamAccessError> {
+        *self.reg_mut(register) = self.ram::<T>(address).map(|value| (*value).into())?;
+        Ok(())
+    }
 }
 
 struct Executor<'vm, 'program, 'stdout> {
     vm: &'vm mut VM,
     program: &'program Program,
-    stdout: &'stdout mut StandardStream
+    stdout: &'stdout mut StandardStream,
+    debug_print: DebugPrint
 }
 
 impl<'vm, 'program, 'stdout> Executor<'vm, 'program, 'stdout> {
@@ -173,30 +192,25 @@ impl<'vm, 'program, 'stdout> Executor<'vm, 'program, 'stdout> {
         self.vm.rodata = self.program.rodata.clone();
         let program_length = self.program.code.len() as u32; // FIXME is it needed?
         self.vm.pc = 0;
-        self.dump_code()?;
-        self.vm.dump_registers(self.stdout)?;
-        self.vm.dump_stack(self.stdout)?;
+        if *self.debug_print {
+            self.dump_code()?;
+            self.vm.dump_registers(self.stdout)?;
+            self.vm.dump_stack(self.stdout)?;
+        }
         while self.vm.pc < program_length {
             let instruction = self.current_instruction();
             let pc = self.vm.pc;
-            self.dump_instruction(pc, instruction)?;
+            if *self.debug_print {
+                self.dump_instruction(pc, instruction)?;
+            }
             self.vm.pc += 1;
             match instruction {
                 Stop => break,
                 Debug => self.vm.dump_registers(self.stdout)?,
-                Const(value, dst) => *self.vm.reg_mut(dst) = value,
-                Load8(src, dst) => {
-                    let address = *self.vm.reg(src);
-                    *self.vm.reg_mut(dst) = self.vm.ram::<u8>(address).map(|value| u32::from(*value))?;
-                },
-                Load16(src, dst) => {
-                    let address = *self.vm.reg(src);
-                    *self.vm.reg_mut(dst) = self.vm.ram::<u16>(address).map(|value| u32::from(*value))?;
-                },
-                Load32(src, dst) => {
-                    let address = *self.vm.reg(src);
-                    *self.vm.reg_mut(dst) = self.vm.ram::<u32>(address).map(|value| *value)?;
-                },
+                LoadImmediate(value, dst) => *self.vm.reg_mut(dst) = value,
+                LoadIndirect8(src, dst) => self.vm.load::<u8>(*self.vm.reg(src), dst)?,
+                LoadIndirect16(src, dst) => self.vm.load::<u16>(*self.vm.reg(src), dst)?,
+                LoadIndirect32(src, dst) => self.vm.load::<u32>(*self.vm.reg(src), dst)?,
                 Store8(src, dst) => {
                     let address = *self.vm.reg(dst);
                     *self.vm.ram_mut(address)? = *self.vm.reg(src) as u8;
@@ -236,8 +250,10 @@ impl<'vm, 'program, 'stdout> Executor<'vm, 'program, 'stdout> {
                 And(op1, op2, dst) => *self.vm.reg_mut(dst) = *self.vm.reg(op1) & *self.vm.reg(op2),
                 Or(op1, op2, dst) => *self.vm.reg_mut(dst) = *self.vm.reg(op1) | *self.vm.reg(op2),
             }
-            self.vm.dump_registers(self.stdout)?;
-            self.vm.dump_stack(self.stdout)?;
+            if *self.debug_print {
+                self.vm.dump_registers(self.stdout)?;
+                self.vm.dump_stack(self.stdout)?;
+            }
         }
         Ok(())
     }
@@ -305,7 +321,6 @@ crate fn vm() -> Result<(), Box<dyn Error>> {
     for i in 0..8 {
         *vm.ram_mut::<u8>(u32::from(i))? = 0xf0 + i;
     }
-    vm.dump_mem(stdout, 0..128)?;
     let (code, start) = asm!(vec![],
         Debug // patch -> jump over MEMCPY
     );
@@ -315,17 +330,17 @@ crate fn vm() -> Result<(), Box<dyn Error>> {
         Stop
     );
     code[start as usize] = Br(entry as u32);
+    let program = Program {
+        rodata: vec![],
+        code,
+    };
     vm.reset_sp();
     let src = 0;
     let dst = 0x70;
     vm.push(src)?;
     vm.push(dst)?;
     vm.push(8)?;
-    vm.run(stdout, &Program {
-        rodata: vec![],
-        code
-    })?;
-    vm.dump_mem(stdout, 0..128)?;
+    vm.run(stdout, &program, DebugPrint(false))?;
     assert_eq!(*vm.ram::<u64>(src)?, *vm.ram::<u64>(dst)?);
     Ok(())
 }
@@ -351,10 +366,10 @@ impl Deref for Address {
 crate enum Instruction {
     Stop,
     Debug,
-    Const(u32, Register),
-    Load8(Register, Register),
-    Load16(Register, Register),
-    Load32(Register, Register),
+    LoadImmediate(u32, Register),
+    LoadIndirect8(Register, Register),
+    LoadIndirect16(Register, Register),
+    LoadIndirect32(Register, Register),
     Store8(Register, Register),
     Store16(Register, Register),
     Store32(Register, Register),

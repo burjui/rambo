@@ -12,18 +12,17 @@ lazy_static! {
             Push(R2)
             Push(R3)
             Push(R7)
-            Const(0, R7)
+            LoadImmediate(0, R7)
             AddImm(R0, 4, R2) // fp + 1 -> size
-            Load32(R2, R2)    // *[size] -> size
+            LoadIndirect32(R2, R2)    // *[size] -> size
             AddImm(R0, 8, R1) // fp + 2 -> dst
-            Load32(R1, R1)    // *[dst] -> dst
+            LoadIndirect32(R1, R1)    // *[dst] -> dst
             AddImm(R0, 12, R0) // fp + 3 -> src
-            Load32(R0, R0)    // *[src] -> src
+            LoadIndirect32(R0, R0)    // *[src] -> src
         );
         let (code, loop_) = asm!(code,
-            // loop:
             Debug // patch -> BrEqRel(size, 0, quit)
-            Load8(R0, R3) // *[src] -> tmp
+            LoadIndirect8(R0, R3) // *[src] -> tmp
             Store8(R3, R1) // tmp -> *[dst]
             AddImm(R0, 1, R0) // src += 1
             AddImm(R1, 1, R1) // dst += 1

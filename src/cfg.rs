@@ -15,7 +15,7 @@ use crate::semantics::Block;
 use crate::semantics::ExprRef;
 use crate::semantics::TypedExpr;
 use crate::semantics::TypedStatement;
-use crate::utils::ByLine;
+use itertools::Itertools;
 
 crate fn construct_cfg(code: &ExprRef) -> CFG {
     let mut cfg = CFG::new();
@@ -153,7 +153,7 @@ impl BasicBlock {
 
 impl Debug for BasicBlock {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(formatter, "{}", self.statements.iter().join_as_strings("\n"))
+        write!(formatter, "{:?}", self.statements.iter().format("\n"))
     }
 }
 
