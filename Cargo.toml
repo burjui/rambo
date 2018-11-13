@@ -22,9 +22,3 @@ num_enum = "0.1.1"
 
 [features]
 expr_clone_at = []
-
-[profile.release]
-panic = "abort"
-debug = true
-lto = true
-codegen-units = 1
