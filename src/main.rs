@@ -4,6 +4,7 @@
 #![feature(box_patterns)]
 #![feature(transpose_result)]
 #![feature(self_struct_ctor)]
+#![feature(try_from)]
 
 use std::env::args as program_args;
 use std::error::Error;
@@ -12,7 +13,6 @@ use std::io::Write;
 use getopts::Options;
 use itertools::join;
 use termcolor::Color;
-use termcolor::ColorChoice;
 use termcolor::ColorSpec;
 use termcolor::StandardStream;
 use termcolor::WriteColor;
@@ -30,9 +30,9 @@ use crate::pipeline::PropagateConstants;
 use crate::pipeline::ReportRedundantBindings;
 use crate::pipeline::StandardStreamUtils;
 use crate::pipeline::VerifySemantics;
+use crate::utils::stdout;
 
-#[macro_use]
-mod utils;
+#[macro_use] mod utils;
 mod source;
 mod lexer;
 mod parser;
@@ -44,12 +44,12 @@ mod cfg;
 mod pipeline;
 mod redundant_bindings;
 mod unique_rc;
+#[macro_use] mod vm;
+mod codegen;
+mod runtime;
 
 fn main() -> Result<(), std::io::Error> {
-    let is_tty = unsafe { libc::isatty(libc::STDOUT_FILENO as i32) } != 0;
-    let color_choice = if is_tty { ColorChoice::Always } else { ColorChoice::Never };
-    let mut stdout = StandardStream::stdout(color_choice);
-
+    let mut stdout = stdout();
     let result = parse_command_line()
         .and_then(|command_line|
             if command_line.input_files.is_empty() {

@@ -1,6 +1,8 @@
 use std::fmt::Debug;
 
 use itertools::Itertools;
+use termcolor::StandardStream;
+use termcolor::ColorChoice;
 
 macro_rules! error {
     ($format_string: expr $(, $argument: expr)*) => { Err(From::from(format!($format_string $(, $argument)*))) };
@@ -28,3 +30,9 @@ crate trait ByLine: Iterator {
 }
 
 impl<I> ByLine for I where I: Iterator {}
+
+crate fn stdout() -> StandardStream {
+    let is_tty = unsafe { libc::isatty(libc::STDOUT_FILENO as i32) } != 0;
+    let color_choice = if is_tty { ColorChoice::Always } else { ColorChoice::Never };
+    StandardStream::stdout(color_choice)
+}

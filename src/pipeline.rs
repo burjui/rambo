@@ -248,15 +248,13 @@ impl StandardStreamUtils for StandardStream {
         writeln!(self)?;
         self.set_color(ColorSpec::new()
             .set_fg(Some(Color::Black))
-            .set_intense(true)
-        )
+            .set_intense(true))
     }
 
     fn write_colored(&mut self, text: &str, color: Color) -> std::io::Result<()> {
         self.set_color(ColorSpec::new()
             .set_fg(Some(color))
-            .set_bold(true)
-        )?;
+            .set_bold(true))?;
         write!(self, "{}", text)
     }
 }
