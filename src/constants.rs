@@ -22,6 +22,7 @@ use crate::semantics::TypedStatement;
 use crate::source::Source;
 
 // TODO tests
+// TODO fold nested conditionals in conditions: if (if a b c) d e -> if a { b d } else { c e }
 
 struct BindingStats {
     usages: usize,
@@ -152,7 +153,7 @@ impl CFP {
             TypedExpr::Conditional { condition, positive, negative, source } =>
                 self.fold_conditional(condition, positive, negative.as_ref(), source),
             TypedExpr::Block(block) => self.fold_block(block),
-            TypedExpr::ArgumentPlaceholder(_) |
+            TypedExpr::ArgumentPlaceholder(_, _) |
             TypedExpr::Unit(_) |
             TypedExpr::Int(_, _) |
             TypedExpr::String(_, _) => expr.clone()

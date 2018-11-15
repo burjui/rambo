@@ -1,12 +1,13 @@
 use std::error::Error;
 use std::io::Write;
 
+use itertools::Itertools;
 use termcolor::Color;
 use termcolor::ColorSpec;
 use termcolor::StandardStream;
 use termcolor::WriteColor;
 
-use crate::cfg::construct_cfg;
+use crate::cfg::CFGBuilder;
 use crate::cfg::dump_graph;
 use crate::constants::CFP;
 use crate::eval::Evaluator;
@@ -20,7 +21,6 @@ use crate::semantics::check_module;
 use crate::semantics::ExprRef;
 use crate::source::SourceFile;
 use crate::source::SourceFileRef;
-use itertools::Itertools;
 
 type PipelineInput<'a, T> = Option<(T, &'a mut StandardStream)>;
 
@@ -176,7 +176,7 @@ impl CompilerPass<ASTBlock, ExprRef> for VerifySemantics {
 
 impl ConstructCFG {
     fn apply<'a>(hir: ExprRef, _: &'a mut StandardStream, options: &PipelineOptions, filename: &str) -> Result<ExprRef, Box<dyn Error>> {
-        let cfg = construct_cfg(&hir);
+        let cfg = CFGBuilder::new().scan(&hir);
         if options.dump_cfg {
             dump_graph(&cfg, filename);
         }

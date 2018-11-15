@@ -23,7 +23,7 @@ impl<'a> Evaluator {
 
     crate fn eval(&mut self, expr: &TypedExpr) -> Result<Evalue, Box<dyn Error>> {
         match expr {
-            TypedExpr::ArgumentPlaceholder(_) => unreachable!(),
+            TypedExpr::ArgumentPlaceholder(_, _) => unreachable!("eval: {:?}", expr),
             TypedExpr::Unit(_) => Ok(Evalue::Unit),
             TypedExpr::Int(value, _) => Ok(Evalue::Int(value.clone())),
             TypedExpr::String(value, _) => Ok(Evalue::String(value.clone())),

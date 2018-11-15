@@ -1,13 +1,17 @@
 ﻿let x = "abc"
 let y = "efg"
 let z = \ (a:str, b:str) -> {
-    let result = a + b
-    result
+    if a {
+        a + "--"
+    } else {
+        "?"
+    } + b
 }
 if 0 {
     "false"
-}
-else {
+    y = "x"
+    x = "z"
+} else {
     let a = (z x y)
     z a "/test"
 }
@@ -21,3 +25,7 @@ a1 = 10
 (0 - a1) * (0 - 1)
 (a1 + a1)
 (a1 - a1)
+let nn = 1
+let a1 = 0
+let a2 = a1
+let a3 = a1 + a2

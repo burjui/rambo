@@ -128,11 +128,11 @@ impl Debug for Block {
 }
 
 crate enum TypedExpr {
-    ArgumentPlaceholder(Type),
+    ArgumentPlaceholder(Rc<String>, Type),
     Unit(Source),
     Int(BigInt, Source),
     String(Rc<String>, Source),
-    Deref(Rc<String>, Type, Source),
+    Deref(Rc<String>, Type, Source), // TODO apply redundant bindings pass on AST and replace Deref with Reference(Binding, Source)
     Lambda(LambdaRef, Source),
     Application {
         type_: Type,
@@ -158,7 +158,7 @@ crate enum TypedExpr {
 impl Debug for TypedExpr {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            TypedExpr::ArgumentPlaceholder(_) => write!(formatter, "@"),
+            TypedExpr::ArgumentPlaceholder(name, _) => write!(formatter, "<{}>", name),
             TypedExpr::Unit(_) => write!(formatter, "()"),
             TypedExpr::Int(value, _) => write!(formatter, "{}", value),
             TypedExpr::String(value, _) => write!(formatter, "\"{}\"", value),
@@ -186,7 +186,7 @@ impl Debug for TypedExpr {
 impl TypedExpr {
     crate fn type_(&self) -> Type {
         match self {
-            TypedExpr::ArgumentPlaceholder(type_) => type_.clone(),
+            TypedExpr::ArgumentPlaceholder(_, type_) => type_.clone(),
             TypedExpr::Unit(_) => Type::Unit,
 
             TypedExpr::Int(_, _) |
@@ -494,7 +494,7 @@ fn check_function(env: &mut Environment, parameters: &[ParsedParameter], body: &
     env.push();
     for parameter in parameters {
         let name = Rc::new(parameter.name.text().to_owned());
-        let value = ExprRef::from(TypedExpr::ArgumentPlaceholder(parameter.type_.clone()));
+        let value = ExprRef::from(TypedExpr::ArgumentPlaceholder(name.clone(), parameter.type_.clone()));
         env.bind(BindingRef::from(Binding::new(name, value, parameter.source.clone())));
     }
     let body = check_expr(env, body)?;

@@ -181,16 +181,10 @@ impl Parser {
     }
 
     fn parse_expression(&mut self) -> ParseResult<Expr> {
-        if self.lexeme.token == Token::Id && self.lexeme.text() == "if" {
-            self.parse_conditional()
-        } else {
-            self.parse_binary(Precedence::Assignment)
-        }
+        self.parse_binary(Precedence::Assignment)
     }
 
-    fn parse_conditional(&mut self) -> ParseResult<Expr> {
-        let start = self.lexeme.source.clone();
-        self.read_lexeme()?;
+    fn parse_conditional(&mut self, start: &Source) -> ParseResult<Expr> {
         let condition_is_parenthesized = self.lexeme.token == Token::LParen;
         let condition = {
             if condition_is_parenthesized {
@@ -213,9 +207,8 @@ impl Parser {
         } else {
             None
         };
-        let source = start.extend(&self.previous_lexeme_source);
         Ok(Expr::Conditional {
-            source,
+            source: start.extend(&self.previous_lexeme_source),
             condition,
             positive: box positive,
             negative: negative.map(Box::new)
@@ -233,6 +226,7 @@ impl Parser {
     fn parse_expr_as_block(&mut self) -> ParseResult<Expr> {
         let expr = self.parse_expression()?;
         let source = expr.source().clone();
+
         let statements = vec![Statement::Expr(expr)];
         Ok(Expr::Block(Block {
             source,
@@ -319,9 +313,18 @@ impl Parser {
 
     fn parse_primary(&mut self) -> ParseResult<Expr> {
         let primary = self.lexeme.clone();
+        if self.lexeme.token == Token::LBrace {
+            return self.parse_block();
+        }
         self.read_lexeme()?;
         match primary.token {
-            Token::Id => Ok(Expr::Id(primary.source)),
+            Token::Id => {
+                if primary.text() == "if" {
+                    self.parse_conditional(&primary.source)
+                } else {
+                    Ok(Expr::Id(primary.source))
+                }
+            },
             Token::Int => Ok(Expr::Int(primary.source)),
             Token::String => Ok(Expr::String(primary.source)),
             Token::Lambda => self.parse_lambda(&primary.source),
