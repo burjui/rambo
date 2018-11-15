@@ -92,11 +92,12 @@ impl Debug for ExprRef {
     }
 }
 
-#[cfg(not(feature = "expr_clone_at"))]
 impl ExprRef {
-    crate fn clone_at(&self, _: Source) -> ExprRef {
-        self.clone()
-    }
+    #[cfg(feature = "expr_clone_at")]
+    crate fn clone_at(&self, source: Source) -> ExprRef { self.clone_at_source(source) }
+
+    #[cfg(not(feature = "expr_clone_at"))]
+    crate fn clone_at(&self, _: Source) -> ExprRef { self.clone() }
 }
 
 #[derive(Clone)]
@@ -213,10 +214,10 @@ impl TypedExpr {
         }
     }
 
-    #[cfg(feature = "expr_clone_at")]
-    crate fn clone_at(&self, source: Source) -> ExprRef {
+    #[allow(unused)]
+    fn clone_at_source(&self, source: Source) -> ExprRef {
         ExprRef::from(match self {
-            TypedExpr::ArgumentPlaceholder(type_) => TypedExpr::ArgumentPlaceholder(type_.clone()),
+            TypedExpr::ArgumentPlaceholder(name, type_) => TypedExpr::ArgumentPlaceholder(name.clone(), type_.clone()),
             TypedExpr::Unit(_) => TypedExpr::Unit(source),
             TypedExpr::Int(value, _) => TypedExpr::Int(value.clone(), source),
             TypedExpr::AddInt(left, right, _) => TypedExpr::AddInt(left.clone(), right.clone(), source),
