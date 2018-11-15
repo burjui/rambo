@@ -25,7 +25,3 @@ a1 = 10
 (0 - a1) * (0 - 1)
 (a1 + a1)
 (a1 - a1)
-let nn = 1
-let a1 = 0
-let a2 = a1
-let a3 = a1 + a2
