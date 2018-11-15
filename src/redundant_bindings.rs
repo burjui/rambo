@@ -1,12 +1,12 @@
 use std::collections::HashMap;
 use std::collections::HashSet;
 
+use crate::semantics::BindingRef;
 use crate::semantics::Block;
 use crate::semantics::ExprRef;
 use crate::semantics::LambdaRef;
 use crate::semantics::TypedExpr;
 use crate::semantics::TypedStatement;
-use crate::semantics::BindingRef;
 
 crate struct Warnings(crate bool);
 

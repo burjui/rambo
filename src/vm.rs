@@ -1,3 +1,4 @@
+use std::convert::From;
 use std::convert::TryFrom;
 use std::error::Error;
 use std::fmt;
@@ -5,7 +6,6 @@ use std::io::Write;
 use std::mem::size_of;
 use std::ops::Deref;
 use std::ops::Range;
-use std::convert::From;
 
 use itertools::Itertools;
 use num_enum::IntoPrimitive;

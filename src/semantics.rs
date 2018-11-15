@@ -7,6 +7,7 @@ use std::rc::Rc;
 use itertools::Itertools;
 use num_bigint::BigInt;
 
+use crate::env::Environment;
 use crate::parser::BinaryOperation;
 use crate::parser::Block as ASTBlock;
 use crate::parser::Expr;
@@ -14,7 +15,6 @@ use crate::parser::Parameter as ParsedParameter;
 use crate::parser::Statement;
 use crate::source::Source;
 use crate::unique_rc::UniqueRc;
-use crate::env::Environment;
 
 crate type FunctionTypeRef = Rc<FunctionType>;
 
