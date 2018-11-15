@@ -132,7 +132,7 @@ crate enum TypedExpr {
     Unit(Source),
     Int(BigInt, Source),
     String(Rc<String>, Source),
-    Deref(Rc<String>, Type, Source), // TODO apply redundant bindings pass on AST and replace Deref with Reference(Binding, Source)
+    Deref(Rc<String>, Type, Source),
     Lambda(LambdaRef, Source),
     Application {
         type_: Type,
