@@ -16,9 +16,7 @@ crate struct Evaluator {
 
 impl<'a> Evaluator {
     crate fn new() -> Evaluator {
-        Evaluator {
-            env: Environment::new()
-        }
+        Evaluator { env: Environment::new() }
     }
 
     crate fn eval(&mut self, expr: &TypedExpr) -> Result<Evalue, Box<dyn Error>> {
@@ -59,12 +57,12 @@ impl<'a> Evaluator {
                     unreachable!()
                 }
             },
-            TypedExpr::Assign(name, value, _) => {
+            TypedExpr::Assign(binding, value, _) => {
                 let value = self.eval(value)?;
-                self.env.bind(name.clone(), value.clone());
+                self.env.bind(binding.name.clone(), value.clone());
                 Ok(value)
             },
-            TypedExpr::Deref(name, _, _) => self.env.resolve(name),
+            TypedExpr::Reference(binding, _) => self.env.resolve(&binding.name),
             TypedExpr::Application { function, arguments, .. } => {
                 let arguments: Result<Vec<Evalue>, Box<dyn Error>> = arguments.iter()
                     .map(|argument| self.eval(argument)).collect();
@@ -75,7 +73,7 @@ impl<'a> Evaluator {
                 };
                 self.env.push();
                 for (parameter, argument) in lambda.parameters.iter().zip(arguments.into_iter()) {
-                    self.env.bind(Rc::new(parameter.name.text().to_owned()), argument);
+                    self.env.bind(parameter.name.clone(), argument);
                 }
                 let result = self.eval(&lambda.body);
                 self.env.pop();

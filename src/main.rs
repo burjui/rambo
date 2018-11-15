@@ -18,15 +18,12 @@ use termcolor::StandardStream;
 use termcolor::WriteColor;
 
 use crate::pipeline::ALL_PASS_IDS;
-use crate::pipeline::ConstructCFG;
-use crate::pipeline::ConstructCFGOptimized;
 use crate::pipeline::Evaluate;
 use crate::pipeline::Load;
 use crate::pipeline::Parse;
 use crate::pipeline::PassId;
 use crate::pipeline::Pipeline;
 use crate::pipeline::PipelineOptions;
-use crate::pipeline::PropagateConstants;
 use crate::pipeline::ReportRedundantBindings;
 use crate::pipeline::StandardStreamUtils;
 use crate::pipeline::VerifySemantics;
@@ -38,9 +35,7 @@ mod lexer;
 mod parser;
 mod eval;
 mod semantics;
-mod constants;
 mod env;
-mod cfg;
 mod pipeline;
 mod redundant_bindings;
 mod unique_rc;
@@ -136,10 +131,7 @@ fn process(path: String, stdout: &mut StandardStream, options: &PipelineOptions)
         .map(Load)?
         .map(Parse)?
         .map(VerifySemantics)?
-        .map(ConstructCFG)?
         .map(ReportRedundantBindings)?
-        .map(PropagateConstants)?
-        .map(ConstructCFGOptimized)?
         .map(Evaluate)
         .map(|_| ())
 }

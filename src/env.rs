@@ -5,22 +5,17 @@ use std::fmt::Debug;
 use std::hash::Hash;
 
 crate struct Environment<Key, Value> {
-    scopes: Vec<HashMap<Key, Value>>,
-    scope_logs: Vec<Vec<Value>>
+    scopes: Vec<HashMap<Key, Value>>
 }
 
 impl<Key, Value> Environment<Key, Value>
 where Key: Eq + Debug + Hash + Clone, Value: Clone + Debug {
     crate fn new() -> Environment<Key, Value> {
-        Environment {
-            scopes: vec![HashMap::new()],
-            scope_logs: vec![]
-        }
+        Environment { scopes: vec![HashMap::new()] }
     }
 
     crate fn bind(&mut self, key: Key, value: Value) {
         self.scopes.last_mut().unwrap().insert(key, value.clone());
-        self.scope_logs.last_mut().unwrap().push(value);
     }
 
     crate fn resolve(&self, key: &Key) -> Result<Value, Box<dyn Error>> {
@@ -34,11 +29,9 @@ where Key: Eq + Debug + Hash + Clone, Value: Clone + Debug {
 
     crate fn push(&mut self) {
         self.scopes.push(HashMap::new());
-        self.scope_logs.push(vec![]);
     }
 
-    crate fn pop(&mut self) -> Vec<Value> {
+    crate fn pop(&mut self) {
         self.scopes.pop();
-        self.scope_logs.pop().unwrap()
     }
 }

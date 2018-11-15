@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::error::Error;
 use std::fmt::Debug;
 use std::fmt::Formatter;
@@ -12,22 +11,22 @@ use crate::parser::BinaryOperation;
 use crate::parser::Block as ASTBlock;
 use crate::parser::Expr;
 use crate::parser::Parameter as ParsedParameter;
-use crate::parser::Parameter;
 use crate::parser::Statement;
 use crate::source::Source;
 use crate::unique_rc::UniqueRc;
+use crate::env::Environment;
 
 crate type FunctionTypeRef = Rc<FunctionType>;
 
 #[derive(Clone, PartialEq)]
 crate struct FunctionType {
-    crate parameters: Vec<Parameter>,
+    crate parameters: Vec<BindingRef>,
     crate result: Type
 }
 
 impl Debug for FunctionType {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        let parameter_list = self.parameters.iter().map(|x| format!("{:?}", x)).join(" ");
+        let parameter_list = self.parameters.iter().map(|parameter| format!("({:#?}: {:?})", &parameter.name, parameter.data.type_())).format(" ");
         write!(formatter, "({} -> {:?})", parameter_list, self.result)
     }
 }
@@ -92,18 +91,10 @@ impl Debug for ExprRef {
     }
 }
 
-impl ExprRef {
-    #[cfg(feature = "expr_clone_at")]
-    crate fn clone_at(&self, source: Source) -> ExprRef { self.clone_at_source(source) }
-
-    #[cfg(not(feature = "expr_clone_at"))]
-    crate fn clone_at(&self, _: Source) -> ExprRef { self.clone() }
-}
-
 #[derive(Clone)]
 crate struct Lambda {
     crate type_: FunctionTypeRef,
-    crate parameters: Vec<Parameter>,
+    crate parameters: Vec<BindingRef>,
     crate body: ExprRef
 }
 
@@ -133,7 +124,7 @@ crate enum TypedExpr {
     Unit(Source),
     Int(BigInt, Source),
     String(Rc<String>, Source),
-    Deref(Rc<String>, Type, Source),
+    Reference(BindingRef, Source),
     Lambda(LambdaRef, Source),
     Application {
         type_: Type,
@@ -146,7 +137,7 @@ crate enum TypedExpr {
     MulInt(ExprRef, ExprRef, Source),
     DivInt(ExprRef, ExprRef, Source),
     AddStr(ExprRef, ExprRef, Source),
-    Assign(Rc<String>, ExprRef, Source),
+    Assign(BindingRef, ExprRef, Source),
     Conditional {
         condition: ExprRef,
         positive: ExprRef,
@@ -163,13 +154,13 @@ impl Debug for TypedExpr {
             TypedExpr::Unit(_) => write!(formatter, "()"),
             TypedExpr::Int(value, _) => write!(formatter, "{}", value),
             TypedExpr::String(value, _) => write!(formatter, "\"{}\"", value),
-            TypedExpr::Deref(name, _, _) => write!(formatter, "#{}", name),
+            TypedExpr::Reference(binding, _) => write!(formatter, "&{}", &binding.name),
             TypedExpr::AddInt(left, right, _) => write!(formatter, "({:?} + {:?})", left, right),
             TypedExpr::SubInt(left, right, _) => write!(formatter, "({:?} - {:?})", left, right),
             TypedExpr::MulInt(left, right, _) => write!(formatter, "({:?} * {:?})", left, right),
             TypedExpr::DivInt(left, right, _) => write!(formatter, "({:?} / {:?})", left, right),
             TypedExpr::AddStr(left, right, _) => write!(formatter, "({:?} + {:?})", left, right),
-            TypedExpr::Assign(name, value, _) => write!(formatter, "({} = {:?})", name, value),
+            TypedExpr::Assign(name, value, _) => write!(formatter, "({:#?} = {:?})", name, value),
             TypedExpr::Lambda(lambda, _) => lambda.fmt(formatter),
             TypedExpr::Application { function, arguments, .. } => write!(formatter, "({:?} @ {:?})", function, arguments),
             TypedExpr::Conditional { condition, positive, negative, .. } => {
@@ -185,7 +176,7 @@ impl Debug for TypedExpr {
 }
 
 impl TypedExpr {
-    crate fn type_(&self) -> Type {
+    crate fn type_(&self) -> Type { // TODO return &Type
         match self {
             TypedExpr::ArgumentPlaceholder(_, type_) => type_.clone(),
             TypedExpr::Unit(_) => Type::Unit,
@@ -199,7 +190,7 @@ impl TypedExpr {
             TypedExpr::String(_, _) |
             TypedExpr::AddStr(_, _, _) => Type::String,
 
-            TypedExpr::Deref(_, type_, _) => type_.clone(),
+            TypedExpr::Reference(binding, _) => binding.data.type_(),
             TypedExpr::Assign(_, value, _) => value.type_(),
             TypedExpr::Lambda(lambda, _) => Type::Function(lambda.type_.clone()),
             TypedExpr::Application { type_, .. } => type_.clone(),
@@ -212,40 +203,6 @@ impl TypedExpr {
             },
             TypedExpr::Block(Block { statements, .. }) => statements.last().map(TypedStatement::type_).unwrap_or_else(|| Type::Unit)
         }
-    }
-
-    #[allow(unused)]
-    fn clone_at_source(&self, source: Source) -> ExprRef {
-        ExprRef::from(match self {
-            TypedExpr::ArgumentPlaceholder(name, type_) => TypedExpr::ArgumentPlaceholder(name.clone(), type_.clone()),
-            TypedExpr::Unit(_) => TypedExpr::Unit(source),
-            TypedExpr::Int(value, _) => TypedExpr::Int(value.clone(), source),
-            TypedExpr::AddInt(left, right, _) => TypedExpr::AddInt(left.clone(), right.clone(), source),
-            TypedExpr::SubInt(left, right, _) => TypedExpr::SubInt(left.clone(), right.clone(), source),
-            TypedExpr::MulInt(left, right, _) => TypedExpr::MulInt(left.clone(), right.clone(), source),
-            TypedExpr::DivInt(left, right, _) => TypedExpr::DivInt(left.clone(), right.clone(), source),
-            TypedExpr::String(value, _) => TypedExpr::String(value.clone(), source),
-            TypedExpr::AddStr(left, right, _) => TypedExpr::AddStr(left.clone(), right.clone(), source),
-            TypedExpr::Deref(name, type_, _) => TypedExpr::Deref(name.clone(), type_.clone(), source),
-            TypedExpr::Assign(left, right, _) => TypedExpr::Assign(left.clone(), right.clone(), source),
-            TypedExpr::Lambda(lambda, _) => TypedExpr::Lambda(lambda.clone(), source),
-            TypedExpr::Application { type_, function, arguments, .. } => TypedExpr::Application {
-                type_: type_.clone(),
-                function: function.clone(),
-                arguments: arguments.clone(),
-                source
-            },
-            TypedExpr::Conditional { condition, positive, negative, .. } => TypedExpr::Conditional {
-                condition: condition.clone(),
-                positive: positive.clone(),
-                negative: negative.clone(),
-                source
-            },
-            TypedExpr::Block(Block { statements, .. }) => TypedExpr::Block(Block{
-                statements: statements.clone(),
-                source
-            }),
-        })
     }
 }
 
@@ -308,10 +265,11 @@ impl TypedStatement {
 }
 
 type CheckResult<T> = Result<T, Box<dyn Error>>;
+type Env = Environment<Rc<String>, BindingRef>;
 
 crate fn check_module(code: &ASTBlock) -> CheckResult<ExprRef> {
     let mut statements = vec![];
-    let mut env = Environment::new();
+    let mut env = Env::new();
     for statement in &code.statements {
         statements.push(check_statement(&mut env, statement)?);
     }
@@ -321,23 +279,23 @@ crate fn check_module(code: &ASTBlock) -> CheckResult<ExprRef> {
     })))
 }
 
-fn check_statement(env: &mut Environment, statement: &Statement) -> CheckResult<TypedStatement> {
+fn check_statement(env: &mut Env, statement: &Statement) -> CheckResult<TypedStatement> {
     match statement {
         Statement::Expr(expr) => {
             let expr = check_expr(env, expr)?;
             Ok(TypedStatement::Expr(expr))
         },
         Statement::Binding { name, value, source } => {
+            let name = Rc::new(name.text().to_owned());
             let value = check_expr(env, &value)?;
-            let binding = BindingRef::from(Binding::new(
-                Rc::new(name.text().to_owned()), value, source.clone()));
-            env.bind(binding.clone());
+            let binding = BindingRef::from(Binding::new(name.clone(), value, source.clone()));
+            env.bind(name, binding.clone());
             Ok(TypedStatement::Binding(binding))
         }
     }
 }
 
-fn check_expr(env: &mut Environment, expr: &Expr) -> CheckResult<ExprRef> {
+fn check_expr(env: &mut Env, expr: &Expr) -> CheckResult<ExprRef> {
     match expr {
         Expr::Unit(source) => Ok(ExprRef::from(TypedExpr::Unit(source.clone()))),
         Expr::Int(source) => {
@@ -349,15 +307,17 @@ fn check_expr(env: &mut Environment, expr: &Expr) -> CheckResult<ExprRef> {
             let value = Rc::new(text[1..text.len() - 1].to_owned());
             Ok(ExprRef::from(TypedExpr::String(value, source.clone())))
         },
-        Expr::Id(name) => env.resolve(name),
+        Expr::Id(name) => {
+            let binding = env.resolve(&Rc::new(name.text().to_owned()))?;
+            Ok(ExprRef::from(TypedExpr::Reference(binding, name.clone())))
+        },
         Expr::Binary { operation, left, right, .. } => {
             match operation {
                 BinaryOperation::Assign => {
                     if let Expr::Id(name) = left as &Expr {
-                        env.resolve(name)?;
+                        let binding = env.resolve(&Rc::new(name.text().to_owned()))?;
                         let right_checked = check_expr(env, right)?;
-                        Ok(ExprRef::from(TypedExpr::Assign(
-                            Rc::new(name.text().to_owned()), right_checked, expr.source().clone())))
+                        Ok(ExprRef::from(TypedExpr::Assign(binding, right_checked, expr.source().clone())))
                     } else {
                         error!("a variable expected at the left side of assignment, but found: {:?}", left)
                     }
@@ -420,9 +380,10 @@ fn check_expr(env: &mut Environment, expr: &Expr) -> CheckResult<ExprRef> {
                 for (parameter, argument) in function_parameters.iter().zip(arguments.iter()) {
                     let argument_checked = check_expr(env, argument)?;
                     let argument_type = argument_checked.type_();
-                    if argument_type != parameter.type_ {
+                    let parameter_type = parameter.data.type_();
+                    if argument_type != parameter_type {
                         return error!("argument type mismatch for {}: expected `{:?}', found `{:?}'\n  {:?}",
-                            parameter.name, parameter.type_, argument_type, argument);
+                            parameter.name, parameter_type, argument_type, argument);
                     }
                     arguments_checked.push(argument_checked);
                 }
@@ -491,17 +452,21 @@ fn check_expr(env: &mut Environment, expr: &Expr) -> CheckResult<ExprRef> {
     }
 }
 
-fn check_function(env: &mut Environment, parameters: &[ParsedParameter], body: &Expr) -> CheckResult<Lambda> {
+fn check_function(env: &mut Env, parameters: &[ParsedParameter], body: &Expr) -> CheckResult<Lambda> {
+    let parameters = parameters.iter()
+        .map(|parameter| {
+            let name = Rc::new(parameter.name.text().to_owned());
+            let value = ExprRef::from(TypedExpr::ArgumentPlaceholder(name.clone(), parameter.type_.clone()));
+            BindingRef::from(Binding::new(name, value, parameter.source.clone()))
+        })
+        .collect::<Vec<_>>();
     env.push();
-    for parameter in parameters {
-        let name = Rc::new(parameter.name.text().to_owned());
-        let value = ExprRef::from(TypedExpr::ArgumentPlaceholder(name.clone(), parameter.type_.clone()));
-        env.bind(BindingRef::from(Binding::new(name, value, parameter.source.clone())));
+    for parameter in &parameters {
+        env.bind(parameter.name.clone(), parameter.clone());
     }
     let body = check_expr(env, body)?;
     env.pop();
 
-    let parameters = parameters.to_vec();
     let function_type = Rc::new(FunctionType {
         parameters: parameters.clone(),
         result: body.type_()
@@ -513,7 +478,7 @@ fn check_function(env: &mut Environment, parameters: &[ParsedParameter], body: &
     })
 }
 
-fn check_block<'a, BlockIterator>(env: &mut Environment, block: BlockIterator, source: Source) -> CheckResult<ExprRef>
+fn check_block<'a, BlockIterator>(env: &mut Env, block: BlockIterator, source: Source) -> CheckResult<ExprRef>
     where BlockIterator: Iterator<Item = &'a Statement>
 {
     let statements = block
@@ -523,38 +488,4 @@ fn check_block<'a, BlockIterator>(env: &mut Environment, block: BlockIterator, s
         statements,
         source
     })))
-}
-
-struct Environment {
-    scopes: Vec<HashMap<String, BindingRef>>
-}
-
-impl Environment {
-    crate fn new() -> Environment {
-        Environment {
-            scopes: vec![HashMap::new()]
-        }
-    }
-
-    crate fn bind(&mut self, binding: BindingRef) {
-        self.scopes.last_mut().unwrap().insert(binding.name.as_str().to_owned(), binding);
-    }
-
-    crate fn resolve(&self, name: &Source) -> Result<ExprRef, Box<dyn Error>> {
-        for scope in self.scopes.iter().rev() {
-            if let Some(binding) = scope.get(name.text()) {
-                return Ok(ExprRef::from(TypedExpr::Deref(
-                    binding.name.clone(), binding.data.type_(), name.clone())));
-            }
-        }
-        error!("`{:?}' is undefined", name.text())
-    }
-
-    fn push(&mut self) {
-        self.scopes.push(HashMap::new())
-    }
-
-    fn pop(&mut self) {
-        self.scopes.pop();
-    }
 }

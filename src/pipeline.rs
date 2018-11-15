@@ -7,9 +7,6 @@ use termcolor::ColorSpec;
 use termcolor::StandardStream;
 use termcolor::WriteColor;
 
-use crate::cfg::CFGBuilder;
-use crate::cfg::dump_graph;
-use crate::constants::CFP;
 use crate::eval::Evaluator;
 use crate::eval::Evalue;
 use crate::lexer::Lexer;
@@ -56,10 +53,7 @@ impl<'a, T> Pipeline<'a, T> {
 crate struct Load;
 crate struct Parse;
 crate struct VerifySemantics;
-crate struct ConstructCFG;
 crate struct ReportRedundantBindings;
-crate struct PropagateConstants;
-crate struct ConstructCFGOptimized;
 crate struct Evaluate;
 
 #[derive(PartialOrd, PartialEq, Copy, Clone)]
@@ -67,21 +61,15 @@ crate enum PassId {
     Load,
     Parse,
     VerifySemantics,
-    ConstructCFG,
     ReportRedundantBindings,
-    PropagateConstants,
-    ConstructCFGOptimized,
     Evaluate
 }
 
-crate static ALL_PASS_IDS: [PassId; 8] = [
+crate static ALL_PASS_IDS: [PassId; 5] = [
     PassId::Load,
     PassId::Parse,
     PassId::VerifySemantics,
-    PassId::ConstructCFG,
     PassId::ReportRedundantBindings,
-    PassId::PropagateConstants,
-    PassId::ConstructCFGOptimized,
     PassId::Evaluate
 ];
 
@@ -91,10 +79,7 @@ impl PassId {
             PassId::Load => "load",
             PassId::Parse => "parse",
             PassId::VerifySemantics => "sem",
-            PassId::ConstructCFG => "cfg",
             PassId::ReportRedundantBindings => "rb",
-            PassId::PropagateConstants => "cfp",
-            PassId::ConstructCFGOptimized => "cfgopt",
             PassId::Evaluate => "eval"
         }
     }
@@ -104,10 +89,7 @@ impl PassId {
             PassId::Load => "Loading",
             PassId::Parse => "Parsing",
             PassId::VerifySemantics => "Verifying semantics",
-            PassId::ConstructCFG => "Constructing CFG",
             PassId::ReportRedundantBindings => "Detecting redundant bindings",
-            PassId::PropagateConstants => "Propagating constants",
-            PassId::ConstructCFGOptimized => "Constructing CFG (optimized)",
             PassId::Evaluate => "Evaluating"
         }
     }
@@ -174,32 +156,6 @@ impl CompilerPass<ASTBlock, ExprRef> for VerifySemantics {
     }
 }
 
-impl ConstructCFG {
-    fn apply<'a>(hir: ExprRef, _: &'a mut StandardStream, options: &PipelineOptions, filename: &str) -> Result<ExprRef, Box<dyn Error>> {
-        let cfg = CFGBuilder::new().scan(&hir);
-        if options.dump_cfg {
-            dump_graph(&cfg, filename);
-        }
-        Ok(hir)
-    }
-}
-
-impl CompilerPass<ExprRef, ExprRef> for ConstructCFG {
-    const ID: PassId = PassId::ConstructCFG;
-
-    fn apply_impl(hir: ExprRef, stdout: &mut StandardStream, options: &PipelineOptions) -> Result<ExprRef, Box<dyn Error>> {
-        Self::apply(hir, stdout, options, "cfg.dot")
-    }
-}
-
-impl CompilerPass<ExprRef, ExprRef> for ConstructCFGOptimized {
-    const ID: PassId = PassId::ConstructCFGOptimized;
-
-    fn apply_impl(hir: ExprRef, stdout: &mut StandardStream, options: &PipelineOptions) -> Result<ExprRef, Box<dyn Error>> {
-        ConstructCFG::apply(hir, stdout, options, "cfg-optimized.dot")
-    }
-}
-
 impl CompilerPass<ExprRef, ExprRef> for ReportRedundantBindings {
     const ID: PassId = PassId::ReportRedundantBindings;
 
@@ -207,20 +163,6 @@ impl CompilerPass<ExprRef, ExprRef> for ReportRedundantBindings {
         // TODO pass stdout to report_redundant_bindings()
         report_redundant_bindings(&hir, Warnings(options.warnings));
         Ok(hir)
-    }
-}
-
-impl CompilerPass<ExprRef, ExprRef> for PropagateConstants {
-    const ID: PassId = PassId::PropagateConstants;
-
-    fn apply_impl(hir: ExprRef, stdout: &mut StandardStream, options: &PipelineOptions) -> Result<ExprRef, Box<dyn Error>> {
-        let mut cfp = CFP::new();
-        let result = cfp.fold(&hir);
-        drop(hir);
-        if options.dump_intermediate {
-            writeln!(stdout, "{:?}", result)?;
-        }
-        Ok(result)
     }
 }
 

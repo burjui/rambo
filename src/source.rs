@@ -40,15 +40,10 @@ crate struct Source {
 }
 
 impl Source {
-    crate fn new(file: SourceFileRef, range: Range) -> Self {
-        Self { file, range }
-    }
-
+    crate fn new(file: SourceFileRef, range: Range) -> Self { Self { file, range } }
     crate fn file(&self) -> &SourceFileRef { &self.file }
     crate fn range(&self) -> &Range { &self.range }
 }
-
-// TODO use Source::new()
 
 impl Source {
     crate fn text(&self) -> &str {
@@ -102,16 +97,6 @@ impl SourceFile {
             lines,
             size
         }))
-    }
-
-    #[cfg(test)]
-    crate fn empty(name: String) -> SourceFileRef {
-        SourceFileRef::from(SourceFile {
-            path: name,
-            text: "".to_owned(),
-            lines: vec![ Range::new(0, 0) ],
-            size: 0
-        })
     }
 
     crate fn path(&self) -> &str { &self.path }
