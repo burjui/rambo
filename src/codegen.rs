@@ -16,7 +16,7 @@ use crate::unique_rc::UniqueRc;
 crate struct Codegen {
     ssa: Vec<Statement>,
     next_id: usize,
-    ids: HashMap<BindingRef, Id>
+    ids: HashMap<BindingRef, SSAId>
 }
 
 impl Codegen {
@@ -33,7 +33,7 @@ impl Codegen {
         self.ssa
     }
 
-    fn process_expr(&mut self, expr: &ExprRef, target: Option<Id>) -> usize {
+    fn process_expr(&mut self, expr: &ExprRef, target: Option<SSAId>) -> usize {
         match &**expr {
             TypedExpr::Int(value, source) => self.push(target, SSAOp::Int(value.clone()), &source),
             TypedExpr::AddInt(left, right, source) => {
@@ -58,7 +58,7 @@ impl Codegen {
         }
     }
 
-    fn process_statement(&mut self, statement: &TypedStatement, target: Option<Id>) -> usize {
+    fn process_statement(&mut self, statement: &TypedStatement, target: Option<SSAId>) -> usize {
         match statement {
             TypedStatement::Binding(binding) => {
                 let target = self.id(binding);
@@ -78,11 +78,11 @@ impl Codegen {
         &mut self.ssa[index]
     }
 
-    fn target(&self, index: usize) -> Id {
+    fn target(&self, index: usize) -> SSAId {
         self.get(index).target.clone()
     }
 
-    fn push(&mut self, target: Option<Id>, op: SSAOp, source: &Source) -> usize {
+    fn push(&mut self, target: Option<SSAId>, op: SSAOp, source: &Source) -> usize {
         let target = if let Some(id) = target {
             id
         } else {
@@ -93,37 +93,37 @@ impl Codegen {
         self.ssa.len() - 1
     }
 
-    fn new_id(&mut self) -> Id {
+    fn new_id(&mut self) -> SSAId {
         self.new_id_from("tmp")
     }
 
-    fn new_id_from(&mut self, s: &str) -> Id {
+    fn new_id_from(&mut self, s: &str) -> SSAId {
         let name = UniqueRc::from(format!("{}{}", s, self.next_id));
         self.next_id += 1;
         SSAId::new(name)
     }
 
-    fn id(&mut self, binding: &BindingRef) -> Id {
+    fn id(&mut self, binding: &BindingRef) -> SSAId {
         if let Some(id) = self.ids.get(binding) {
             id.clone()
         } else {
             let id = self.new_id_from(&binding.name);
             self.ids.insert(binding.clone(), id.clone());
-            id.clone()
+            id
         }
     }
 }
 
 #[derive(Clone)]
 crate struct Statement {
-    crate target: Id,
+    crate target: SSAId,
     crate op: SSAOp,
     crate source: Source,
     crate label: Option<usize>
 }
 
 impl Statement {
-    fn new(target: Id, op: SSAOp, source: Source) -> Self {
+    fn new(target: SSAId, op: SSAOp, source: Source) -> Self {
         Self { target, op, source, label: None }
     }
 }
@@ -137,7 +137,7 @@ impl Debug for Statement {
 #[derive(Clone, PartialEq)]
 crate enum SSAOp {
     Int(BigInt),
-    AddInt(Id, Id)
+    AddInt(SSAId, SSAId)
 }
 
 impl Debug for SSAOp {
@@ -149,26 +149,25 @@ impl Debug for SSAOp {
     }
 }
 
-crate type Id = UniqueRc<SSAId>;
-
+#[derive(Clone, PartialEq)]
 crate struct SSAId {
     crate name: UniqueRc<String>,
     crate version: usize
 }
 
 impl SSAId {
-    fn new(name: UniqueRc<String>) -> Id {
-        Id::from(SSAId {
+    fn new(name: UniqueRc<String>) -> SSAId {
+        SSAId {
             name: name.clone(),
             version: 0
-        })
+        }
     }
 
-    fn next(id: &SSAId) -> Id {
-        Id::from(SSAId {
+    fn next(id: &SSAId) -> SSAId {
+        SSAId {
             name: id.name.clone(),
             version: id.version + 1
-        })
+        }
     }
 }
 
