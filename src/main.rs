@@ -5,6 +5,7 @@
 #![feature(transpose_result)]
 #![feature(self_struct_ctor)]
 #![feature(try_from)]
+#![feature(macro_at_most_once_rep)]
 
 use std::env::args as program_args;
 use std::error::Error;

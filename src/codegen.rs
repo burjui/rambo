@@ -177,38 +177,46 @@ impl Debug for SSAId {
     }
 }
 
-#[test]
-fn add_int_lit_ssa() -> Result<(), Box<dyn Error>> {
-    let ssa = Codegen::new().build(&typecheck!("let x = 1 + 2")?);
-    match &ssa as &[Statement] {
-        [
-        Statement { target: one, op: SSAOp::Int(one_value), .. },
-        Statement { target: two, op: SSAOp::Int(two_value), .. },
-        Statement { op: SSAOp::AddInt(left, right), .. },
-        ] => {
-            assert_eq!(*one_value, BigInt::from(1u8));
-            assert_eq!(*two_value, BigInt::from(2u8));
-            assert_eq!(left, one);
-            assert_eq!(right, two);
-        },
-        _ => unreachable!()
-    }
-    Ok(())
+#[cfg(test)]
+macro_rules! match_ssa {
+    ($code: expr $(, $patterns: pat)+ $(,)? => $($handlers: stmt;)*) => ({
+        let ssa = Codegen::new().build(&typecheck!($code)?);
+        match &ssa as &[Statement] {
+            [$($patterns, )*] => Ok({
+                $($handlers;)*
+            }),
+            _ => {
+                use itertools::Itertools;
+                panic!("\n\nvalue doesn't match the pattern:\n  {:#?}\n\n", ssa.iter().format("\n  "))
+            }
+        }
+    })
 }
 
 #[test]
 fn assign_ssa() -> Result<(), Box<dyn Error>> {
-    let ssa = Codegen::new().build(&typecheck!("let x = 1\n x = 2")?);
-    match &ssa as &[Statement] {
-        [
+    match_ssa!("let x = 1\n x = 2",
         Statement { target: one, op: SSAOp::Int(one_value), .. },
         Statement { target: two, op: SSAOp::Int(two_value), .. },
-        ] => {
-            assert_eq!(*one_value, BigInt::from(1u8));
-            assert_eq!(*two_value, BigInt::from(2u8));
-            assert_ne!(one, two);
-        },
-        _ => unreachable!()
-    }
-    Ok(())
+        =>
+        assert_eq!(*one_value, BigInt::from(1u8));
+        assert_eq!(*two_value, BigInt::from(2u8));
+        eprintln!("one {:?}", one);
+        eprintln!("two {:?}", two);
+        assert_ne!(one, two);
+    )
+}
+
+#[test]
+fn add_int_ssa() -> Result<(), Box<dyn Error>> {
+    match_ssa!("let x = 1 + 2",
+        Statement { target: one, op: SSAOp::Int(one_value), .. },
+        Statement { target: two, op: SSAOp::Int(two_value), .. },
+        Statement { op: SSAOp::AddInt(left, right), .. }
+        =>
+        assert_eq!(*one_value, BigInt::from(1u8));
+        assert_eq!(*two_value, BigInt::from(2u8));
+        assert_eq!(left, one);
+        assert_eq!(right, two);
+    )
 }
