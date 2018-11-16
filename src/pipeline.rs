@@ -101,7 +101,22 @@ crate trait CompilerPass<Input, Output> {
 
     fn apply<'stdout>(input: Input, stdout: &'stdout mut StandardStream, options: &PipelineOptions) -> Result<(Output, &'stdout mut StandardStream), Box<dyn Error>> {
         stdout.write_title("::", Self::ID.title(), Color::White)?;
-        Self::apply_impl(input, stdout, options).map(|output| (output, stdout))
+        stdout.set_color(ColorSpec::new()
+            .set_fg(Some(Color::Black))
+            .set_intense(true))?;
+        let (elapsed, result) = elapsed::measure_time(|| Self::apply_impl(input, stdout, options).map(|output| (output, stdout)));
+        let (result, stdout) = result?;
+        stdout.set_color(ColorSpec::new()
+            .set_fg(Some(Color::White)))?;
+        write!(stdout, "(")?;
+        stdout.set_color(ColorSpec::new()
+            .set_fg(Some(Color::Black))
+            .set_intense(true))?;
+        write!(stdout, "{}", elapsed)?;
+        stdout.set_color(ColorSpec::new()
+            .set_fg(Some(Color::White)))?;
+        writeln!(stdout, ")")?;
+        Ok((result, stdout))
     }
 }
 
@@ -179,24 +194,17 @@ impl CompilerPass<ExprRef, Evalue> for Evaluate {
 
 crate trait StandardStreamUtils {
     fn write_title(&mut self, prefix: &str, title: &str, color: Color) -> std::io::Result<()>;
-    fn write_colored(&mut self, text: &str, color: Color) -> std::io::Result<()>;
 }
 
 impl StandardStreamUtils for StandardStream {
     fn write_title(&mut self, prefix: &str, title: &str, color: Color) -> std::io::Result<()> {
-        self.write_colored(prefix, Color::Blue)?;
-        write!(self, " ")?;
-        self.write_colored(title, color)?;
-        writeln!(self)?;
         self.set_color(ColorSpec::new()
-            .set_fg(Some(Color::Black))
-            .set_intense(true))
-    }
-
-    fn write_colored(&mut self, text: &str, color: Color) -> std::io::Result<()> {
+            .set_fg(Some(Color::Blue))
+            .set_bold(true))?;
+        write!(self, "{} ", prefix)?;
         self.set_color(ColorSpec::new()
             .set_fg(Some(color))
             .set_bold(true))?;
-        write!(self, "{}", text)
+        writeln!(self, "{}", title)
     }
 }

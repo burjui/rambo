@@ -19,6 +19,7 @@ libc = "0.2.43"
 lazy_static = "1.2.0"
 variant_count = "1.0.0"
 num_enum = "0.1.1"
+elapsed = "0.1.2"
 
 [features]
 expr_clone_at = []
