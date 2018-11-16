@@ -8,6 +8,8 @@ use crate::semantics::LambdaRef;
 use crate::semantics::TypedExpr;
 use crate::semantics::TypedStatement;
 
+// TODO rewrite for SSA
+
 crate struct Warnings(crate bool);
 
 crate fn report_redundant_bindings(code: &ExprRef, Warnings(warnings): Warnings) {

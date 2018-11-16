@@ -103,7 +103,7 @@ impl Lexer {
                     }
                 }
                 error!("{:?}({:?}): unexpected character: {} ({})",
-                    self.file.path(), self.file.position(&self.current_source()), c, c as u32)
+                       self.file.name(), self.file.position(&self.current_source()), c, c as u32)
             },
             None => Ok((self.eof_lexeme.clone(), self.file.lines().len()))
         }
@@ -168,7 +168,7 @@ impl Lexer {
                         let start_position = self.file.position(&self.lexeme_source());
                         let end_position = self.file.position(&self.current_source());
                         error!("{:?}({:?}): unclosed string starting at {:?}",
-                            self.file.path(), end_position, start_position)
+                               self.file.name(), end_position, start_position)
                     }
                 }
             },
@@ -268,7 +268,7 @@ impl Lexer {
             self.read_char();
         } else {
             return error!("{}({:?}): unterminated comment starting at {:?}",
-                          self.file.path(),
+                          self.file.name(),
                           self.file.position(&self.current_source()),
                           self.file.position(&comment_start));
         }
@@ -303,6 +303,6 @@ impl Lexer {
 impl Debug for Lexer {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         formatter.write_str(
-            &format!("Lexer {{ {}({:?}) }}", self.file.path(), self.file.position(&self.current_source())))
+            &format!("Lexer {{ {}({:?}) }}", self.file.name(), self.file.position(&self.current_source())))
     }
 }

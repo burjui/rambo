@@ -18,6 +18,8 @@ use crate::unique_rc::UniqueRc;
 
 crate type FunctionTypeRef = Rc<FunctionType>;
 
+// TODO struct Parameter(BindingRef, usize)
+
 #[derive(Clone, PartialEq)]
 crate struct FunctionType {
     crate parameters: Vec<BindingRef>,
@@ -207,20 +209,7 @@ impl TypedExpr {
 }
 
 crate type LambdaRef = UniqueRc<Lambda>;
-
-impl Debug for LambdaRef {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        Debug::fmt(self.deref(), formatter)
-    }
-}
-
 crate type BindingRef = UniqueRc<Binding>;
-
-impl Debug for BindingRef {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        Debug::fmt(self.deref(), formatter)
-    }
-}
 
 crate struct Binding {
     crate name: Rc<String>,

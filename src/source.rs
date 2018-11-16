@@ -2,7 +2,6 @@ use std::error::Error;
 use std::fmt::Debug;
 use std::fmt::Display;
 use std::fmt::Formatter;
-use std::ops::Deref;
 
 use crate::unique_rc::UniqueRc;
 
@@ -61,7 +60,7 @@ impl Source {
 
 impl Display for Source {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(formatter, "{}({:?})", self.file.path, self.file.position(self))
+        write!(formatter, "{}({:?})", self.file.name, self.file.position(self))
     }
 }
 
@@ -72,7 +71,7 @@ impl Debug for Source {
 }
 
 crate struct SourceFile {
-    path: String,
+    name: String,
     text: String,
     lines: Vec<Range>,
     size: usize,
@@ -90,19 +89,24 @@ impl SourceFile {
         buf_reader.read_to_end(&mut data)?;
         let size = data.len();
         let text = Self::decode(&data, path)?;
-        let lines = Self::collect_lines(&text);
-        Ok(SourceFileRef::from(SourceFile {
-            path: path.to_owned(),
-            text,
-            lines,
-            size
-        }))
+        Ok(Self::from_text(path.to_owned(), text, size))
     }
 
-    crate fn path(&self) -> &str { &self.path }
+    #[cfg(test)]
+    crate fn create(name: String, text: &str) -> SourceFileRef {
+        let size = text.len();
+        Self::from_text(name, text.to_owned(), size)
+    }
+
+    crate fn name(&self) -> &str { &self.name }
     crate fn text(&self) -> &str { &self.text }
     crate fn lines(&self) -> &[Range] { &self.lines }
     crate fn size(&self) -> usize { self.size }
+
+    fn from_text(name: String, text: String, size: usize) -> SourceFileRef {
+        let lines = Self::collect_lines(&text);
+        SourceFileRef::from(SourceFile { name, text, lines, size })
+    }
 
     fn decode(data: &[u8], path: &str) -> Result<String, Box<dyn Error>> {
         let offset = match Self::detect_bom(&data) {
@@ -142,7 +146,7 @@ impl SourceFile {
 
 impl Debug for SourceFile {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        Debug::fmt(&self.path, formatter)
+        Debug::fmt(&self.name, formatter)
     }
 }
 
@@ -160,13 +164,7 @@ impl SourceFileRef {
                 }
             }
         }
-        unreachable!("{:?}: offset {} is out of range", self.path, offset)
-    }
-}
-
-impl Debug for SourceFileRef {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        Debug::fmt(self.deref(), formatter)
+        unreachable!("{:?}: offset {} is out of range", self.name, offset)
     }
 }
 
