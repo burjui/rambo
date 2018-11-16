@@ -399,17 +399,17 @@ fn check_expr(env: &mut Env, expr: &Expr) -> CheckResult<ExprRef> {
                 _ => unreachable!()
             };
             if positive.is_empty() {
-                warning!("empty positive conditional clause: {:?}", positive_source);
+                warning!("empty positive branch: {:?}", positive_source);
             }
-            let positive = check_block(env, positive.iter(), positive_source.clone())?;
+            let mut positive = check_block(env, positive.iter(), positive_source.clone())?;
             let positive_type = positive.type_();
 
             let negative = match negative {
                 Some(box Expr::Block(ASTBlock { source, statements, .. })) => {
                     if statements.is_empty() {
-                        warning!("empty negative conditional clause: {:?}", source);
+                        warning!("empty negative branch: {:?}", source);
                     }
-                    Some(check_block(env, statements.iter(), source.clone())?)
+                    Some(ExprRef::from(check_block(env, statements.iter(), source.clone())?))
                 },
                 _ => None
             };
@@ -417,14 +417,16 @@ fn check_expr(env: &mut Env, expr: &Expr) -> CheckResult<ExprRef> {
 
             if let Some(negative_type) = negative_type {
                 if positive_type != negative_type {
-                    return error!("types of positive and negative clauses of a conditional don't match: `{:?}' and `{:?}'",
+                    return error!("types of positive and negative branches of a conditional don't match: `{:?}' and `{:?}'",
                         positive_type, negative_type);
                 }
+            } else if let TypedExpr::Block(block) = &mut positive {
+                block.statements.push(TypedStatement::Expr(ExprRef::from(TypedExpr::Unit(block.source.clone()))))
             }
 
             Ok(ExprRef::from(TypedExpr::Conditional {
                 condition: condition_typed,
-                positive,
+                positive: ExprRef::from(positive),
                 negative,
                 source: source.clone()
             }))
@@ -467,14 +469,14 @@ fn check_function(env: &mut Env, parameters: &[ParsedParameter], body: &Expr) ->
     })
 }
 
-fn check_block<'a, BlockIterator>(env: &mut Env, block: BlockIterator, source: Source) -> CheckResult<ExprRef>
+fn check_block<'a, BlockIterator>(env: &mut Env, block: BlockIterator, source: Source) -> CheckResult<TypedExpr>
     where BlockIterator: Iterator<Item = &'a Statement>
 {
     let statements = block
         .map(|statement| check_statement(env, statement))
         .collect::<Result<_, _>>()?;
-    Ok(ExprRef::from(TypedExpr::Block(Block {
+    Ok(TypedExpr::Block(Block {
         statements,
         source
-    })))
+    }))
 }
