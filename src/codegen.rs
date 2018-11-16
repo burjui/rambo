@@ -36,11 +36,17 @@ impl Codegen {
     fn process_expr(&mut self, expr: &ExprRef, target: Option<SSAId>) -> usize {
         match &**expr {
             TypedExpr::Int(value, source) => self.push(target, SSAOp::Int(value.clone()), &source),
-            TypedExpr::AddInt(left, right, source) => {
-                let left = self.process_expr(left, None);
-                let right = self.process_expr(right, None);
-                self.push(target, SSAOp::AddInt(self.target(left), self.target(right)), &source)
+            TypedExpr::Assign(binding, value, source) => {
+                let new_version = SSAId::next(&self.id(binding));
+                self.ids.insert(binding.clone(), new_version.clone());
+                let statement = self.process_expr(value, Some(new_version));
+                self.get_mut(statement).source = source.clone();
+                statement
             },
+            TypedExpr::AddInt(left, right, source) => self.push_int_op(target, left, right, source, SSAOp::AddInt),
+            TypedExpr::SubInt(left, right, source) => self.push_int_op(target, left, right, source, SSAOp::SubInt),
+            TypedExpr::MulInt(left, right, source) => self.push_int_op(target, left, right, source, SSAOp::MulInt),
+            TypedExpr::DivInt(left, right, source) => self.push_int_op(target, left, right, source, SSAOp::DivInt),
             TypedExpr::Block(Block { statements, .. }) => {
                 let (head, tail) = statements.split_at(statements.len() - 1);
                 for statement in head {
@@ -48,14 +54,16 @@ impl Codegen {
                 }
                 self.process_statement(tail.first().unwrap(), None)
             },
-            TypedExpr::Assign(binding, value, source) => {
-                let new_version = SSAId::next(&self.id(binding));
-                let statement = self.process_expr(value, Some(new_version));
-                self.get_mut(statement).source = source.clone();
-                statement
-            }
             _ => unimplemented!("{:?}", expr)
         }
+    }
+
+    fn push_int_op(&mut self, target: Option<SSAId>, left: &ExprRef, right: &ExprRef,
+                   source: &Source, constructor: impl Fn(SSAId, SSAId) -> SSAOp) -> usize
+    {
+        let left = self.process_expr(left, None);
+        let right = self.process_expr(right, None);
+        self.push(target, constructor(self.target(left), self.target(right)), source)
     }
 
     fn process_statement(&mut self, statement: &TypedStatement, target: Option<SSAId>) -> usize {
@@ -137,14 +145,20 @@ impl Debug for Statement {
 #[derive(Clone, PartialEq)]
 crate enum SSAOp {
     Int(BigInt),
-    AddInt(SSAId, SSAId)
+    AddInt(SSAId, SSAId),
+    SubInt(SSAId, SSAId),
+    MulInt(SSAId, SSAId),
+    DivInt(SSAId, SSAId)
 }
 
 impl Debug for SSAOp {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             SSAOp::Int(value) => write!(formatter, "{}", value),
-            SSAOp::AddInt(left, right) => write!(formatter, "{:?} + {:?}", left, right)
+            SSAOp::AddInt(left, right) => write!(formatter, "{:?} + {:?}", left, right),
+            SSAOp::SubInt(left, right) => write!(formatter, "{:?} - {:?}", left, right),
+            SSAOp::MulInt(left, right) => write!(formatter, "{:?} * {:?}", left, right),
+            SSAOp::DivInt(left, right) => write!(formatter, "{:?} / {:?}", left, right),
         }
     }
 }
@@ -194,29 +208,88 @@ macro_rules! match_ssa {
 }
 
 #[test]
-fn assign_ssa() -> Result<(), Box<dyn Error>> {
-    match_ssa!("let x = 1\n x = 2",
+fn assign() -> Result<(), Box<dyn Error>> {
+    match_ssa!(r"
+        let x = 1
+        x = 2
+        x = 3
+        ",
         Statement { target: one, op: SSAOp::Int(one_value), .. },
         Statement { target: two, op: SSAOp::Int(two_value), .. },
+        Statement { target: three, op: SSAOp::Int(three_value), .. },
         =>
         assert_eq!(*one_value, BigInt::from(1u8));
         assert_eq!(*two_value, BigInt::from(2u8));
-        eprintln!("one {:?}", one);
-        eprintln!("two {:?}", two);
+        assert_eq!(*three_value, BigInt::from(3u8));
         assert_ne!(one, two);
+        assert_ne!(two, three);
+        assert_eq!(one.name, two.name);
+        assert_eq!(two.name, three.name);
+        assert_ne!(one.version, two.version);
+        assert_ne!(two.version, three.version);
     )
 }
 
-#[test]
-fn add_int_ssa() -> Result<(), Box<dyn Error>> {
-    match_ssa!("let x = 1 + 2",
+#[cfg(test)]
+macro_rules! test_int_op {
+    ($op_char: expr, $op_variant: path) => (match_ssa!(&format!("1{}2", $op_char),
         Statement { target: one, op: SSAOp::Int(one_value), .. },
         Statement { target: two, op: SSAOp::Int(two_value), .. },
-        Statement { op: SSAOp::AddInt(left, right), .. }
+        Statement { op: $op_variant(left, right), .. }
         =>
         assert_eq!(*one_value, BigInt::from(1u8));
         assert_eq!(*two_value, BigInt::from(2u8));
         assert_eq!(left, one);
         assert_eq!(right, two);
+        assert_ne!(left, right);
+    ))
+}
+
+#[test]
+fn add_int() -> Result<(), Box<dyn Error>> {
+    test_int_op!('+', SSAOp::AddInt)
+}
+
+#[test]
+fn sub_int() -> Result<(), Box<dyn Error>> {
+    test_int_op!('-', SSAOp::SubInt)
+}
+
+#[test]
+fn mul_int() -> Result<(), Box<dyn Error>> {
+    test_int_op!('*', SSAOp::MulInt)
+}
+
+#[test]
+fn div_int() -> Result<(), Box<dyn Error>> {
+    test_int_op!('/', SSAOp::DivInt)
+}
+
+#[test]
+fn all_int() -> Result<(), Box<dyn Error>> {
+    match_ssa!("(1 + 2) - 3 * (4 / 5)",
+        Statement { target: one, op: SSAOp::Int(one_value), .. },
+        Statement { target: two, op: SSAOp::Int(two_value), .. },
+        Statement { target: add, op: SSAOp::AddInt(add_left, add_right), .. },
+        Statement { target: three, op: SSAOp::Int(three_value), .. },
+        Statement { target: four, op: SSAOp::Int(four_value), .. },
+        Statement { target: five, op: SSAOp::Int(five_value), .. },
+        Statement { target: div, op: SSAOp::DivInt(div_left, div_right), .. },
+        Statement { target: mul, op: SSAOp::MulInt(mul_left, mul_right), .. },
+        Statement { op: SSAOp::SubInt(sub_left, sub_right), .. },
+        =>
+        assert_eq!(*one_value, BigInt::from(1u8));
+        assert_eq!(*two_value, BigInt::from(2u8));
+        assert_eq!(*three_value, BigInt::from(3u8));
+        assert_eq!(*four_value, BigInt::from(4u8));
+        assert_eq!(*five_value, BigInt::from(5u8));
+        assert_eq!(add_left, one);
+        assert_eq!(add_right, two);
+        assert_eq!(div_left, four);
+        assert_eq!(div_right, five);
+        assert_eq!(mul_left, three);
+        assert_eq!(mul_right, div);
+        assert_eq!(sub_left, add);
+        assert_eq!(sub_right, mul);
     )
 }
