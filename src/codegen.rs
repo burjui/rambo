@@ -1,9 +1,14 @@
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::error::Error;
 use std::fmt::Debug;
 use std::fmt::Formatter;
+use std::hash::Hash;
+use std::hash::Hasher;
 
+use lazy_static::lazy_static;
 use num_bigint::BigInt;
+use regex::Regex;
 
 use crate::semantics::BindingRef;
 use crate::semantics::Block;
@@ -16,15 +21,17 @@ use crate::unique_rc::UniqueRc;
 crate struct Codegen {
     ssa: Vec<Statement>,
     next_id: usize,
-    ids: HashMap<BindingRef, SSAId>
+    ids: HashMap<BindingRef, SSAId>,
+    modified: HashSet<Modified>,
 }
 
 impl Codegen {
     crate fn new() -> Self {
         Self {
-            ids: HashMap::new(),
+            ssa: Vec::new(),
             next_id: 0,
-            ssa: Vec::new()
+            ids: HashMap::new(),
+            modified: HashSet::new(),
         }
     }
 
@@ -33,15 +40,16 @@ impl Codegen {
         self.ssa
     }
 
-    fn process_expr(&mut self, expr: &ExprRef, target: Option<SSAId>) -> usize {
+    fn process_expr(&mut self, expr: &ExprRef, target: Option<Target>) -> SSAId {
         match &**expr {
-            TypedExpr::Int(value, source) => self.push(target, SSAOp::Int(value.clone()), source.text().to_owned()),
+            TypedExpr::Int(value, source) => self.push(target, SSAOp::Int(value.clone()), source.text()),
             TypedExpr::Assign(binding, value, source) => {
-                let new_version = SSAId::next(&self.id(binding));
-                self.ids.insert(binding.clone(), new_version.clone());
-                let statement = self.process_expr(value, Some(new_version));
-                self.get_mut(statement).comment = source.text().to_owned();
-                statement
+                let new_version = self.next_version(binding, source.text());
+                self.modified.insert(Modified {
+                    binding: binding.clone(),
+                    id: new_version.id.clone()
+                });
+                self.process_expr(value, Some(new_version))
             },
             TypedExpr::AddInt(left, right, source) => self.push_int_op(target, left, right, source, SSAOp::AddInt),
             TypedExpr::SubInt(left, right, source) => self.push_int_op(target, left, right, source, SSAOp::SubInt),
@@ -49,7 +57,7 @@ impl Codegen {
             TypedExpr::DivInt(left, right, source) => self.push_int_op(target, left, right, source, SSAOp::DivInt),
             TypedExpr::Block(Block { statements, source }) => {
                 if statements.is_empty() {
-                    self.push(target, SSAOp::Unit, source.text().to_owned())
+                    self.push(target, SSAOp::Unit, source.text())
                 } else {
                     let (head, tail) = statements.split_at(statements.len() - 1);
                     for statement in head {
@@ -60,115 +68,176 @@ impl Codegen {
             },
             TypedExpr::Conditional { condition, positive, negative, source } => {
                 let condition = self.process_expr(condition, None);
-                let condition_target = self.target(condition).clone();
-                let end_label = self.new_label();
-                let negative_label = self.new_label();
-                self.push(None, SSAOp::Cbz(condition_target.clone(), negative_label.clone()), "jump over positive branch".to_owned());
+                let negative_label = self.new_label("negative branch");
+                self.push(None, SSAOp::Cbz(condition, negative_label.id.clone()), "jump to negative branch");
                 let positive = self.process_expr(positive, None);
-                self.push(None, SSAOp::Br(end_label.clone()), "jump to the end of conditional".to_owned());
-                self.push(None, SSAOp::Label(negative_label), "negative branch".to_owned());
+                let modified_in_positive = self.take_modified();
+                let end_label = self.new_label("end of conditional");
+                self.push(None, SSAOp::Br(end_label.id.clone()), "jump to the end of conditional");
+                self.push(Some(negative_label.clone()), SSAOp::Label, "");
                 let negative = match negative {
                     Some(negative) => self.process_expr(negative, None),
-                    None => self.push(None, SSAOp::Unit, "negative branch value".to_owned())
+                    None => self.push(None, SSAOp::Unit, "negative branch value")
                 };
-                self.push(Some(end_label.clone()), SSAOp::Label(end_label), "end of conditional".to_owned());
-                self.push(target, SSAOp::Phi(self.target(positive), self.target(negative)), source.text().to_owned())
+                let modified_in_negative = self.take_modified();
+                let needs_phi = modified_in_positive.intersection(&modified_in_negative)
+                    .map(|modified| (&modified.binding, &modified_in_positive.get(modified).unwrap().id, &modified_in_negative.get(modified).unwrap().id));
+                self.push(Some(end_label.clone()), SSAOp::Label, "");
+                for (binding, id1, id2) in needs_phi {
+                    let new_version = self.next_version(binding, "modified in both branches");
+                    self.push(Some(new_version), SSAOp::Phi(id1.clone(), id2.clone()), "");
+                }
+                self.push(target, SSAOp::Phi(positive, negative), source.text())
             },
-            TypedExpr::Unit(source) => self.push(target, SSAOp::Unit, source.text().to_owned()),
+            TypedExpr::Unit(source) => self.push(target, SSAOp::Unit, source.text()),
+            TypedExpr::Reference(binding, _) => self.id(binding),
             _ => unimplemented!("{:?}", expr)
         }
     }
 
-    fn push_int_op(&mut self, target: Option<SSAId>, left: &ExprRef, right: &ExprRef,
-                   source: &Source, constructor: impl Fn(SSAId, SSAId) -> SSAOp) -> usize
-    {
-        let left = self.process_expr(left, None);
-        let right = self.process_expr(right, None);
-        self.push(target, constructor(self.target(left), self.target(right)), source.text().to_owned())
-    }
-
-    fn process_statement(&mut self, statement: &TypedStatement, target: Option<SSAId>) -> usize {
+    fn process_statement(&mut self, statement: &TypedStatement, target: Option<Target>) -> SSAId {
         match statement {
             TypedStatement::Binding(binding) => {
-                let target = self.id(binding);
-                let value = self.process_expr(&binding.data, Some(target));
-                self.get_mut(value).comment = binding.source.text().to_owned();
-                value
+                let target = Target::new(self.id(binding), binding.source.text());
+                self.process_expr(&binding.data, Some(target))
             },
             TypedStatement::Expr(expr) => self.process_expr(expr, target)
         }
     }
 
-    fn get(&self, index: usize) -> &Statement {
-        &self.ssa[index]
+    fn take_modified(&mut self) -> HashSet<Modified> {
+        self.modified.drain().collect::<HashSet<_>>()
     }
 
-    fn get_mut(&mut self, index: usize) -> &mut Statement {
-        &mut self.ssa[index]
+    fn push(&mut self, target: Option<Target>, op: SSAOp, comment: &str) -> SSAId {
+        let target = target.unwrap_or_else(|| self.new_target(comment));
+        self.ssa.push(Statement::new(target.clone(), op));
+        target.id
     }
 
-    fn target(&self, index: usize) -> SSAId {
-        self.get(index).target.clone()
+    fn push_int_op(&mut self, target: Option<Target>, left: &ExprRef, right: &ExprRef,
+                   source: &Source, constructor: impl Fn(SSAId, SSAId) -> SSAOp) -> SSAId
+    {
+        let left = self.process_expr(left, None);
+        let right = self.process_expr(right, None);
+        self.push(target, constructor(left, right), source.text())
     }
 
-    fn push(&mut self, target: Option<SSAId>, op: SSAOp, comment: String) -> usize {
-        let target = if let Some(id) = target {
-            id
-        } else {
-            self.new_id()
-        };
-        let statement = Statement::new(target, op, comment);
-        self.ssa.push(statement.clone());
-        self.ssa.len() - 1
+    fn new_label(&mut self, comment: &str) -> Target {
+        Target::new(self.new_id_from("@label"), comment)
+    }
+
+    fn new_target(&mut self, comment: &str) -> Target {
+        Target::new(self.new_id(), comment)
     }
 
     fn new_id(&mut self) -> SSAId {
         self.new_id_from("@tmp")
     }
 
-    fn new_label(&mut self) -> SSAId {
-        self.new_id_from("@label")
-    }
-
-    fn new_id_from(&mut self, s: &str) -> SSAId {
-        let name = UniqueRc::from(format!("{}{}", s, self.next_id));
-        self.next_id += 1;
-        SSAId::new(name)
+    fn new_id_from(&mut self, prefix: &str) -> SSAId {
+        let name = UniqueRc::from(format!("{}{}", prefix, self.next_id));
+        self.new_ssa_id(SSAIdName::String(name))
     }
 
     fn id(&mut self, binding: &BindingRef) -> SSAId {
         if let Some(id) = self.ids.get(binding) {
             id.clone()
         } else {
-            let id = self.new_id_from(&binding.name);
+            let id = self.new_ssa_id(SSAIdName::Binding(binding.clone()));
             self.ids.insert(binding.clone(), id.clone());
             id
         }
+    }
+
+    fn new_ssa_id(&mut self, name: SSAIdName) -> SSAId {
+        SSAId {
+            name,
+            version: 0,
+            unique_id: self.unique_id()
+        }
+    }
+
+    fn next_version(&mut self, binding: &BindingRef, comment: &str) -> Target {
+        let id = self.id(binding);
+        let new_id = SSAId {
+            name: id.name.clone(),
+            version: id.version + 1,
+            unique_id: self.unique_id()
+        };
+        self.ids.insert(binding.clone(), new_id.clone());
+        Target::new(new_id, comment)
+    }
+
+    fn unique_id(&mut self) -> usize {
+        let id = self.next_id;
+        self.next_id += 1;
+        id
+    }
+}
+
+#[derive(Clone)]
+crate struct Target {
+    id: SSAId,
+    comment: String
+}
+
+impl Target {
+    fn new(id: SSAId, comment: &str) -> Self {
+        Self { id, comment: comment.to_owned() }
+    }
+}
+
+impl PartialEq for Target {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
+}
+
+impl Eq for Target {}
+
+impl Hash for Target {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.id.hash(state)
+    }
+}
+
+impl Debug for Target {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        self.id.fmt(formatter)
     }
 }
 
 #[derive(Clone)]
 crate struct Statement {
-    crate target: SSAId,
-    crate op: SSAOp,
-    crate comment: String,
+    crate target: Target,
+    crate op: SSAOp
 }
 
 impl Statement {
-    fn new(target: SSAId, op: SSAOp, comment: String) -> Self {
-        Self { target, op, comment }
+    fn new(target: Target, op: SSAOp) -> Self {
+        Self { target, op }
     }
 }
 
 impl Debug for Statement {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        if let SSAOp::Label(label) = &self.op {
-            write!(formatter, "{:?}:", label)?;
+        let code = if let SSAOp::Label = &self.op {
+            format!("{:?}:", &self.target.id)
         } else {
-            write!(formatter, "    {:?} = {:?}", self.target, self.op)?;
+            let s = match &self.op {
+                SSAOp::Br(_) | SSAOp::Cbz(_, _) => format!("{:?}", &self.op),
+                _ => format!("{:?} = {:?}", &self.target.id, &self.op)
+            };
+            format!("    {}", s)
+        };
+
+        lazy_static! {
+            static ref WHITESPACE_REGEX: Regex = Regex::new(r"[ \t]+").unwrap();
         }
-        let comment = self.comment.replace("\n", "; ");
-        write!(formatter, "    // {}", comment)
+        let comment = self.target.comment.replace("\n", " ");
+        let comment = WHITESPACE_REGEX.replace_all(&comment, " ");
+        write!(formatter, "{:40}    // {}", code, comment)
     }
 }
 
@@ -181,9 +250,9 @@ crate enum SSAOp {
     SubInt(SSAId, SSAId),
     MulInt(SSAId, SSAId),
     DivInt(SSAId, SSAId),
-    Label(SSAId),
+    Label,
     Br(SSAId),
-    Cbz(SSAId, SSAId)
+    Cbz(SSAId, SSAId),
 }
 
 impl Debug for SSAOp {
@@ -196,44 +265,86 @@ impl Debug for SSAOp {
             SSAOp::SubInt(left, right) => write!(formatter, "{:?} - {:?}", left, right),
             SSAOp::MulInt(left, right) => write!(formatter, "{:?} * {:?}", left, right),
             SSAOp::DivInt(left, right) => write!(formatter, "{:?} / {:?}", left, right),
-            SSAOp::Label(id) => write!(formatter, "{}", &id.name),
+            SSAOp::Label => formatter.write_str("label"),
             SSAOp::Br(label) => write!(formatter, "br {:?}", label),
             SSAOp::Cbz(condition, label) => write!(formatter, "cbz {:?} {:?}", condition, label),
         }
     }
 }
 
-#[derive(Clone, PartialEq)]
-crate struct SSAId {
-    crate name: UniqueRc<String>,
-    crate version: usize
+#[derive(Clone, PartialEq, Eq, Hash)]
+crate enum SSAIdName {
+    String(UniqueRc<String>),
+    Binding(BindingRef)
 }
 
-impl SSAId {
-    fn new(name: UniqueRc<String>) -> SSAId {
-        SSAId {
-            name: name.clone(),
-            version: 0
+impl Debug for SSAIdName {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SSAIdName::String(s) => formatter.write_str(s),
+            SSAIdName::Binding(binding) => formatter.write_str(&binding.name)
         }
     }
+}
 
-    fn next(id: &SSAId) -> SSAId {
-        SSAId {
-            name: id.name.clone(),
-            version: id.version + 1
-        }
-    }
+#[derive(Clone)]
+crate struct SSAId {
+    crate name: SSAIdName,
+    crate version: usize,
+    unique_id: usize
 }
 
 impl Debug for SSAId {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(formatter, "{}'{}", self.name, self.version)
+        match &self.name {
+            SSAIdName::String(_) => Debug::fmt(&self.name, formatter),
+            SSAIdName::Binding(_) => write!(formatter, "{:?}'{}", self.name, self.version)
+        }
+    }
+}
+
+impl PartialEq for SSAId {
+    fn eq(&self, other: &Self) -> bool {
+        self.unique_id == other.unique_id
+    }
+}
+
+impl Eq for SSAId {}
+
+impl Hash for SSAId {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.unique_id.hash(state)
+    }
+}
+
+struct Modified {
+    binding: BindingRef,
+    id: SSAId
+}
+
+impl PartialEq for Modified {
+    fn eq(&self, other: &Modified) -> bool {
+        self.binding == other.binding
+    }
+}
+
+impl Eq for Modified {}
+
+impl Hash for Modified {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.binding.hash(state)
+    }
+}
+
+impl Debug for Modified {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{} -> {:?}", &self.binding.name, &self.id)
     }
 }
 
 #[cfg(test)]
 macro_rules! match_ssa {
-    ($code: expr $(, $patterns: pat)+ $(,)? => $($handlers: stmt;)*) => ({
+    ($code: expr $(, $patterns: pat)* $(,)? => $($handlers: stmt;)*) => ({
         let ssa = Codegen::new().build(&typecheck!($code)?);
         match &ssa as &[Statement] {
             [$($patterns, )*] => Ok({
@@ -241,7 +352,9 @@ macro_rules! match_ssa {
             }),
             _ => {
                 use itertools::Itertools;
-                panic!("\n\nvalue doesn't match the pattern:\n  {:#?}\n\n", ssa.iter().format("\n  "))
+                panic!("match_ssa!()\n\npatterns:\n    {}\n\nssa:\n{:#?}\n\n",
+                &[$(stringify!($patterns),)*].iter().format("\n    "),
+                ssa.iter().format("\n"))
             }
         }
     })
@@ -256,33 +369,33 @@ fn assign() -> TestResult {
         x = 2
         x = 3
         ",
-        Statement { target: one, op: SSAOp::Int(one_value), .. },
-        Statement { target: two, op: SSAOp::Int(two_value), .. },
-        Statement { target: three, op: SSAOp::Int(three_value), .. },
+        Statement { target: one, op: SSAOp::Int(one_value) },
+        Statement { target: two, op: SSAOp::Int(two_value) },
+        Statement { target: three, op: SSAOp::Int(three_value) },
         =>
         assert_eq!(*one_value, BigInt::from(1u8));
         assert_eq!(*two_value, BigInt::from(2u8));
         assert_eq!(*three_value, BigInt::from(3u8));
         assert_ne!(one, two);
         assert_ne!(two, three);
-        assert_eq!(one.name, two.name);
-        assert_eq!(two.name, three.name);
-        assert_ne!(one.version, two.version);
-        assert_ne!(two.version, three.version);
+        assert_eq!(one.id.name, two.id.name);
+        assert_eq!(two.id.name, three.id.name);
+        assert_ne!(one.id.version, two.id.version);
+        assert_ne!(two.id.version, three.id.version);
     )
 }
 
 #[cfg(test)]
 macro_rules! test_int_op {
     ($op_char: expr, $op_variant: path) => (match_ssa!(&format!("1{}2", $op_char),
-        Statement { target: one, op: SSAOp::Int(one_value), .. },
-        Statement { target: two, op: SSAOp::Int(two_value), .. },
+        Statement { target: one, op: SSAOp::Int(one_value) },
+        Statement { target: two, op: SSAOp::Int(two_value) },
         Statement { op: $op_variant(left, right), .. }
         =>
         assert_eq!(*one_value, BigInt::from(1u8));
         assert_eq!(*two_value, BigInt::from(2u8));
-        assert_eq!(left, one);
-        assert_eq!(right, two);
+        assert_eq!(left, &one.id);
+        assert_eq!(right, &two.id);
         assert_ne!(left, right);
     ))
 }
@@ -310,14 +423,14 @@ fn div_int() -> TestResult {
 #[test]
 fn all_int() -> TestResult {
     match_ssa!("(1 + 2) - 3 * (4 / 5)",
-        Statement { target: one, op: SSAOp::Int(one_value), .. },
-        Statement { target: two, op: SSAOp::Int(two_value), .. },
-        Statement { target: add, op: SSAOp::AddInt(add_left, add_right), .. },
-        Statement { target: three, op: SSAOp::Int(three_value), .. },
-        Statement { target: four, op: SSAOp::Int(four_value), .. },
-        Statement { target: five, op: SSAOp::Int(five_value), .. },
-        Statement { target: div, op: SSAOp::DivInt(div_left, div_right), .. },
-        Statement { target: mul, op: SSAOp::MulInt(mul_left, mul_right), .. },
+        Statement { target: one, op: SSAOp::Int(one_value) },
+        Statement { target: two, op: SSAOp::Int(two_value) },
+        Statement { target: add, op: SSAOp::AddInt(add_left, add_right) },
+        Statement { target: three, op: SSAOp::Int(three_value) },
+        Statement { target: four, op: SSAOp::Int(four_value) },
+        Statement { target: five, op: SSAOp::Int(five_value) },
+        Statement { target: div, op: SSAOp::DivInt(div_left, div_right) },
+        Statement { target: mul, op: SSAOp::MulInt(mul_left, mul_right) },
         Statement { op: SSAOp::SubInt(sub_left, sub_right), .. },
         =>
         assert_eq!(*one_value, BigInt::from(1u8));
@@ -325,59 +438,94 @@ fn all_int() -> TestResult {
         assert_eq!(*three_value, BigInt::from(3u8));
         assert_eq!(*four_value, BigInt::from(4u8));
         assert_eq!(*five_value, BigInt::from(5u8));
-        assert_eq!(add_left, one);
-        assert_eq!(add_right, two);
-        assert_eq!(div_left, four);
-        assert_eq!(div_right, five);
-        assert_eq!(mul_left, three);
-        assert_eq!(mul_right, div);
-        assert_eq!(sub_left, add);
-        assert_eq!(sub_right, mul);
+        assert_eq!(add_left, &one.id);
+        assert_eq!(add_right, &two.id);
+        assert_eq!(div_left, &four.id);
+        assert_eq!(div_right, &five.id);
+        assert_eq!(mul_left, &three.id);
+        assert_eq!(mul_right, &div.id);
+        assert_eq!(sub_left, &add.id);
+        assert_eq!(sub_right, &mul.id);
     )
 }
 
 #[test]
 fn conditional_with_both_branches() -> TestResult {
     match_ssa!("if 0 {1} else {2}",
-        Statement { target: condition, op: SSAOp::Int(condition_value), .. },
+        Statement { target: condition, op: SSAOp::Int(condition_value) },
         Statement { op: SSAOp::Cbz(cbz_condition, cbz_negative_label), .. },
-        Statement { target: positive, op: SSAOp::Int(positive_value), .. },
+        Statement { target: positive, op: SSAOp::Int(positive_value) },
         Statement { op: SSAOp::Br(br_end_label), .. },
-        Statement { op: SSAOp::Label(negative_label), .. },
-        Statement { target: negative, op: SSAOp::Int(negative_value), .. },
-        Statement { op: SSAOp::Label(end_label), .. },
+        Statement { target: negative_label, op: SSAOp::Label },
+        Statement { target: negative, op: SSAOp::Int(negative_value) },
+        Statement { target: end_label, op: SSAOp::Label },
         Statement { op: SSAOp::Phi(phi_positive, phi_negative), .. },
         =>
         assert_eq!(*condition_value, BigInt::from(0u8));
         assert_eq!(*positive_value, BigInt::from(1u8));
         assert_eq!(*negative_value, BigInt::from(2u8));
-        assert_eq!(cbz_condition, condition);
-        assert_eq!(cbz_negative_label, negative_label);
-        assert_eq!(br_end_label, end_label);
-        assert_eq!(phi_positive, positive);
-        assert_eq!(phi_negative, negative);
+        assert_eq!(cbz_condition, &condition.id);
+        assert_eq!(cbz_negative_label, &negative_label.id);
+        assert_eq!(br_end_label, &end_label.id);
+        assert_eq!(phi_positive, &positive.id);
+        assert_eq!(phi_negative, &negative.id);
     )
 }
 
 #[test]
 fn conditional_with_only_positive_branch() -> TestResult {
     match_ssa!("if 1 {2}",
-        Statement { target: condition, op: SSAOp::Int(condition_value), .. },
+        Statement { target: condition, op: SSAOp::Int(condition_value) },
         Statement { op: SSAOp::Cbz(cbz_condition, cbz_negative_label), .. },
         Statement { op: SSAOp::Int(positive_value), .. },
-        Statement { target: positive, op: SSAOp::Unit, .. },
+        Statement { target: positive, op: SSAOp::Unit },
         Statement { op: SSAOp::Br(br_end_label), .. },
-        Statement { op: SSAOp::Label(negative_label), .. },
-        Statement { target: negative, op: SSAOp::Unit, .. },
-        Statement { op: SSAOp::Label(end_label), .. },
+        Statement { target: negative_label, op: SSAOp::Label },
+        Statement { target: negative, op: SSAOp::Unit },
+        Statement { target: end_label, op: SSAOp::Label },
         Statement { op: SSAOp::Phi(phi_positive, phi_negative), .. },
         =>
         assert_eq!(*condition_value, BigInt::from(1u8));
         assert_eq!(*positive_value, BigInt::from(2u8));
-        assert_eq!(cbz_condition, condition);
-        assert_eq!(cbz_negative_label, negative_label);
-        assert_eq!(br_end_label, end_label);
-        assert_eq!(phi_positive, positive);
-        assert_eq!(phi_negative, negative);
+        assert_eq!(cbz_condition, &condition.id);
+        assert_eq!(cbz_negative_label, &negative_label.id);
+        assert_eq!(br_end_label, &end_label.id);
+        assert_eq!(phi_positive, &positive.id);
+        assert_eq!(phi_negative, &negative.id);
+    )
+}
+
+#[test]
+fn assignment_phi() -> TestResult {
+    match_ssa!(r"
+        let x = 0
+        if (x) {
+            x = 1
+            2
+        } else {
+            x = 3
+            4
+        }
+        ",
+        Statement { target: x_definition, op: SSAOp::Int(x_initial_value) },
+        Statement { .. }, // cbz x @negative
+        Statement { target: x_positive, op: SSAOp::Int(one) }, // x = 1
+        Statement { .. }, // 2
+        Statement { .. }, // br @end
+        Statement { .. }, // @negative
+        Statement { target: x_negative, op: SSAOp::Int(three) }, // x = 3
+        Statement { .. }, // 4
+        Statement { .. }, // @end
+        Statement { target: x_final, op: SSAOp::Phi(phi_x1, phi_x2) }, // ϕ(x = 1, x = 2)
+        Statement { .. }, // ϕ(positive, negative)
+        =>
+        assert_eq!(*x_initial_value,  BigInt::from(0u8));
+        assert_eq!(*one,  BigInt::from(1u8));
+        assert_eq!(*three,  BigInt::from(3u8));
+        assert_eq!(x_positive.id.name, x_definition.id.name);
+        assert_eq!(x_negative.id.name, x_definition.id.name);
+        assert_eq!(x_final.id.name, x_definition.id.name);
+        assert_eq!(phi_x1, &x_positive.id);
+        assert_eq!(phi_x2, &x_negative.id);
     )
 }

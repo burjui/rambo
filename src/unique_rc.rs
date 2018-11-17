@@ -1,8 +1,8 @@
+use std::fmt;
 use std::hash::Hash;
 use std::hash::Hasher;
 use std::ops::Deref;
 use std::rc::Rc;
-use std::fmt;
 
 crate struct UniqueRc<T: ?Sized>(Rc<T>);
 
@@ -26,7 +26,7 @@ impl<T: ?Sized> Deref for UniqueRc<T> {
     }
 }
 
-impl<T: ?Sized> PartialEq<UniqueRc<T>> for UniqueRc<T> {
+impl<T: ?Sized> PartialEq for UniqueRc<T> {
     fn eq(&self, other: &UniqueRc<T>) -> bool {
         Rc::ptr_eq(&self.0, &other.0)
     }

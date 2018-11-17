@@ -18,7 +18,7 @@ crate struct Parameter {
     crate source: Source,
 }
 
-impl PartialEq<Parameter> for Parameter {
+impl PartialEq for Parameter {
     fn eq(&self, other: &Parameter) -> bool {
         self.type_ == other.type_
     }

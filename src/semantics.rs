@@ -113,11 +113,7 @@ crate struct Block {
 
 impl Debug for Block {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        writeln!(formatter, "{{")?;
-        for statement in &self.statements {
-            writeln!(formatter, "{:?}", statement)?;
-        }
-        write!(formatter, "}}")
+        write!(formatter, "{{ {:?} }}", self.statements.iter().format("; "))
     }
 }
 
@@ -162,7 +158,7 @@ impl Debug for TypedExpr {
             TypedExpr::MulInt(left, right, _) => write!(formatter, "({:?} * {:?})", left, right),
             TypedExpr::DivInt(left, right, _) => write!(formatter, "({:?} / {:?})", left, right),
             TypedExpr::AddStr(left, right, _) => write!(formatter, "({:?} + {:?})", left, right),
-            TypedExpr::Assign(name, value, _) => write!(formatter, "({:#?} = {:?})", name, value),
+            TypedExpr::Assign(binding, value, _) => write!(formatter, "({} = {:?})", &binding.name, value),
             TypedExpr::Lambda(lambda, _) => lambda.fmt(formatter),
             TypedExpr::Application { function, arguments, .. } => write!(formatter, "({:?} @ {:?})", function, arguments),
             TypedExpr::Conditional { condition, positive, negative, .. } => {
