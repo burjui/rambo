@@ -301,8 +301,14 @@ fn check_expr(env: &mut Env, expr: &Expr) -> CheckResult<ExprRef> {
                 BinaryOperation::Assign => {
                     if let Expr::Id(name) = left as &Expr {
                         let binding = env.resolve(&Rc::new(name.text().to_owned()))?;
-                        let right_checked = check_expr(env, right)?;
-                        Ok(ExprRef::from(TypedExpr::Assign(binding, right_checked, expr.source().clone())))
+                        let value = check_expr(env, right)?;
+                        let binding_type = binding.data.type_();
+                        let value_type = value.type_();
+                        if binding.data.type_() == value.type_() {
+                            Ok(ExprRef::from(TypedExpr::Assign(binding, value, expr.source().clone())))
+                        } else {
+                            error!("assigning a value of type `{:?}' to the variable of type `{:?}': {:?}", value_type, binding_type, &expr)
+                        }
                     } else {
                         error!("a variable expected at the left side of assignment, but found: {:?}", left)
                     }
