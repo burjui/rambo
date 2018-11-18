@@ -343,9 +343,29 @@ impl Debug for Modified {
 }
 
 #[cfg(test)]
+#[cfg(feature = "dump_ssa")]
+fn dump(code: &str, ssa: &[Statement]) -> TestResult {
+    use std::fs::File;
+    use std::io::Write;
+    use itertools::Itertools;
+    use std::sync::Arc;
+    use std::sync::Mutex;
+
+    lazy_static! {
+        static ref SSA_TXT: Arc<Mutex<File>> = Arc::new(Mutex::new(File::create("ssa.txt").unwrap()));
+    }
+
+    let mut file = SSA_TXT.lock().unwrap();
+    writeln!(file, "-------------\nCODE:\n{}\n\nSSA:\n{:#?}", code, ssa.iter().format("\n"))?;
+    Ok(())
+}
+
+#[cfg(test)]
 macro_rules! match_ssa {
     ($code: expr $(, $patterns: pat)* $(,)? => $($handlers: stmt;)*) => ({
         let ssa = Codegen::new().build(&typecheck!($code)?);
+        #[cfg(feature = "dump_ssa")]
+        dump($code, &ssa)?;
         match &ssa as &[Statement] {
             [$($patterns, )*] => Ok({
                 $($handlers;)*
