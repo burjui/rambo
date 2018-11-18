@@ -91,7 +91,12 @@ impl Codegen {
             },
             TypedExpr::Unit(source) => self.push(target, SSAOp::Unit, source.text()),
             TypedExpr::Reference(binding, _) => self.id(binding),
-            _ => unimplemented!("{:?}", expr)
+
+            TypedExpr::ArgumentPlaceholder(_, _) |
+            TypedExpr::String(_, _) |
+            TypedExpr::Lambda(_, _) |
+            TypedExpr::Application { .. } |
+            TypedExpr::AddStr(_, _, _) => unimplemented!("{:?}", expr)
         }
     }
 
@@ -377,7 +382,9 @@ macro_rules! match_ssa {
                 ssa.iter().format("\n"))
             }
         }
-    })
+    });
+
+    ($code: expr, $($patterns: pat),+) => ({match_ssa!($code $(, $patterns)* => ();)})
 }
 
 type TestResult = Result<(), Box<dyn Error>>;
@@ -548,4 +555,9 @@ fn assignment_phi() -> TestResult {
         assert_eq!(phi_x1, &x_positive.id);
         assert_eq!(phi_x2, &x_negative.id);
     )
+}
+
+#[test]
+fn empty() -> TestResult {
+    match_ssa!("", Statement { op: SSAOp::Unit, .. })
 }
