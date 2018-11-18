@@ -294,13 +294,13 @@ fn check_expr(env: &mut Env, expr: &Expr) -> CheckResult<ExprRef> {
         },
         Expr::Id(name) => {
             let binding = env.resolve(&Rc::new(name.text().to_owned()))?;
-            Ok(ExprRef::from(TypedExpr::Reference(binding, name.clone())))
+            Ok(ExprRef::from(TypedExpr::Reference(binding.clone(), name.clone())))
         },
         Expr::Binary { operation, left, right, .. } => {
             match operation {
                 BinaryOperation::Assign => {
                     if let Expr::Id(name) = left as &Expr {
-                        let binding = env.resolve(&Rc::new(name.text().to_owned()))?;
+                        let binding = env.resolve(&Rc::new(name.text().to_owned())).map(Clone::clone)?;
                         let value = check_expr(env, right)?;
                         let binding_type = binding.data.type_();
                         let value_type = value.type_();

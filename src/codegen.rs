@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::collections::HashSet;
 use std::error::Error;
 use std::fmt::Debug;
@@ -17,11 +16,14 @@ use crate::semantics::TypedExpr;
 use crate::semantics::TypedStatement;
 use crate::source::Source;
 use crate::unique_rc::UniqueRc;
+use crate::env::Environment;
+
+// TODO factor out SSAId creation
 
 crate struct Codegen {
     ssa: Vec<Statement>,
     next_id: usize,
-    ids: HashMap<BindingRef, SSAId>,
+    env: Environment<BindingRef, SSAId>,
     modified: HashSet<Modified>,
 }
 
@@ -30,7 +32,7 @@ impl Codegen {
         Self {
             ssa: Vec::new(),
             next_id: 0,
-            ids: HashMap::new(),
+            env: Environment::new(),
             modified: HashSet::new(),
         }
     }
@@ -44,7 +46,8 @@ impl Codegen {
         match &**expr {
             TypedExpr::Int(value, source) => self.push(target, SSAOp::Int(value.clone()), source.text()),
             TypedExpr::Assign(binding, value, source) => {
-                let new_version = self.next_version(binding, source.text());
+                let id = self.id(binding);
+                let new_version = self.next_version(&id, source.text());
                 self.modified.insert(Modified {
                     binding: binding.clone(),
                     id: new_version.id.clone()
@@ -70,6 +73,8 @@ impl Codegen {
                 let condition = self.process_expr(condition, None);
                 let negative_label = self.new_label("negative branch");
                 self.push(None, SSAOp::Cbz(condition, negative_label.id.clone()), "jump to negative branch");
+
+                self.env.push();
                 let positive = self.process_expr(positive, None);
                 let modified_in_positive = self.take_modified();
                 let end_label = self.new_label("end of conditional");
@@ -80,20 +85,43 @@ impl Codegen {
                     None => self.push(None, SSAOp::Unit, "negative branch value")
                 };
                 let modified_in_negative = self.take_modified();
-                let needs_phi = modified_in_positive.intersection(&modified_in_negative)
-                    .map(|modified| (&modified.binding, &modified_in_positive.get(modified).unwrap().id, &modified_in_negative.get(modified).unwrap().id));
+                let needs_phi = modified_in_positive.union(&modified_in_negative)
+                    .map(|modified| (modified.clone(), self.env.resolve(&modified.binding).unwrap().clone()))
+                    .collect::<Vec<(Modified, _)>>();
+                self.env.pop();
+
+                let needs_phi = needs_phi.into_iter()
+                    .map(|(modified, last_id)| {
+                        (Modified { binding: modified.binding.clone(), id: last_id },
+                         modified_in_positive.get(&modified)
+                             .map(|m| &m.id)
+                             .unwrap_or_else(|| self.env.resolve(&modified.binding).unwrap())
+                             .clone(),
+                         modified_in_negative.get(&modified)
+                             .map(|m| &m.id)
+                             .unwrap_or_else(|| self.env.resolve(&modified.binding).unwrap())
+                             .clone())
+                    })
+                    .collect::<Vec<_>>();
                 self.push(Some(end_label.clone()), SSAOp::Label, "");
-                for (binding, id1, id2) in needs_phi {
-                    let new_version = self.next_version(binding, "modified in both branches");
-                    self.push(Some(new_version), SSAOp::Phi(id1.clone(), id2.clone()), "");
+                for (modified, id1, id2) in needs_phi {
+                    let phi_target = self.next_version(&modified.id, "modified in both branches");
+                    let new_version = phi_target.id.clone();
+                    self.push(Some(phi_target), SSAOp::Phi(id1.clone(), id2.clone()), "");
+                    self.modified.insert(Modified { binding: modified.binding.clone(), id: new_version.clone() });
+                    self.env.bind(modified.binding.clone(), new_version);
                 }
                 self.push(target, SSAOp::Phi(positive, negative), source.text())
             },
             TypedExpr::Unit(source) => self.push(target, SSAOp::Unit, source.text()),
             TypedExpr::Reference(binding, _) => self.id(binding),
 
+            TypedExpr::String(_, _) => {
+                // FIXME stub
+                self.push(None, SSAOp::Unit, "STUB")
+            }
+
             TypedExpr::ArgumentPlaceholder(_, _) |
-            TypedExpr::String(_, _) |
             TypedExpr::Lambda(_, _) |
             TypedExpr::Application { .. } |
             TypedExpr::AddStr(_, _, _) => unimplemented!("{:?}", expr)
@@ -146,11 +174,11 @@ impl Codegen {
     }
 
     fn id(&mut self, binding: &BindingRef) -> SSAId {
-        if let Some(id) = self.ids.get(binding) {
+        if let Some(id) = self.env.resolve(binding).ok() {
             id.clone()
         } else {
             let id = self.new_ssa_id(SSAIdName::Binding(binding.clone()));
-            self.ids.insert(binding.clone(), id.clone());
+            self.env.bind(binding.clone(), id.clone());
             id
         }
     }
@@ -163,21 +191,24 @@ impl Codegen {
         }
     }
 
-    fn next_version(&mut self, binding: &BindingRef, comment: &str) -> Target {
-        let id = self.id(binding);
-        let new_id = SSAId {
-            name: id.name.clone(),
-            version: id.version + 1,
-            unique_id: self.unique_id()
-        };
-        self.ids.insert(binding.clone(), new_id.clone());
-        Target::new(new_id, comment)
+    fn next_version(&mut self, id: &SSAId, comment: &str) -> Target {
+        if let SSAIdName::Binding(binding) = &id.name {
+            let new_id = SSAId {
+                name: id.name.clone(),
+                version: id.version + 1,
+                unique_id: self.unique_id()
+            };
+            self.env.bind(binding.clone(), new_id.clone());
+            Target::new(new_id, comment)
+        } else {
+            panic!("expected an id of a binding, not: {:?}", id)
+        }
     }
 
     fn unique_id(&mut self) -> usize {
-        let id = self.next_id;
+        let unique_id = self.next_id;
         self.next_id += 1;
-        id
+        unique_id
     }
 }
 
@@ -322,6 +353,7 @@ impl Hash for SSAId {
     }
 }
 
+#[derive(Clone)]
 struct Modified {
     binding: BindingRef,
     id: SSAId
@@ -388,6 +420,11 @@ macro_rules! match_ssa {
 }
 
 type TestResult = Result<(), Box<dyn Error>>;
+
+#[test]
+fn empty() -> TestResult {
+    match_ssa!("", Statement { op: SSAOp::Unit, .. })
+}
 
 #[test]
 fn assign() -> TestResult {
@@ -558,6 +595,47 @@ fn assignment_phi() -> TestResult {
 }
 
 #[test]
-fn empty() -> TestResult {
-    match_ssa!("", Statement { op: SSAOp::Unit, .. })
+fn phi_inner_conditional_assignment() -> TestResult {
+    match_ssa!("
+        let x = 0
+        if (1) {
+            if (2) x = 3
+        }
+        ",
+        Statement { target: x_definition, .. }, // let x = 0
+        Statement {..}, // 1
+        Statement {..}, // jump to negative branch
+        Statement {..}, // 2
+        Statement {..}, // jump to negative branch
+        Statement { target: x_assignment, .. }, // x = 3
+        Statement {..}, // x = 3
+        Statement {..}, // jump to the end of conditional
+        Statement {..}, // negative branch
+        Statement {..}, // negative branch value
+        Statement {..}, // end of conditional
+        Statement { target: inner_phi, op: SSAOp::Phi(inner_phi_left, inner_phi_right) }, // modified in both branches
+        Statement {..}, // if (2) x = 3
+        Statement {..}, // { if (2) x = 3 }
+        Statement {..}, // jump to the end of conditional
+        Statement {..}, // negative branch
+        Statement {..}, // negative branch value
+        Statement {..}, // end of conditional
+        Statement { target: outer_phi, op: SSAOp::Phi(outer_phi_left, outer_phi_right) }, // modified in both branches
+        Statement {..}, // if (1) { if (2) x = 3 }
+        =>
+        assert_eq!(x_assignment.id.name, x_definition.id.name);
+        assert_eq!(inner_phi.id.name, x_definition.id.name);
+        assert_eq!(inner_phi_left.name, x_definition.id.name);
+        assert_eq!(inner_phi_right.name, x_definition.id.name);
+        assert_eq!(outer_phi.id.name, x_definition.id.name);
+        assert_eq!(outer_phi_left.name, x_definition.id.name);
+        assert_eq!(outer_phi_right.name, x_definition.id.name);
+        assert_ne!(x_assignment.id, x_definition.id);
+        assert_ne!(inner_phi.id, x_assignment.id);
+        assert_ne!(outer_phi.id, inner_phi.id);
+        assert_eq!(inner_phi_left, &x_assignment.id);
+        assert_eq!(inner_phi_right, &x_definition.id);
+        assert_eq!(outer_phi_left, &inner_phi.id);
+        assert_eq!(outer_phi_right, &x_definition.id);
+    )
 }

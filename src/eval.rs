@@ -62,7 +62,7 @@ impl<'a> Evaluator {
                 self.env.bind(binding.name.clone(), value.clone());
                 Ok(value)
             },
-            TypedExpr::Reference(binding, _) => self.env.resolve(&binding.name),
+            TypedExpr::Reference(binding, _) => self.env.resolve(&binding.name).map(Clone::clone),
             TypedExpr::Application { function, arguments, .. } => {
                 let arguments: Result<Vec<Evalue>, Box<dyn Error>> = arguments.iter()
                     .map(|argument| self.eval(argument)).collect();

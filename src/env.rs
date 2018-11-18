@@ -9,23 +9,25 @@ crate struct Environment<Key, Value> {
 }
 
 impl<Key, Value> Environment<Key, Value>
-where Key: Eq + Debug + Hash + Clone, Value: Clone + Debug {
+where Key: Eq + Debug + Hash + Clone, Value: Debug {
     crate fn new() -> Environment<Key, Value> {
         Environment { scopes: vec![HashMap::new()] }
     }
 
     crate fn bind(&mut self, key: Key, value: Value) {
-        self.scopes.last_mut().unwrap().insert(key, value.clone());
+        self.scopes.last_mut().unwrap().insert(key, value);
     }
 
-    crate fn resolve(&self, key: &Key) -> Result<Value, Box<dyn Error>> {
+    crate fn resolve(&self, key: &Key) -> Result<&Value, Box<dyn Error>> {
         for scope in self.scopes.iter().rev() {
             if let Some(value) = scope.get(key) {
-                return Ok(value.clone());
+                return Ok(value);
             }
         }
         Err(From::from(format!("`{:?}' is undefined", key)))
     }
+
+    // TODO automatic pop() at the end of a block
 
     crate fn push(&mut self) {
         self.scopes.push(HashMap::new());
