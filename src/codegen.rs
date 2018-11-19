@@ -1,4 +1,3 @@
-use std::collections::HashSet;
 use std::error::Error;
 use std::fmt::Debug;
 use std::fmt::Formatter;
@@ -17,6 +16,9 @@ use crate::semantics::TypedStatement;
 use crate::source::Source;
 use crate::unique_rc::UniqueRc;
 use crate::env::Environment;
+use std::collections::HashMap;
+use std::mem::replace;
+use std::collections::HashSet;
 
 // TODO factor out SSAId creation
 
@@ -24,7 +26,7 @@ crate struct Codegen {
     ssa: Vec<Statement>,
     next_id: usize,
     env: Environment<BindingRef, SSAId>,
-    modified: HashSet<Modified>,
+    modified: HashMap<BindingRef, SSAId>,
 }
 
 impl Codegen {
@@ -33,7 +35,7 @@ impl Codegen {
             ssa: Vec::new(),
             next_id: 0,
             env: Environment::new(),
-            modified: HashSet::new(),
+            modified: HashMap::new(),
         }
     }
 
@@ -48,10 +50,7 @@ impl Codegen {
             TypedExpr::Assign(binding, value, source) => {
                 let id = self.id(binding);
                 let new_version = self.next_version(&id, source.text());
-                self.modified.insert(Modified {
-                    binding: binding.clone(),
-                    id: new_version.id.clone()
-                });
+                self.modified.insert(binding.clone(), new_version.id.clone());
                 self.process_expr(value, Some(new_version))
             },
             TypedExpr::AddInt(left, right, source) => self.push_int_op(target, left, right, source, SSAOp::AddInt),
@@ -85,31 +84,33 @@ impl Codegen {
                     None => self.push(None, SSAOp::Unit, "negative branch value")
                 };
                 let modified_in_negative = self.take_modified();
-                let needs_phi = modified_in_positive.union(&modified_in_negative)
-                    .map(|modified| (modified.clone(), self.env.resolve(&modified.binding).unwrap().clone()))
-                    .collect::<Vec<(Modified, _)>>();
+                struct Modified(BindingRef, SSAId);
+                let modified = modified_in_positive.keys()
+                    .chain(modified_in_negative.keys())
+                    .collect::<HashSet<_>>()
+                    .into_iter()
+                    .map(|binding| Modified(binding.clone(), self.env.resolve(binding).unwrap().clone()))
+                    .collect::<Vec<_>>();
                 self.env.pop();
 
-                let needs_phi = needs_phi.into_iter()
-                    .map(|(modified, last_id)| {
-                        (Modified { binding: modified.binding.clone(), id: last_id },
-                         modified_in_positive.get(&modified)
-                             .map(|m| &m.id)
-                             .unwrap_or_else(|| self.env.resolve(&modified.binding).unwrap())
-                             .clone(),
-                         modified_in_negative.get(&modified)
-                             .map(|m| &m.id)
-                             .unwrap_or_else(|| self.env.resolve(&modified.binding).unwrap())
-                             .clone())
+                let needs_phi = modified.into_iter()
+                    .map(|modified| {
+                        let phi_arg_left = modified_in_positive.get(&modified.0)
+                            .unwrap_or_else(|| self.env.resolve(&modified.0).unwrap())
+                            .clone();
+                        let phi_arg_right = modified_in_negative.get(&modified.0)
+                            .unwrap_or_else(|| self.env.resolve(&modified.0).unwrap())
+                            .clone();
+                        (modified, phi_arg_left, phi_arg_right)
                     })
                     .collect::<Vec<_>>();
                 self.push(Some(end_label.clone()), SSAOp::Label, "");
-                for (modified, id1, id2) in needs_phi {
-                    let phi_target = self.next_version(&modified.id, "modified in both branches");
+                for (Modified(binding, last_id), id1, id2) in needs_phi {
+                    let phi_target = self.next_version(&last_id, "modified in a branch");
                     let new_version = phi_target.id.clone();
                     self.push(Some(phi_target), SSAOp::Phi(id1.clone(), id2.clone()), "");
-                    self.modified.insert(Modified { binding: modified.binding.clone(), id: new_version.clone() });
-                    self.env.bind(modified.binding.clone(), new_version);
+                    self.modified.insert(binding.clone(), new_version.clone());
+                    self.env.bind(binding.clone(), new_version);
                 }
                 self.push(target, SSAOp::Phi(positive, negative), source.text())
             },
@@ -119,7 +120,7 @@ impl Codegen {
             TypedExpr::String(_, _) => {
                 // FIXME stub
                 self.push(None, SSAOp::Unit, "STUB")
-            }
+            },
 
             TypedExpr::ArgumentPlaceholder(_, _) |
             TypedExpr::Lambda(_, _) |
@@ -138,8 +139,8 @@ impl Codegen {
         }
     }
 
-    fn take_modified(&mut self) -> HashSet<Modified> {
-        self.modified.drain().collect::<HashSet<_>>()
+    fn take_modified(&mut self) -> HashMap<BindingRef, SSAId> {
+        replace(&mut self.modified, HashMap::new())
     }
 
     fn push(&mut self, target: Option<Target>, op: SSAOp, comment: &str) -> SSAId {
@@ -350,32 +351,6 @@ impl Eq for SSAId {}
 impl Hash for SSAId {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.unique_id.hash(state)
-    }
-}
-
-#[derive(Clone)]
-struct Modified {
-    binding: BindingRef,
-    id: SSAId
-}
-
-impl PartialEq for Modified {
-    fn eq(&self, other: &Modified) -> bool {
-        self.binding == other.binding
-    }
-}
-
-impl Eq for Modified {}
-
-impl Hash for Modified {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.binding.hash(state)
-    }
-}
-
-impl Debug for Modified {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(formatter, "{} -> {:?}", &self.binding.name, &self.id)
     }
 }
 
@@ -613,14 +588,14 @@ fn phi_inner_conditional_assignment() -> TestResult {
         Statement {..}, // negative branch
         Statement {..}, // negative branch value
         Statement {..}, // end of conditional
-        Statement { target: inner_phi, op: SSAOp::Phi(inner_phi_left, inner_phi_right) }, // modified in both branches
+        Statement { target: inner_phi, op: SSAOp::Phi(inner_phi_left, inner_phi_right) },
         Statement {..}, // if (2) x = 3
         Statement {..}, // { if (2) x = 3 }
         Statement {..}, // jump to the end of conditional
         Statement {..}, // negative branch
         Statement {..}, // negative branch value
         Statement {..}, // end of conditional
-        Statement { target: outer_phi, op: SSAOp::Phi(outer_phi_left, outer_phi_right) }, // modified in both branches
+        Statement { target: outer_phi, op: SSAOp::Phi(outer_phi_left, outer_phi_right) },
         Statement {..}, // if (1) { if (2) x = 3 }
         =>
         assert_eq!(x_assignment.id.name, x_definition.id.name);
