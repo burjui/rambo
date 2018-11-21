@@ -157,7 +157,7 @@ impl VM {
     fn push(&mut self, value: u32) -> Result<(), Box<dyn Error>> {
         let mut sp = *self.reg(SP);
         if (sp as usize) <= RAM_SIZE - STACK_SIZE {
-            return Err(box StackOverflow(sp));
+            return Err(From::from(StackOverflow(sp)));
         }
         sp -= 4;
         *self.reg_mut(SP) = sp;
@@ -168,7 +168,7 @@ impl VM {
     fn pop(&mut self) -> Result<u32, Box<dyn Error>> {
         let sp = *self.reg(SP);
         if (sp as usize) >= RAM_SIZE {
-            return Err(box StackUnderflow(sp));
+            return Err(From::from(StackUnderflow(sp)));
         }
         *self.reg_mut(SP) += 4;
         Ok(*self.ram(sp)?)

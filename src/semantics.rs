@@ -75,7 +75,7 @@ crate struct ExprRef(Rc<TypedExpr>);
 
 impl From<TypedExpr> for ExprRef {
     fn from(expr: TypedExpr) -> Self {
-        Self(Rc::new(expr))
+        ExprRef(Rc::new(expr))
     }
 }
 
@@ -396,8 +396,8 @@ fn check_expr(env: &mut Env, expr: &Expr) -> CheckResult<ExprRef> {
                 return error!("a condition can only be of type `num' or `str': {:?}", condition.source())
             }
 
-            let (positive, positive_source) = match positive {
-                box Expr::Block(ASTBlock { source, statements }) => (statements, source),
+            let (positive, positive_source) = match positive.deref() {
+                Expr::Block(ASTBlock { source, statements }) => (statements, source),
                 _ => unreachable!()
             };
             if positive.is_empty() {
@@ -406,8 +406,8 @@ fn check_expr(env: &mut Env, expr: &Expr) -> CheckResult<ExprRef> {
             let mut positive = check_block(env, positive.iter(), positive_source.clone())?;
             let positive_type = positive.type_();
 
-            let negative = match negative {
-                Some(box Expr::Block(ASTBlock { source, statements, .. })) => {
+            let negative = match negative.as_ref().map(Deref::deref) {
+                Some(Expr::Block(ASTBlock { source, statements, .. })) => {
                     if statements.is_empty() {
                         warning!("empty negative branch: {:?}", source);
                     }

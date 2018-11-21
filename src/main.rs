@@ -1,9 +1,6 @@
 #![feature(crate_visibility_modifier)]
 #![warn(rust_2018_idioms)]
-#![feature(box_syntax)]
-#![feature(box_patterns)]
 #![feature(transpose_result)]
-#![feature(self_struct_ctor)]
 #![feature(try_from)]
 #![feature(macro_at_most_once_rep)]
 

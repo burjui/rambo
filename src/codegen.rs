@@ -1,13 +1,17 @@
+use std::collections::HashMap;
+use std::collections::HashSet;
 use std::error::Error;
 use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::hash::Hash;
 use std::hash::Hasher;
+use std::mem::replace;
 
 use lazy_static::lazy_static;
 use num_bigint::BigInt;
 use regex::Regex;
 
+use crate::env::Environment;
 use crate::semantics::BindingRef;
 use crate::semantics::Block;
 use crate::semantics::ExprRef;
@@ -15,10 +19,6 @@ use crate::semantics::TypedExpr;
 use crate::semantics::TypedStatement;
 use crate::source::Source;
 use crate::unique_rc::UniqueRc;
-use crate::env::Environment;
-use std::collections::HashMap;
-use std::mem::replace;
-use std::collections::HashSet;
 
 // TODO factor out SSAId creation
 

@@ -8,13 +8,13 @@ crate struct UniqueRc<T: ?Sized>(Rc<T>);
 
 impl<T> From<T> for UniqueRc<T> {
     fn from(value: T) -> Self {
-        Self(Rc::new(value))
+        UniqueRc(Rc::new(value))
     }
 }
 
 impl<T: ?Sized> Clone for UniqueRc<T> {
     fn clone(&self) -> Self {
-        Self(self.0.clone())
+        UniqueRc(self.0.clone())
     }
 }
 

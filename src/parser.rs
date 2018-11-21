@@ -190,7 +190,7 @@ impl Parser {
             if condition_is_parenthesized {
                 self.read_lexeme()?;
             }
-            let condition = box self.parse_expression()?;
+            let condition = Box::new(self.parse_expression()?);
             if condition_is_parenthesized {
                 self.expect(Token::RParen, ")")?;
             }
@@ -210,7 +210,7 @@ impl Parser {
         Ok(Expr::Conditional {
             source: start.extend(&self.previous_lexeme_source),
             condition,
-            positive: box positive,
+            positive: Box::new(positive),
             negative: negative.map(Box::new)
         })
     }
@@ -279,8 +279,8 @@ impl Parser {
                 result = Expr::Binary {
                     source: start.extend(&self.previous_lexeme_source),
                     operation: operator.binary_operation(),
-                    left: box(result),
-                    right: box(right_operand)
+                    left: Box::new(result),
+                    right: Box::new(right_operand)
                 };
                 start = self.lexeme.source.clone();
             }
@@ -304,7 +304,7 @@ impl Parser {
             } else {
                 Expr::Application {
                     source: start.extend(&self.previous_lexeme_source),
-                    function: box(first_expr),
+                    function: Box::new(first_expr),
                     arguments
                 }
             };
@@ -350,7 +350,7 @@ impl Parser {
         let source = start.extend(&self.previous_lexeme_source);
         Ok(Statement::Binding {
             name: name.source,
-            value: box(value),
+            value: Box::new(value),
             source
         })
     }
@@ -396,7 +396,7 @@ impl Parser {
             Ok(Expr::Lambda {
                 source: start.extend(&self.previous_lexeme_source),
                 parameters,
-                body: box(body)
+                body: Box::new(body)
             })
         }
     }
