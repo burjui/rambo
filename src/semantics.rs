@@ -18,8 +18,6 @@ use crate::unique_rc::UniqueRc;
 
 crate type FunctionTypeRef = Rc<FunctionType>;
 
-// TODO struct Parameter(BindingRef, usize)
-
 #[derive(Clone, PartialEq)]
 crate struct FunctionType {
     crate parameters: Vec<BindingRef>,
@@ -207,15 +205,18 @@ impl TypedExpr {
 crate type LambdaRef = UniqueRc<Lambda>;
 crate type BindingRef = UniqueRc<Binding>;
 
+crate enum BindingKind { Let, Arg(usize) }
+
 crate struct Binding {
     crate name: Rc<String>,
     crate data: ExprRef,
     crate source: Source,
+    crate kind: BindingKind
 }
 
 impl Binding {
-    crate fn new(name: Rc<String>, data: ExprRef, source: Source) -> Binding {
-        Binding { name, data, source }
+    crate fn new(name: Rc<String>, data: ExprRef, source: Source, kind: BindingKind) -> Binding {
+        Binding { name, data, source, kind }
     }
 }
 
@@ -273,7 +274,7 @@ fn check_statement(env: &mut Env, statement: &Statement) -> CheckResult<TypedSta
         Statement::Binding { name, value, source } => {
             let name = Rc::new(name.text().to_owned());
             let value = check_expr(env, &value)?;
-            let binding = BindingRef::from(Binding::new(name.clone(), value, source.clone()));
+            let binding = BindingRef::from(Binding::new(name.clone(), value, source.clone(), BindingKind::Let));
             env.bind(name, binding.clone());
             Ok(TypedStatement::Binding(binding))
         }
@@ -447,10 +448,11 @@ fn check_expr(env: &mut Env, expr: &Expr) -> CheckResult<ExprRef> {
 
 fn check_function(env: &mut Env, parameters: &[ParsedParameter], body: &Expr) -> CheckResult<Lambda> {
     let parameters = parameters.iter()
-        .map(|parameter| {
+        .enumerate()
+        .map(|(index, parameter)| {
             let name = Rc::new(parameter.name.text().to_owned());
             let value = ExprRef::from(TypedExpr::ArgumentPlaceholder(name.clone(), parameter.type_.clone()));
-            BindingRef::from(Binding::new(name, value, parameter.source.clone()))
+            BindingRef::from(Binding::new(name, value, parameter.source.clone(), BindingKind::Arg(index)))
         })
         .collect::<Vec<_>>();
     env.push();

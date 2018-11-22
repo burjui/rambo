@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::collections::HashSet;
 
+use crate::semantics::BindingKind;
 use crate::semantics::BindingRef;
 use crate::semantics::Block;
 use crate::semantics::ExprRef;
@@ -24,7 +25,11 @@ crate fn report_redundant_bindings(code: &ExprRef, Warnings(warnings): Warnings)
             .collect::<Vec<_>>();
         redundant_bindings.sort_unstable_by(|s1, s2| s1.source.range().start().cmp(&s2.source.range().start()));
         for binding in redundant_bindings {
-            warning_at!(&binding.source, "unused definition: {}", binding.source.text())
+            let kind = match binding.kind {
+                BindingKind::Let => "definition",
+                BindingKind::Arg(_) => "argument"
+            };
+            warning_at!(&binding.source, "unused {}: {}", kind, binding.source.text())
         }
     }
 }

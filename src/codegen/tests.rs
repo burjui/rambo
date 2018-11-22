@@ -206,9 +206,9 @@ fn assignment_phi() -> TestResult {
         Statement { target: x_final, op: SSAOp::Phi(phi_x1, phi_x2) }, // ϕ(x = 1, x = 2)
         Statement { .. }, // ϕ(positive, negative)
         =>
-        assert_eq!(*x_initial_value,  BigInt::from(0u8));
-        assert_eq!(*one,  BigInt::from(1u8));
-        assert_eq!(*three,  BigInt::from(3u8));
+        assert_eq!(*x_initial_value, BigInt::from(0u8));
+        assert_eq!(*one, BigInt::from(1u8));
+        assert_eq!(*three, BigInt::from(3u8));
         assert_eq!(x_positive.id.name, x_definition.id.name);
         assert_eq!(x_negative.id.name, x_definition.id.name);
         assert_eq!(x_final.id.name, x_definition.id.name);
@@ -260,5 +260,33 @@ fn phi_inner_conditional_assignment() -> TestResult {
         assert_eq!(inner_phi_right, &x_definition.id);
         assert_eq!(outer_phi_left, &inner_phi.id);
         assert_eq!(outer_phi_right, &x_definition.id);
+    )
+}
+
+#[test]
+fn lambda() -> TestResult {
+    match_ssa!(r"
+        let f = \ (x:num, y:num) -> x + y
+        f 1 2
+        ",
+        Statement { target: arg_x, op: SSAOp::Int(one), .. },
+        Statement { target: arg_y, op: SSAOp::Int(two), .. },
+        Statement { op: SSAOp::Call(call_fn, call_arguments), .. },
+        Statement { op: SSAOp::End, .. },
+        Statement { target: f, op: SSAOp::Label, .. },
+        Statement { target: x, op: SSAOp::Arg(x_index) },
+        Statement { target: y, op: SSAOp::Arg(y_index) },
+        Statement { target: return_value, op: SSAOp::AddInt(left, right) },
+        Statement { op: SSAOp::Return(return_argument), .. },
+        =>
+        assert_eq!(*x_index, 0);
+        assert_eq!(*y_index, 1);
+        assert_eq!(left, &x.id);
+        assert_eq!(right, &y.id);
+        assert_eq!(return_argument, &return_value.id);
+        assert_eq!(*one, BigInt::from(1u8));
+        assert_eq!(*two, BigInt::from(2u8));
+        assert_eq!(call_fn, &f.id);
+        assert_eq!(call_arguments, &[arg_x.id.clone(), arg_y.id.clone()]);
     )
 }

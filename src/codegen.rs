@@ -6,19 +6,22 @@ use std::hash::Hash;
 use std::hash::Hasher;
 use std::mem::replace;
 
+use itertools::Itertools;
 use lazy_static::lazy_static;
 use num_bigint::BigInt;
 use regex::Regex;
 
+use crate::codegen::ssaid_factory::SSAIdFactory;
 use crate::env::Environment;
+use crate::semantics::BindingKind;
 use crate::semantics::BindingRef;
 use crate::semantics::Block;
 use crate::semantics::ExprRef;
+use crate::semantics::LambdaRef;
 use crate::semantics::TypedExpr;
 use crate::semantics::TypedStatement;
 use crate::source::Source;
 use crate::unique_rc::UniqueRc;
-use crate::codegen::ssaid_factory::SSAIdFactory;
 
 #[cfg(test)] mod tests;
 
@@ -27,6 +30,7 @@ crate struct Codegen {
     id_factory: SSAIdFactory,
     env: Environment<BindingRef, SSAId>,
     modified: HashMap<BindingRef, SSAId>,
+    lambda_cache: HashMap<LambdaRef, (SSAId, Vec<Statement>)>
 }
 
 impl Codegen {
@@ -36,11 +40,18 @@ impl Codegen {
             id_factory: SSAIdFactory::new(),
             env: Environment::new(),
             modified: HashMap::new(),
+            lambda_cache: HashMap::new()
         }
     }
 
     crate fn build(mut self, expr: &ExprRef) -> Vec<Statement> {
         self.process_expr(expr, None);
+        if !self.lambda_cache.is_empty() {
+            self.push(None, SSAOp::End, "");
+            for (_, code) in self.lambda_cache.values_mut() {
+                self.ssa.append(code);
+            }
+        }
         self.ssa
     }
 
@@ -115,17 +126,40 @@ impl Codegen {
                 self.push(target, SSAOp::Phi(positive, negative), source.text())
             },
             TypedExpr::Unit(source) => self.push(target, SSAOp::Unit, source.text()),
-            TypedExpr::Reference(binding, _) => self.id(binding),
+            TypedExpr::Reference(binding, source) => {
+                match binding.kind {
+                    BindingKind::Let => self.id(binding),
+                    BindingKind::Arg(index) => self.push(None, SSAOp::Arg(index), source.text())
+                }
+            },
+            // TODO closures
+            TypedExpr::Lambda(lambda, source) => {
+                if let Some((id, _)) = self.lambda_cache.get(lambda) {
+                    id.clone()
+                } else {
+                    let code = replace(&mut self.ssa, Vec::new());
+                    let label = self.push(target, SSAOp::Label, source.text());
+                    let return_value = self.process_expr(&lambda.body, None);
+                    self.push(None, SSAOp::Return(return_value), "");
+                    let lambda_code = replace(&mut self.ssa, code);
+                    self.lambda_cache.insert(lambda.clone(), (label.clone(), lambda_code));
+                    label
+                }
+            },
+
+            TypedExpr::Application { function, arguments, source, .. } => {
+                let function = self.process_expr(function, None);
+                let arguments = arguments.iter().map(|argument| self.process_expr(argument, None)).collect();
+                self.push(target, SSAOp::Call(function, arguments), source.text())
+            },
 
             TypedExpr::String(_, _) => {
                 // FIXME stub
                 self.push(None, SSAOp::Unit, "STUB")
             },
 
-            TypedExpr::ArgumentPlaceholder(_, _) |
-            TypedExpr::Lambda(_, _) |
-            TypedExpr::Application { .. } |
-            TypedExpr::AddStr(_, _, _) => unimplemented!("{:?}", expr)
+            TypedExpr::AddStr(_, _, _) => unimplemented!("{:?}", expr),
+            TypedExpr::ArgumentPlaceholder(_, _) => unreachable!()
         }
     }
 
@@ -236,7 +270,7 @@ impl Debug for Statement {
             format!("{:?}:", &self.target.id)
         } else {
             let s = match &self.op {
-                SSAOp::Br(_) | SSAOp::Cbz(_, _) => format!("{:?}", &self.op),
+                SSAOp::Br(_) | SSAOp::Cbz(_, _) | SSAOp::Return(_) => format!("{:?}", &self.op),
                 _ => format!("{:?} = {:?}", &self.target.id, &self.op)
             };
             format!("    {}", s)
@@ -247,7 +281,11 @@ impl Debug for Statement {
         }
         let comment = self.target.comment.replace("\n", " ");
         let comment = WHITESPACE_REGEX.replace_all(&comment, " ");
-        write!(formatter, "{:40}    // {}", code, comment)
+        if !comment.is_empty() {
+            write!(formatter, "{:40}    // {}", code, comment)
+        } else {
+            formatter.write_str(&code)
+        }
     }
 }
 
@@ -263,6 +301,10 @@ crate enum SSAOp {
     Label,
     Br(SSAId),
     Cbz(SSAId, SSAId),
+    Arg(usize),
+    Return(SSAId),
+    Call(SSAId, Vec<SSAId>),
+    End
 }
 
 impl Debug for SSAOp {
@@ -277,7 +319,11 @@ impl Debug for SSAOp {
             SSAOp::DivInt(left, right) => write!(formatter, "{:?} / {:?}", left, right),
             SSAOp::Label => formatter.write_str("label"),
             SSAOp::Br(label) => write!(formatter, "br {:?}", label),
-            SSAOp::Cbz(condition, label) => write!(formatter, "cbz {:?} {:?}", condition, label),
+            SSAOp::Cbz(condition, label) => write!(formatter, "cbz {:?}, {:?}", condition, label),
+            SSAOp::Arg(index) => write!(formatter, "arg[{}]", index),
+            SSAOp::Return(id) => write!(formatter, "ret {:?}", id),
+            SSAOp::Call(id, args) => write!(formatter, "call {:?}, {:?}", id, args.iter().format(", ")),
+            SSAOp::End => formatter.write_str("end")
         }
     }
 }
