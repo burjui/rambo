@@ -37,7 +37,10 @@ crate fn typecheck(name: String, text: &str) -> Result<crate::semantics::ExprRef
     let lexer = crate::lexer::Lexer::new(file);
     let mut parser = crate::parser::Parser::new(lexer);
     let ast = parser.parse()?;
-    crate::semantics::check_module(&ast)
+
+    use crate::semantics::SemanticsChecker;
+    let checker = SemanticsChecker::new();
+    checker.check_module(&ast)
 }
 
 crate fn stdout() -> StandardStream {

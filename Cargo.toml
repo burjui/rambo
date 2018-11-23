@@ -21,6 +21,7 @@ variant_count = "1.0.0"
 num_enum = "0.1.1"
 elapsed = "0.1.2"
 regex = "1.0.6"
+rc_arena = "0.1.0"
 
 [features]
 dump_ssa = []

@@ -14,8 +14,8 @@ use crate::parser::Block as ASTBlock;
 use crate::parser::Parser;
 use crate::redundant_bindings::report_redundant_bindings;
 use crate::redundant_bindings::Warnings;
-use crate::semantics::check_module;
 use crate::semantics::ExprRef;
+use crate::semantics::SemanticsChecker;
 use crate::source::SourceFile;
 use crate::source::SourceFileRef;
 
@@ -163,7 +163,8 @@ impl CompilerPass<ASTBlock, ExprRef> for VerifySemantics {
     const ID: PassId = PassId::VerifySemantics;
 
     fn apply_impl(ast: ASTBlock, stdout: &mut StandardStream, options: &PipelineOptions) -> Result<ExprRef, Box<dyn Error>> {
-        let hir = check_module(&ast)?;
+        let checker = SemanticsChecker::new();
+        let hir = checker.check_module(&ast)?;
         if options.dump_intermediate {
             writeln!(stdout, "{:?}", hir)?;
         }
