@@ -5,6 +5,7 @@ use std::fmt::Formatter;
 use std::hash::Hash;
 use std::hash::Hasher;
 use std::mem::replace;
+use std::rc::Rc;
 
 use itertools::Itertools;
 use lazy_static::lazy_static;
@@ -146,19 +147,24 @@ impl Codegen {
                     label
                 }
             },
-
             TypedExpr::Application { function, arguments, source, .. } => {
                 let function = self.process_expr(function, None);
                 let arguments = arguments.iter().map(|argument| self.process_expr(argument, None)).collect();
                 self.push(target, SSAOp::Call(function, arguments), source.text())
             },
-
-            TypedExpr::String(_, _) => {
-                // FIXME stub
-                self.push(None, SSAOp::Unit, "STUB")
+            TypedExpr::String(str, source) => self.push(target, SSAOp::Str(str.clone()), source.text()),
+            TypedExpr::AddStr(left, right, source) => {
+                let left = self.process_expr(left, None);
+                let right = self.process_expr(right, None);
+                let left_length = self.push(None, SSAOp::Length(left.clone()), "left length");
+                let right_length = self.push(None, SSAOp::Length(right.clone()), "right length");
+                let total_length = self.push(None, SSAOp::AddInt(left_length.clone(), right_length.clone()), "total length");
+                let allocated_memory = self.push(target, SSAOp::Alloc(total_length), source.text());
+                self.push(None, SSAOp::Copy(left, allocated_memory.clone(), left_length.clone()), "copy left");
+                let right_dst = self.push(None, SSAOp::AddInt(allocated_memory.clone(), left_length), "right dst");
+                self.push(None, SSAOp::Copy(right, right_dst, right_length), "copy right");
+                allocated_memory
             },
-
-            TypedExpr::AddStr(_, _, _) => unimplemented!("{:?}", expr),
             TypedExpr::ArgumentPlaceholder(_, _) => unreachable!()
         }
     }
@@ -294,6 +300,7 @@ crate enum SSAOp {
     Phi(SSAId, SSAId),
     Unit,
     Int(BigInt),
+    Str(Rc<String>),
     AddInt(SSAId, SSAId),
     SubInt(SSAId, SSAId),
     MulInt(SSAId, SSAId),
@@ -304,6 +311,9 @@ crate enum SSAOp {
     Arg(usize),
     Return(SSAId),
     Call(SSAId, Vec<SSAId>),
+    Alloc(SSAId),
+    Copy(SSAId, SSAId, SSAId),
+    Length(SSAId),
     End
 }
 
@@ -313,6 +323,7 @@ impl Debug for SSAOp {
             SSAOp::Phi(left, right) => write!(formatter, "ϕ({:?}, {:?})", left, right),
             SSAOp::Unit => formatter.write_str("()"),
             SSAOp::Int(value) => write!(formatter, "{}", value),
+            SSAOp::Str(value) => write!(formatter, "\"{}\"", value),
             SSAOp::AddInt(left, right) => write!(formatter, "{:?} + {:?}", left, right),
             SSAOp::SubInt(left, right) => write!(formatter, "{:?} - {:?}", left, right),
             SSAOp::MulInt(left, right) => write!(formatter, "{:?} * {:?}", left, right),
@@ -323,6 +334,9 @@ impl Debug for SSAOp {
             SSAOp::Arg(index) => write!(formatter, "arg[{}]", index),
             SSAOp::Return(id) => write!(formatter, "ret {:?}", id),
             SSAOp::Call(id, args) => write!(formatter, "call {:?}, {:?}", id, args.iter().format(", ")),
+            SSAOp::Alloc(size) => write!(formatter, "alloc {:?}", size),
+            SSAOp::Copy(src, dst, size) => write!(formatter, "copy {:?}, {:?}, {:?}", src, dst, size),
+            SSAOp::Length(str) => write!(formatter, "length {:?}", str),
             SSAOp::End => formatter.write_str("end")
         }
     }

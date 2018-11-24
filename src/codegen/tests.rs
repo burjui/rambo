@@ -290,3 +290,34 @@ fn lambda() -> TestResult {
         assert_eq!(call_arguments, &[arg_x.id.clone(), arg_y.id.clone()]);
     )
 }
+
+#[test]
+fn add_str() -> TestResult {
+    match_ssa!("\"a\" + \"b\"",
+        Statement { target: a, op: SSAOp::Str(a_value) },
+        Statement { target: b, op: SSAOp::Str(b_value) },
+        Statement { target: a_length, op: SSAOp::Length(length_a_arg) },
+        Statement { target: b_length, op: SSAOp::Length(length_b_arg) },
+        Statement { target: total_length, op: SSAOp::AddInt(total_length_left, total_length_right) },
+        Statement { target: result, op: SSAOp::Alloc(alloc_size) },
+        Statement { op: SSAOp::Copy(copy_left_src, copy_left_dst, copy_left_size), .. },
+        Statement { target: right_dst, op: SSAOp::AddInt(right_dst_base, right_dst_offset) },
+        Statement { op: SSAOp::Copy(copy_right_src, copy_right_dst, copy_right_size), .. },
+        =>
+        assert_eq!(&**a_value, "a");
+        assert_eq!(&**b_value, "b");
+        assert_eq!(length_a_arg, &a.id);
+        assert_eq!(length_b_arg, &b.id);
+        assert_eq!(total_length_left, &a_length.id);
+        assert_eq!(total_length_right, &b_length.id);
+        assert_eq!(alloc_size, &total_length.id);
+        assert_eq!(copy_left_src, &a.id);
+        assert_eq!(copy_left_dst, &result.id);
+        assert_eq!(copy_left_size, &a_length.id);
+        assert_eq!(right_dst_base, &result.id);
+        assert_eq!(right_dst_offset, &a_length.id);
+        assert_eq!(copy_right_src, &b.id);
+        assert_eq!(copy_right_dst, &right_dst.id);
+        assert_eq!(copy_right_size, &b_length.id);
+    )
+}
