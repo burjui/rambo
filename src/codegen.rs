@@ -8,8 +8,9 @@ use std::mem::replace;
 use std::rc::Rc;
 
 use itertools::Itertools;
-use lazy_static::lazy_static;
 use num_bigint::BigInt;
+use once_cell::unsync::Lazy;
+use once_cell::unsync_lazy;
 use regex::Regex;
 
 use crate::codegen::ssaid_factory::SSAIdFactory;
@@ -282,9 +283,7 @@ impl Debug for Statement {
             format!("    {}", s)
         };
 
-        lazy_static! {
-            static ref WHITESPACE_REGEX: Regex = Regex::new(r"[ \t]+").unwrap();
-        }
+        const WHITESPACE_REGEX: Lazy<Regex> = unsync_lazy!(Regex::new(r"[ \t]+").unwrap());
         let comment = self.target.comment.replace("\n", " ");
         let comment = WHITESPACE_REGEX.replace_all(&comment, " ");
         if !comment.is_empty() {

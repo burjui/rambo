@@ -12,13 +12,14 @@ fn dump(code: &str, ssa: &[Statement]) -> TestResult {
     use itertools::Itertools;
     use std::sync::Arc;
     use std::sync::Mutex;
-    use lazy_static::lazy_static;
+    use once_cell::unsync_lazy;
+    use once_cell::unsync::Lazy;
 
-    lazy_static! {
-        static ref SSA_TXT: Arc<Mutex<File>> = Arc::new(Mutex::new(File::create("ssa.txt").unwrap()));
-    }
+    const SSA_TXT: Lazy<Arc<Mutex<File>>> = unsync_lazy!(
+        Arc::new(Mutex::new(File::create("ssa.txt").unwrap())));
 
-    let mut file = SSA_TXT.lock().unwrap();
+    let mutex = SSA_TXT;
+    let mut file = mutex.lock().unwrap();
     writeln!(file, "-------------\nCODE:\n{}\n\nSSA:\n{:#?}", code, ssa.iter().format("\n"))?;
     Ok(())
 }
