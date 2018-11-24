@@ -7,6 +7,8 @@ use termcolor::ColorSpec;
 use termcolor::StandardStream;
 use termcolor::WriteColor;
 
+use crate::codegen::Codegen;
+use crate::codegen::SSAStatement;
 use crate::eval::Evaluator;
 use crate::eval::Evalue;
 use crate::lexer::Lexer;
@@ -75,7 +77,7 @@ macro_rules! compiler_passes {
     }
 }
 
-compiler_passes!(Load, Parse, VerifySemantics, ReportRedundantBindings, Evaluate);
+compiler_passes!(Load, Parse, VerifySemantics, ReportRedundantBindings, SSA, Evaluate);
 
 crate trait CompilerPass<Input, Output> {
     const NAME: &'static str;
@@ -149,13 +151,26 @@ impl CompilerPass<ExprRef, ExprRef> for ReportRedundantBindings {
     }
 }
 
-impl CompilerPass<ExprRef, Evalue> for Evaluate {
+impl CompilerPass<ExprRef, (ExprRef, Vec<SSAStatement>)> for SSA {
+    const NAME: &'static str = "ssa";
+    const TITLE: &'static str = "Generating SSA";
+
+    fn apply(hir: ExprRef, stdout: &mut StandardStream, options: &PipelineOptions) -> Result<(ExprRef, Vec<SSAStatement>), Box<dyn Error>> {
+        let ssa = Codegen::new().build(&hir);
+        if options.dump_intermediate {
+            writeln!(stdout, "{:?}", ssa.iter().format("\n"))?;
+        }
+        Ok((hir, ssa))
+    }
+}
+
+impl CompilerPass<(ExprRef, Vec<SSAStatement>), Evalue> for Evaluate {
     const NAME: &'static str = "eval";
     const TITLE: &'static str = "Evaluating";
 
-    fn apply(hir: ExprRef, stdout: &mut StandardStream, _: &PipelineOptions) -> Result<Evalue, Box<dyn Error>> {
+    fn apply(ir: (ExprRef, Vec<SSAStatement>), stdout: &mut StandardStream, _: &PipelineOptions) -> Result<Evalue, Box<dyn Error>> {
         let mut evaluator = Evaluator::new();
-        let value = evaluator.eval(&hir)?;
+        let value = evaluator.eval(&ir.0)?;
         writeln!(stdout, "{:?}", value)?;
         Ok(value)
     }

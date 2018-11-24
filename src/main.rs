@@ -3,6 +3,8 @@
 #![feature(transpose_result)]
 #![feature(try_from)]
 #![feature(macro_at_most_once_rep)]
+#![feature(underscore_const_names)]
+#![feature(const_panic)]
 
 use std::env::args as program_args;
 use std::error::Error;
@@ -21,6 +23,7 @@ use crate::pipeline::Parse;
 use crate::pipeline::Pipeline;
 use crate::pipeline::PipelineOptions;
 use crate::pipeline::ReportRedundantBindings;
+use crate::pipeline::SSA;
 use crate::pipeline::StandardStreamUtils;
 use crate::pipeline::VerifySemantics;
 use crate::utils::stdout;
@@ -35,13 +38,11 @@ mod env;
 mod pipeline;
 mod redundant_bindings;
 mod unique_rc;
+mod codegen;
 
 #[cfg(test)]
 #[macro_use]
 mod vm;
-
-#[cfg(test)]
-mod codegen;
 
 #[cfg(test)]
 mod runtime;
@@ -125,12 +126,12 @@ fn parse_command_line() -> Result<CommandLine, Box<dyn Error>> {
 
 fn process(path: String, stdout: &mut StandardStream, options: &PipelineOptions) -> Result<(), Box<dyn Error>> {
     stdout.write_title("==>", &path, Color::Yellow)?;
-
     Pipeline::new(path, stdout, options)
         .map(Load)?
         .map(Parse)?
         .map(VerifySemantics)?
         .map(ReportRedundantBindings)?
+        .map(SSA)?
         .map(Evaluate)
         .map(|_| ())
 }

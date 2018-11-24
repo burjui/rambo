@@ -28,11 +28,11 @@ use crate::unique_rc::UniqueRc;
 #[cfg(test)] mod tests;
 
 crate struct Codegen {
-    ssa: Vec<Statement>,
+    ssa: Vec<SSAStatement>,
     id_factory: SSAIdFactory,
     env: Environment<BindingRef, SSAId>,
     modified: HashMap<BindingRef, SSAId>,
-    lambda_cache: HashMap<LambdaRef, (SSAId, Vec<Statement>)>
+    lambda_cache: HashMap<LambdaRef, (SSAId, Vec<SSAStatement>)>
 }
 
 impl Codegen {
@@ -46,10 +46,10 @@ impl Codegen {
         }
     }
 
-    crate fn build(mut self, expr: &ExprRef) -> Vec<Statement> {
+    crate fn build(mut self, expr: &ExprRef) -> Vec<SSAStatement> {
         self.process_expr(expr, None);
         if !self.lambda_cache.is_empty() {
-            self.push(None, SSAOp::End, "");
+            self.push(None, SSAOp::End(self.ssa.last().unwrap().target.id.clone()), "");
             for (_, code) in self.lambda_cache.values_mut() {
                 self.ssa.append(code);
             }
@@ -186,7 +186,7 @@ impl Codegen {
 
     fn push(&mut self, target: Option<Target>, op: SSAOp, comment: &str) -> SSAId {
         let target = target.unwrap_or_else(|| self.new_target(comment));
-        self.ssa.push(Statement::new(target.clone(), op));
+        self.ssa.push(SSAStatement::new(target.clone(), op));
         target.id
     }
 
@@ -260,18 +260,18 @@ impl Debug for Target {
 }
 
 #[derive(Clone)]
-crate struct Statement {
+crate struct SSAStatement {
     crate target: Target,
     crate op: SSAOp
 }
 
-impl Statement {
+impl SSAStatement {
     fn new(target: Target, op: SSAOp) -> Self {
         Self { target, op }
     }
 }
 
-impl Debug for Statement {
+impl Debug for SSAStatement {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         let code = if let SSAOp::Label = &self.op {
             format!("{:?}:", &self.target.id)
@@ -313,7 +313,7 @@ crate enum SSAOp {
     Alloc(SSAId),
     Copy(SSAId, SSAId, SSAId),
     Length(SSAId),
-    End
+    End(SSAId)
 }
 
 impl Debug for SSAOp {
@@ -336,7 +336,7 @@ impl Debug for SSAOp {
             SSAOp::Alloc(size) => write!(formatter, "alloc {:?}", size),
             SSAOp::Copy(src, dst, size) => write!(formatter, "copy {:?}, {:?}, {:?}", src, dst, size),
             SSAOp::Length(str) => write!(formatter, "length {:?}", str),
-            SSAOp::End => formatter.write_str("end")
+            SSAOp::End(value) => write!(formatter, "end {:?}", value)
         }
     }
 }

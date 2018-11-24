@@ -3,23 +3,19 @@ use std::error::Error;
 
 use crate::codegen::Codegen;
 use crate::codegen::SSAOp;
-use crate::codegen::Statement;
+use crate::codegen::SSAStatement;
 
-#[cfg(feature = "dump_ssa")]
-fn dump(code: &str, ssa: &[Statement]) -> TestResult {
+#[cfg(feature = "dump_ssa_in_tests")]
+fn dump(code: &str, ssa: &[SSAStatement]) -> TestResult {
     use std::fs::File;
     use std::io::Write;
     use itertools::Itertools;
-    use std::sync::Arc;
     use std::sync::Mutex;
-    use once_cell::unsync_lazy;
-    use once_cell::unsync::Lazy;
+    use once_cell::sync::Lazy;
+    use once_cell::sync_lazy;
 
-    const SSA_TXT: Lazy<Arc<Mutex<File>>> = unsync_lazy!(
-        Arc::new(Mutex::new(File::create("ssa.txt").unwrap())));
-
-    let mutex = SSA_TXT;
-    let mut file = mutex.lock().unwrap();
+    static SSA_TXT: Lazy<Mutex<File>> = sync_lazy!(Mutex::new(File::create("ssa.txt").unwrap()));
+    let mut file = SSA_TXT.lock().unwrap();
     writeln!(file, "-------------\nCODE:\n{}\n\nSSA:\n{:#?}", code, ssa.iter().format("\n"))?;
     Ok(())
 }
@@ -27,8 +23,8 @@ fn dump(code: &str, ssa: &[Statement]) -> TestResult {
 macro_rules! match_ssa {
     ($code: expr $(, $patterns: pat)* $(,)? => $($handlers: stmt;)*) => ({
         let ssa = Codegen::new().build(&typecheck!($code)?);
-        #[cfg(feature = "dump_ssa")] dump($code, &ssa)?;
-        match &ssa as &[Statement] {
+        #[cfg(feature = "dump_ssa_in_tests")] dump($code, &ssa)?;
+        match &ssa as &[SSAStatement] {
             [$($patterns, )*] => Ok({
                 $($handlers;)*
             }),
@@ -48,7 +44,7 @@ type TestResult = Result<(), Box<dyn Error>>;
 
 #[test]
 fn empty() -> TestResult {
-    match_ssa!("", Statement { op: SSAOp::Unit, .. })
+    match_ssa!("", SSAStatement { op: SSAOp::Unit, .. })
 }
 
 #[test]
@@ -58,9 +54,9 @@ fn assign() -> TestResult {
         x = 2
         x = 3
         ",
-        Statement { target: one, op: SSAOp::Int(one_value) },
-        Statement { target: two, op: SSAOp::Int(two_value) },
-        Statement { target: three, op: SSAOp::Int(three_value) },
+        SSAStatement { target: one, op: SSAOp::Int(one_value) },
+        SSAStatement { target: two, op: SSAOp::Int(two_value) },
+        SSAStatement { target: three, op: SSAOp::Int(three_value) },
         =>
         assert_eq!(*one_value, BigInt::from(1u8));
         assert_eq!(*two_value, BigInt::from(2u8));
@@ -76,9 +72,9 @@ fn assign() -> TestResult {
 
 macro_rules! test_int_op {
     ($op_char: expr, $op_variant: path) => (match_ssa!(&format!("1{}2", $op_char),
-        Statement { target: one, op: SSAOp::Int(one_value) },
-        Statement { target: two, op: SSAOp::Int(two_value) },
-        Statement { op: $op_variant(left, right), .. }
+        SSAStatement { target: one, op: SSAOp::Int(one_value) },
+        SSAStatement { target: two, op: SSAOp::Int(two_value) },
+        SSAStatement { op: $op_variant(left, right), .. }
         =>
         assert_eq!(*one_value, BigInt::from(1u8));
         assert_eq!(*two_value, BigInt::from(2u8));
@@ -111,15 +107,15 @@ fn div_int() -> TestResult {
 #[test]
 fn all_int() -> TestResult {
     match_ssa!("(1 + 2) - 3 * (4 / 5)",
-        Statement { target: one, op: SSAOp::Int(one_value) },
-        Statement { target: two, op: SSAOp::Int(two_value) },
-        Statement { target: add, op: SSAOp::AddInt(add_left, add_right) },
-        Statement { target: three, op: SSAOp::Int(three_value) },
-        Statement { target: four, op: SSAOp::Int(four_value) },
-        Statement { target: five, op: SSAOp::Int(five_value) },
-        Statement { target: div, op: SSAOp::DivInt(div_left, div_right) },
-        Statement { target: mul, op: SSAOp::MulInt(mul_left, mul_right) },
-        Statement { op: SSAOp::SubInt(sub_left, sub_right), .. },
+        SSAStatement { target: one, op: SSAOp::Int(one_value) },
+        SSAStatement { target: two, op: SSAOp::Int(two_value) },
+        SSAStatement { target: add, op: SSAOp::AddInt(add_left, add_right) },
+        SSAStatement { target: three, op: SSAOp::Int(three_value) },
+        SSAStatement { target: four, op: SSAOp::Int(four_value) },
+        SSAStatement { target: five, op: SSAOp::Int(five_value) },
+        SSAStatement { target: div, op: SSAOp::DivInt(div_left, div_right) },
+        SSAStatement { target: mul, op: SSAOp::MulInt(mul_left, mul_right) },
+        SSAStatement { op: SSAOp::SubInt(sub_left, sub_right), .. },
         =>
         assert_eq!(*one_value, BigInt::from(1u8));
         assert_eq!(*two_value, BigInt::from(2u8));
@@ -140,14 +136,14 @@ fn all_int() -> TestResult {
 #[test]
 fn conditional_with_both_branches() -> TestResult {
     match_ssa!("if 0 {1} else {2}",
-        Statement { target: condition, op: SSAOp::Int(condition_value) },
-        Statement { op: SSAOp::Cbz(cbz_condition, cbz_negative_label), .. },
-        Statement { target: positive, op: SSAOp::Int(positive_value) },
-        Statement { op: SSAOp::Br(br_end_label), .. },
-        Statement { target: negative_label, op: SSAOp::Label },
-        Statement { target: negative, op: SSAOp::Int(negative_value) },
-        Statement { target: end_label, op: SSAOp::Label },
-        Statement { op: SSAOp::Phi(phi_positive, phi_negative), .. },
+        SSAStatement { target: condition, op: SSAOp::Int(condition_value) },
+        SSAStatement { op: SSAOp::Cbz(cbz_condition, cbz_negative_label), .. },
+        SSAStatement { target: positive, op: SSAOp::Int(positive_value) },
+        SSAStatement { op: SSAOp::Br(br_end_label), .. },
+        SSAStatement { target: negative_label, op: SSAOp::Label },
+        SSAStatement { target: negative, op: SSAOp::Int(negative_value) },
+        SSAStatement { target: end_label, op: SSAOp::Label },
+        SSAStatement { op: SSAOp::Phi(phi_positive, phi_negative), .. },
         =>
         assert_eq!(*condition_value, BigInt::from(0u8));
         assert_eq!(*positive_value, BigInt::from(1u8));
@@ -163,15 +159,15 @@ fn conditional_with_both_branches() -> TestResult {
 #[test]
 fn conditional_with_only_positive_branch() -> TestResult {
     match_ssa!("if 1 {2}",
-        Statement { target: condition, op: SSAOp::Int(condition_value) },
-        Statement { op: SSAOp::Cbz(cbz_condition, cbz_negative_label), .. },
-        Statement { op: SSAOp::Int(positive_value), .. },
-        Statement { target: positive, op: SSAOp::Unit },
-        Statement { op: SSAOp::Br(br_end_label), .. },
-        Statement { target: negative_label, op: SSAOp::Label },
-        Statement { target: negative, op: SSAOp::Unit },
-        Statement { target: end_label, op: SSAOp::Label },
-        Statement { op: SSAOp::Phi(phi_positive, phi_negative), .. },
+        SSAStatement { target: condition, op: SSAOp::Int(condition_value) },
+        SSAStatement { op: SSAOp::Cbz(cbz_condition, cbz_negative_label), .. },
+        SSAStatement { op: SSAOp::Int(positive_value), .. },
+        SSAStatement { target: positive, op: SSAOp::Unit },
+        SSAStatement { op: SSAOp::Br(br_end_label), .. },
+        SSAStatement { target: negative_label, op: SSAOp::Label },
+        SSAStatement { target: negative, op: SSAOp::Unit },
+        SSAStatement { target: end_label, op: SSAOp::Label },
+        SSAStatement { op: SSAOp::Phi(phi_positive, phi_negative), .. },
         =>
         assert_eq!(*condition_value, BigInt::from(1u8));
         assert_eq!(*positive_value, BigInt::from(2u8));
@@ -195,17 +191,17 @@ fn assignment_phi() -> TestResult {
             4
         }
         ",
-        Statement { target: x_definition, op: SSAOp::Int(x_initial_value) },
-        Statement { .. }, // cbz x @negative
-        Statement { target: x_positive, op: SSAOp::Int(one) }, // x = 1
-        Statement { .. }, // 2
-        Statement { .. }, // br @end
-        Statement { .. }, // @negative
-        Statement { target: x_negative, op: SSAOp::Int(three) }, // x = 3
-        Statement { .. }, // 4
-        Statement { .. }, // @end
-        Statement { target: x_final, op: SSAOp::Phi(phi_x1, phi_x2) }, // ϕ(x = 1, x = 2)
-        Statement { .. }, // ϕ(positive, negative)
+        SSAStatement { target: x_definition, op: SSAOp::Int(x_initial_value) },
+        SSAStatement { .. }, // cbz x @negative
+        SSAStatement { target: x_positive, op: SSAOp::Int(one) }, // x = 1
+        SSAStatement { .. }, // 2
+        SSAStatement { .. }, // br @end
+        SSAStatement { .. }, // @negative
+        SSAStatement { target: x_negative, op: SSAOp::Int(three) }, // x = 3
+        SSAStatement { .. }, // 4
+        SSAStatement { .. }, // @end
+        SSAStatement { target: x_final, op: SSAOp::Phi(phi_x1, phi_x2) }, // ϕ(x = 1, x = 2)
+        SSAStatement { .. }, // ϕ(positive, negative)
         =>
         assert_eq!(*x_initial_value, BigInt::from(0u8));
         assert_eq!(*one, BigInt::from(1u8));
@@ -226,26 +222,26 @@ fn phi_inner_conditional_assignment() -> TestResult {
             if (2) x = 3
         }
         ",
-        Statement { target: x_definition, .. }, // let x = 0
-        Statement {..}, // 1
-        Statement {..}, // jump to negative branch
-        Statement {..}, // 2
-        Statement {..}, // jump to negative branch
-        Statement { target: x_assignment, .. }, // x = 3
-        Statement {..}, // x = 3
-        Statement {..}, // jump to the end of conditional
-        Statement {..}, // negative branch
-        Statement {..}, // negative branch value
-        Statement {..}, // end of conditional
-        Statement { target: inner_phi, op: SSAOp::Phi(inner_phi_left, inner_phi_right) },
-        Statement {..}, // if (2) x = 3
-        Statement {..}, // { if (2) x = 3 }
-        Statement {..}, // jump to the end of conditional
-        Statement {..}, // negative branch
-        Statement {..}, // negative branch value
-        Statement {..}, // end of conditional
-        Statement { target: outer_phi, op: SSAOp::Phi(outer_phi_left, outer_phi_right) },
-        Statement {..}, // if (1) { if (2) x = 3 }
+        SSAStatement { target: x_definition, .. }, // let x = 0
+        SSAStatement {..}, // 1
+        SSAStatement {..}, // jump to negative branch
+        SSAStatement {..}, // 2
+        SSAStatement {..}, // jump to negative branch
+        SSAStatement { target: x_assignment, .. }, // x = 3
+        SSAStatement {..}, // x = 3
+        SSAStatement {..}, // jump to the end of conditional
+        SSAStatement {..}, // negative branch
+        SSAStatement {..}, // negative branch value
+        SSAStatement {..}, // end of conditional
+        SSAStatement { target: inner_phi, op: SSAOp::Phi(inner_phi_left, inner_phi_right) },
+        SSAStatement {..}, // if (2) x = 3
+        SSAStatement {..}, // { if (2) x = 3 }
+        SSAStatement {..}, // jump to the end of conditional
+        SSAStatement {..}, // negative branch
+        SSAStatement {..}, // negative branch value
+        SSAStatement {..}, // end of conditional
+        SSAStatement { target: outer_phi, op: SSAOp::Phi(outer_phi_left, outer_phi_right) },
+        SSAStatement {..}, // if (1) { if (2) x = 3 }
         =>
         assert_eq!(x_assignment.id.name, x_definition.id.name);
         assert_eq!(inner_phi.id.name, x_definition.id.name);
@@ -270,15 +266,15 @@ fn lambda() -> TestResult {
         let f = \ (x:num, y:num) -> x + y
         f 1 2
         ",
-        Statement { target: arg_x, op: SSAOp::Int(one), .. },
-        Statement { target: arg_y, op: SSAOp::Int(two), .. },
-        Statement { op: SSAOp::Call(call_fn, call_arguments), .. },
-        Statement { op: SSAOp::End, .. },
-        Statement { target: f, op: SSAOp::Label, .. },
-        Statement { target: x, op: SSAOp::Arg(x_index) },
-        Statement { target: y, op: SSAOp::Arg(y_index) },
-        Statement { target: return_value, op: SSAOp::AddInt(left, right) },
-        Statement { op: SSAOp::Return(return_argument), .. },
+        SSAStatement { target: arg_x, op: SSAOp::Int(one), .. },
+        SSAStatement { target: arg_y, op: SSAOp::Int(two), .. },
+        SSAStatement { target: call_result, op: SSAOp::Call(call_fn, call_arguments) },
+        SSAStatement { op: SSAOp::End(end_value), .. },
+        SSAStatement { target: f, op: SSAOp::Label, .. },
+        SSAStatement { target: x, op: SSAOp::Arg(x_index) },
+        SSAStatement { target: y, op: SSAOp::Arg(y_index) },
+        SSAStatement { target: return_value, op: SSAOp::AddInt(left, right) },
+        SSAStatement { op: SSAOp::Return(return_argument), .. },
         =>
         assert_eq!(*x_index, 0);
         assert_eq!(*y_index, 1);
@@ -289,21 +285,22 @@ fn lambda() -> TestResult {
         assert_eq!(*two, BigInt::from(2u8));
         assert_eq!(call_fn, &f.id);
         assert_eq!(call_arguments, &[arg_x.id.clone(), arg_y.id.clone()]);
+        assert_eq!(end_value, &call_result.id);
     )
 }
 
 #[test]
 fn add_str() -> TestResult {
     match_ssa!("\"a\" + \"b\"",
-        Statement { target: a, op: SSAOp::Str(a_value) },
-        Statement { target: b, op: SSAOp::Str(b_value) },
-        Statement { target: a_length, op: SSAOp::Length(length_a_arg) },
-        Statement { target: b_length, op: SSAOp::Length(length_b_arg) },
-        Statement { target: total_length, op: SSAOp::AddInt(total_length_left, total_length_right) },
-        Statement { target: result, op: SSAOp::Alloc(alloc_size) },
-        Statement { op: SSAOp::Copy(copy_left_src, copy_left_dst, copy_left_size), .. },
-        Statement { target: right_dst, op: SSAOp::AddInt(right_dst_base, right_dst_offset) },
-        Statement { op: SSAOp::Copy(copy_right_src, copy_right_dst, copy_right_size), .. },
+        SSAStatement { target: a, op: SSAOp::Str(a_value) },
+        SSAStatement { target: b, op: SSAOp::Str(b_value) },
+        SSAStatement { target: a_length, op: SSAOp::Length(length_a_arg) },
+        SSAStatement { target: b_length, op: SSAOp::Length(length_b_arg) },
+        SSAStatement { target: total_length, op: SSAOp::AddInt(total_length_left, total_length_right) },
+        SSAStatement { target: result, op: SSAOp::Alloc(alloc_size) },
+        SSAStatement { op: SSAOp::Copy(copy_left_src, copy_left_dst, copy_left_size), .. },
+        SSAStatement { target: right_dst, op: SSAOp::AddInt(right_dst_base, right_dst_offset) },
+        SSAStatement { op: SSAOp::Copy(copy_right_src, copy_right_dst, copy_right_size), .. },
         =>
         assert_eq!(&**a_value, "a");
         assert_eq!(&**b_value, "b");

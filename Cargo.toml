@@ -24,4 +24,4 @@ rc_arena = "0.1.0"
 once_cell = "0.1.6"
 
 [features]
-dump_ssa = []
+dump_ssa_in_tests = []

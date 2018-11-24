@@ -356,7 +356,7 @@ crate struct Block {
 
 impl Debug for Block {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(formatter, "{{ {:?} }}", self.statements.iter().format("; "))
+        write!(formatter, "{{\n{:?}\n}}", self.statements.iter().format("\n"))
     }
 }
 
