@@ -12,7 +12,7 @@ use crate::env::Environment;
 use crate::parser::BinaryOperation;
 use crate::parser::Block as ASTBlock;
 use crate::parser::Expr;
-use crate::parser::Parameter as ParsedParameter;
+use crate::parser::Parameter;
 use crate::parser::Statement;
 use crate::source::Source;
 use crate::unique_rc::UniqueRc;
@@ -226,7 +226,7 @@ impl SemanticsChecker {
         }
     }
 
-    fn check_function(&mut self, parameters: &[ParsedParameter], body: &Expr) -> CheckResult<Lambda> {
+    fn check_function(&mut self, parameters: &[Parameter], body: &Expr) -> CheckResult<Lambda> {
         let parameters = parameters.iter()
             .enumerate()
             .map(|(index, parameter)| {
