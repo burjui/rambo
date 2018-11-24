@@ -9,17 +9,15 @@ use std::error::Error;
 use std::io::Write;
 
 use getopts::Options;
-use itertools::join;
 use termcolor::Color;
 use termcolor::ColorSpec;
 use termcolor::StandardStream;
 use termcolor::WriteColor;
 
-use crate::pipeline::ALL_PASS_IDS;
+use crate::pipeline::COMPILER_PASS_NAMES;
 use crate::pipeline::Evaluate;
 use crate::pipeline::Load;
 use crate::pipeline::Parse;
-use crate::pipeline::PassId;
 use crate::pipeline::Pipeline;
 use crate::pipeline::PipelineOptions;
 use crate::pipeline::ReportRedundantBindings;
@@ -95,8 +93,8 @@ fn parse_command_line() -> Result<CommandLine, Box<dyn Error>> {
     spec.optflag(DUMP_OPTION, "dump", "dump intermediate compilation results, e.g. AST");
     spec.optflag("", DUMP_CFG_OPTION, "dump CFGs");
 
-    let pass_name_list: String = join(ALL_PASS_IDS.iter().map(PassId::name), ", ");
-    spec.optopt(PASS_OPTION, "pass", &format!("last compiler pass to be executed;\nfollowing pass names are recognized: {}", pass_name_list), "PASS");
+    let pass_name_list: String = COMPILER_PASS_NAMES.join(", ");
+    spec.optopt(PASS_OPTION, "pass", &format!("name of the last compiler pass in the pipeline;\nvalid names are: {}", pass_name_list), "PASS");
 
     let matches = spec.parse(&args[1..])?;
     let program_name = args[0].clone();
@@ -109,13 +107,16 @@ fn parse_command_line() -> Result<CommandLine, Box<dyn Error>> {
         warnings: !matches.opt_present(WARNINGS_OPTION),
         dump_intermediate: matches.opt_present(DUMP_OPTION),
         dump_cfg: matches.opt_present(DUMP_CFG_OPTION),
-        max_pass: {
-            *matches.opt_str(PASS_OPTION)
+        max_pass_name: {
+            let result: Result<String, Box<dyn Error>> = matches.opt_str(PASS_OPTION)
                 .map(|max_pass_name|
-                    ALL_PASS_IDS.iter()
-                        .find(|id| id.name() == max_pass_name)
-                        .ok_or_else(|| format!("invalid compiler pass name: {}", max_pass_name)))
-                .unwrap_or(Ok(&PassId::Evaluate))?
+                    if COMPILER_PASS_NAMES.contains(&max_pass_name.as_str()) {
+                        Ok(max_pass_name)
+                    } else {
+                        Err(From::from(format!("invalid compiler pass name: {}", max_pass_name)))
+                    })
+                .unwrap_or_else(|| Ok(COMPILER_PASS_NAMES.iter().last().unwrap().to_string()));
+            result?
         }
     };
     let input_files = matches.free;

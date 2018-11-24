@@ -19,105 +19,68 @@ use crate::semantics::SemanticsChecker;
 use crate::source::SourceFile;
 use crate::source::SourceFileRef;
 
-type PipelineInput<'a, T> = Option<(T, &'a mut StandardStream)>;
-
 #[derive(Clone)]
 crate struct PipelineOptions {
     crate warnings: bool,
     crate dump_intermediate: bool,
     crate dump_cfg: bool,
-    crate max_pass: PassId
+    crate max_pass_name: String
 }
 
 crate struct Pipeline<'a, T> {
-    input: PipelineInput<'a, T>,
+    input: Option<T>,
+    stdout: &'a mut StandardStream,
     options: &'a PipelineOptions
 }
 
 impl<'a, T> Pipeline<'a, T> {
     crate fn new(input: T, stdout: &'a mut StandardStream, options: &'a PipelineOptions) -> Self {
-        Self { input: Some((input, stdout)), options }
+        Self { input: Some(input), stdout, options }
     }
 
     crate fn map<U, Pass: CompilerPass<T, U>>(self, _: Pass) -> Result<Pipeline<'a, U>, Box<dyn Error>> {
-        let max_pass = self.options.max_pass;
-        let options = self.options;
-        self.input
-            .filter(|_| max_pass >= Pass::ID)
-            .map(|(data, stdout)| Pass::apply(data, stdout, options))
-            .transpose()
-            .map(|output| Pipeline { input: output, options })
+        let Pipeline { input, stdout, options } = self;
+        input.map(|input| {
+            stdout.write_title("::", Pass::TITLE, Color::White)?;
+            stdout.set_color(ColorSpec::new()
+                .set_fg(Some(Color::Black))
+                .set_intense(true))?;
+            let (elapsed, result) = elapsed::measure_time(|| Pass::apply(input, stdout, options));
+            stdout.set_color(ColorSpec::new()
+                .set_fg(Some(Color::White)))?;
+            write!(stdout, "(")?;
+            stdout.set_color(ColorSpec::new()
+                .set_fg(Some(Color::Black))
+                .set_intense(true))?;
+            write!(stdout, "{}", elapsed)?;
+            stdout.set_color(ColorSpec::new()
+                .set_fg(Some(Color::White)))?;
+            writeln!(stdout, ")")?;
+            result
+        })
+        .transpose()
+        .map(move |output| {
+            let input = output.filter(|_| options.max_pass_name != Pass::NAME);
+            Pipeline { input, stdout, options }
+        })
     }
 }
 
-crate struct Load;
-crate struct Parse;
-crate struct VerifySemantics;
-crate struct ReportRedundantBindings;
-crate struct Evaluate;
-
-#[derive(PartialOrd, PartialEq, Copy, Clone)]
-crate enum PassId {
-    Load,
-    Parse,
-    VerifySemantics,
-    ReportRedundantBindings,
-    Evaluate
-}
-
-crate static ALL_PASS_IDS: [PassId; 5] = [
-    PassId::Load,
-    PassId::Parse,
-    PassId::VerifySemantics,
-    PassId::ReportRedundantBindings,
-    PassId::Evaluate
-];
-
-impl PassId {
-    crate fn name(&self) -> &str {
-        match self {
-            PassId::Load => "load",
-            PassId::Parse => "parse",
-            PassId::VerifySemantics => "sem",
-            PassId::ReportRedundantBindings => "rb",
-            PassId::Evaluate => "eval"
-        }
-    }
-
-    fn title(&self) -> &str {
-        match self {
-            PassId::Load => "Loading",
-            PassId::Parse => "Parsing",
-            PassId::VerifySemantics => "Verifying semantics",
-            PassId::ReportRedundantBindings => "Detecting redundant bindings",
-            PassId::Evaluate => "Evaluating"
-        }
+macro_rules! compiler_passes {
+    ($($struct_name: ident),+) => {
+        $(crate struct $struct_name;)*
+        crate const COMPILER_PASS_NAMES: &[&'static str] = &[
+            $($struct_name::NAME,)*
+        ];
     }
 }
+
+compiler_passes!(Load, Parse, VerifySemantics, ReportRedundantBindings, Evaluate);
 
 crate trait CompilerPass<Input, Output> {
-    const ID: PassId;
-    fn apply_impl(input: Input, stdout: &mut StandardStream, options: &PipelineOptions) -> Result<Output, Box<dyn Error>>;
-
-    fn apply<'stdout>(input: Input, stdout: &'stdout mut StandardStream, options: &PipelineOptions) -> Result<(Output, &'stdout mut StandardStream), Box<dyn Error>> {
-        stdout.write_title("::", Self::ID.title(), Color::White)?;
-        stdout.set_color(ColorSpec::new()
-            .set_fg(Some(Color::Black))
-            .set_intense(true))?;
-        let (elapsed, result) = elapsed::measure_time(|| Self::apply_impl(input, stdout, options).map(|output| (output, stdout)));
-        let (result, stdout) = result?;
-        stdout.set_color(ColorSpec::new()
-            .set_fg(Some(Color::White)))?;
-        write!(stdout, "(")?;
-        stdout.set_color(ColorSpec::new()
-            .set_fg(Some(Color::Black))
-            .set_intense(true))?;
-        write!(stdout, "{}", elapsed)?;
-        stdout.set_color(ColorSpec::new()
-            .set_fg(Some(Color::White)))?;
-        writeln!(stdout, ")")?;
-        Ok((result, stdout))
-    }
+    const NAME: &'static str;
+    const TITLE: &'static str;
+    fn apply(input: Input, stdout: &mut StandardStream, options: &PipelineOptions) -> Result<Output, Box<dyn Error>>;
 }
 
 impl Load {
@@ -133,9 +96,10 @@ impl Load {
 }
 
 impl CompilerPass<String, SourceFileRef> for Load {
-    const ID: PassId = PassId::Load;
+    const NAME: &'static str = "load";
+    const TITLE: &'static str = "Loading";
 
-    fn apply_impl(path: String, stdout: &mut StandardStream, _: &PipelineOptions) -> Result<SourceFileRef, Box<dyn Error>> {
+    fn apply(path: String, stdout: &mut StandardStream, _: &PipelineOptions) -> Result<SourceFileRef, Box<dyn Error>> {
         let source_file = SourceFile::load(&path)?;
         let line_count = source_file.lines().len();
         writeln!(stdout, "{}, {} lines", Self::file_size_pretty(source_file.size()), line_count)?;
@@ -144,9 +108,10 @@ impl CompilerPass<String, SourceFileRef> for Load {
 }
 
 impl CompilerPass<SourceFileRef, ASTBlock> for Parse {
-    const ID: PassId = PassId::Parse;
+    const NAME: &'static str = "parse";
+    const TITLE: &'static str = "Parsing";
 
-    fn apply_impl(source_file: SourceFileRef, stdout: &mut StandardStream, options: &PipelineOptions) -> Result<ASTBlock, Box<dyn Error>> {
+    fn apply(source_file: SourceFileRef, stdout: &mut StandardStream, options: &PipelineOptions) -> Result<ASTBlock, Box<dyn Error>> {
         let lexer = Lexer::new(source_file);
         let mut parser = Parser::new(lexer);
         let ast = parser.parse()?;
@@ -160,9 +125,10 @@ impl CompilerPass<SourceFileRef, ASTBlock> for Parse {
 }
 
 impl CompilerPass<ASTBlock, ExprRef> for VerifySemantics {
-    const ID: PassId = PassId::VerifySemantics;
+    const NAME: &'static str = "sem";
+    const TITLE: &'static str = "Verifying semantics";
 
-    fn apply_impl(ast: ASTBlock, stdout: &mut StandardStream, options: &PipelineOptions) -> Result<ExprRef, Box<dyn Error>> {
+    fn apply(ast: ASTBlock, stdout: &mut StandardStream, options: &PipelineOptions) -> Result<ExprRef, Box<dyn Error>> {
         let checker = SemanticsChecker::new();
         let hir = checker.check_module(&ast)?;
         if options.dump_intermediate {
@@ -173,9 +139,10 @@ impl CompilerPass<ASTBlock, ExprRef> for VerifySemantics {
 }
 
 impl CompilerPass<ExprRef, ExprRef> for ReportRedundantBindings {
-    const ID: PassId = PassId::ReportRedundantBindings;
+    const NAME: &'static str = "rb";
+    const TITLE: &'static str = "Detecting redundant bindings";
 
-    fn apply_impl(hir: ExprRef, _stdout: &mut StandardStream, options: &PipelineOptions) -> Result<ExprRef, Box<dyn Error>> {
+    fn apply(hir: ExprRef, _stdout: &mut StandardStream, options: &PipelineOptions) -> Result<ExprRef, Box<dyn Error>> {
         // TODO pass stdout to report_redundant_bindings()
         report_redundant_bindings(&hir, Warnings(options.warnings));
         Ok(hir)
@@ -183,9 +150,10 @@ impl CompilerPass<ExprRef, ExprRef> for ReportRedundantBindings {
 }
 
 impl CompilerPass<ExprRef, Evalue> for Evaluate {
-    const ID: PassId = PassId::Evaluate;
+    const NAME: &'static str = "eval";
+    const TITLE: &'static str = "Evaluating";
 
-    fn apply_impl(hir: ExprRef, stdout: &mut StandardStream, _: &PipelineOptions) -> Result<Evalue, Box<dyn Error>> {
+    fn apply(hir: ExprRef, stdout: &mut StandardStream, _: &PipelineOptions) -> Result<Evalue, Box<dyn Error>> {
         let mut evaluator = Evaluator::new();
         let value = evaluator.eval(&hir)?;
         writeln!(stdout, "{:?}", value)?;
