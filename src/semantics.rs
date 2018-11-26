@@ -172,8 +172,8 @@ impl SemanticsChecker {
             Expr::Conditional { source, condition, positive, negative } => {
                 let condition_typed = self.check_expr(condition)?;
                 let condition_type = condition_typed.type_();
-                if condition_type != Type::Int && condition_type != Type::String {
-                    return error!("a condition can only be of type `num' or `str': {:?}", condition.source())
+                if condition_type != Type::Int {
+                    return error!("a condition can only be of type `num': {:?}", condition.source())
                 }
 
                 let (positive, positive_source) = match positive.deref() {
