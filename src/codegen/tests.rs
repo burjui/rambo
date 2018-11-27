@@ -5,6 +5,8 @@ use crate::codegen::Codegen;
 use crate::codegen::SSAOp;
 use crate::codegen::SSAStatement;
 
+type TestResult = Result<(), Box<dyn Error>>;
+
 #[cfg(feature = "dump_ssa_in_tests")]
 fn dump(code: &str, ssa: &[SSAStatement]) -> TestResult {
     use std::fs::File;
@@ -39,8 +41,6 @@ macro_rules! match_ssa {
 
     ($code: expr, $($patterns: pat),+) => ({match_ssa!($code $(, $patterns)* => ();)})
 }
-
-type TestResult = Result<(), Box<dyn Error>>;
 
 #[test]
 fn empty() -> TestResult {
@@ -192,7 +192,8 @@ fn assignment_phi() -> TestResult {
         }
         ",
         SSAStatement { target: x_definition, op: SSAOp::Int(x_initial_value) },
-        SSAStatement { .. }, // cbz x @negative
+        SSAStatement { .. }, // tmp = x
+        SSAStatement { .. }, // cbz tmp @negative
         SSAStatement { target: x_positive, op: SSAOp::Int(one) }, // x = 1
         SSAStatement { .. }, // 2
         SSAStatement { .. }, // br @end
@@ -266,6 +267,7 @@ fn lambda() -> TestResult {
         let f = \ (x:num, y:num) -> x + y
         f 1 2
         ",
+        SSAStatement { target: fn_tmp, op: SSAOp::Id(fn_id), .. },
         SSAStatement { target: arg_x, op: SSAOp::Int(one), .. },
         SSAStatement { target: arg_y, op: SSAOp::Int(two), .. },
         SSAStatement { target: call_result, op: SSAOp::Call(call_fn, call_arguments) },
@@ -283,7 +285,8 @@ fn lambda() -> TestResult {
         assert_eq!(return_argument, &return_value.id);
         assert_eq!(*one, BigInt::from(1u8));
         assert_eq!(*two, BigInt::from(2u8));
-        assert_eq!(call_fn, &f.id);
+        assert_eq!(call_fn, &fn_tmp.id);
+        assert_eq!(fn_id, &f.id);
         assert_eq!(call_arguments, &[arg_x.id.clone(), arg_y.id.clone()]);
         assert_eq!(end_value, &call_result.id);
     )

@@ -41,6 +41,9 @@ mod unique_rc;
 mod codegen;
 
 #[cfg(test)]
+mod ssa_eval;
+
+#[cfg(test)]
 #[macro_use]
 mod vm;
 

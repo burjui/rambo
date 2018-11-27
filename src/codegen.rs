@@ -9,8 +9,8 @@ use std::rc::Rc;
 
 use itertools::Itertools;
 use num_bigint::BigInt;
-use once_cell::unsync::Lazy;
-use once_cell::unsync_lazy;
+use once_cell::sync::Lazy;
+use once_cell::sync_lazy;
 use regex::Regex;
 
 use crate::codegen::ssaid_factory::SSAIdFactory;
@@ -130,7 +130,10 @@ impl Codegen {
             TypedExpr::Unit(source) => self.push(target, SSAOp::Unit, source.text()),
             TypedExpr::Reference(binding, source) => {
                 match binding.kind {
-                    BindingKind::Let => self.id(binding),
+                    BindingKind::Let => {
+                        let id = self.id(binding);
+                        self.push(target, SSAOp::Id(id), source.text())
+                    },
                     BindingKind::Arg(index) => self.push(None, SSAOp::Arg(index), source.text())
                 }
             },
@@ -211,7 +214,7 @@ impl Codegen {
     }
 
     fn id(&mut self, binding: &BindingRef) -> SSAId {
-        if let Some(id) = self.env.resolve(binding).ok() {
+        if let Ok(id) = self.env.resolve(binding) {
             id.clone()
         } else {
             let id = self.id_factory.new_id(SSAIdName::Binding(binding.clone()));
@@ -229,8 +232,8 @@ impl Codegen {
 
 #[derive(Clone)]
 crate struct Target {
-    id: SSAId,
-    comment: String
+    crate id: SSAId,
+    crate comment: String
 }
 
 impl Target {
@@ -283,7 +286,7 @@ impl Debug for SSAStatement {
             format!("    {}", s)
         };
 
-        const WHITESPACE_REGEX: Lazy<Regex> = unsync_lazy!(Regex::new(r"[ \t]+").unwrap());
+        static WHITESPACE_REGEX: Lazy<Regex> = sync_lazy!(Regex::new(r"[ \t]+").unwrap());
         let comment = self.target.comment.replace("\n", " ");
         let comment = WHITESPACE_REGEX.replace_all(&comment, " ");
         if !comment.is_empty() {
@@ -296,7 +299,7 @@ impl Debug for SSAStatement {
 
 #[derive(Clone, PartialEq)]
 crate enum SSAOp {
-    Phi(SSAId, SSAId),
+    Id(SSAId),
     Unit,
     Int(BigInt),
     Str(Rc<String>),
@@ -313,13 +316,14 @@ crate enum SSAOp {
     Alloc(SSAId),
     Copy(SSAId, SSAId, SSAId),
     Length(SSAId),
+    Phi(SSAId, SSAId),
     End(SSAId)
 }
 
 impl Debug for SSAOp {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            SSAOp::Phi(left, right) => write!(formatter, "ϕ({:?}, {:?})", left, right),
+            SSAOp::Id(id) => Debug::fmt(id, formatter),
             SSAOp::Unit => formatter.write_str("()"),
             SSAOp::Int(value) => write!(formatter, "{}", value),
             SSAOp::Str(value) => write!(formatter, "\"{}\"", value),
@@ -336,6 +340,7 @@ impl Debug for SSAOp {
             SSAOp::Alloc(size) => write!(formatter, "alloc {:?}", size),
             SSAOp::Copy(src, dst, size) => write!(formatter, "copy {:?}, {:?}, {:?}", src, dst, size),
             SSAOp::Length(str) => write!(formatter, "length {:?}", str),
+            SSAOp::Phi(left, right) => write!(formatter, "ϕ({:?}, {:?})", left, right),
             SSAOp::End(value) => write!(formatter, "end {:?}", value)
         }
     }
