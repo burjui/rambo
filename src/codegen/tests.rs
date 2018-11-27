@@ -302,7 +302,7 @@ fn add_str() -> TestResult {
         SSAStatement { target: total_length, op: SSAOp::AddInt(total_length_left, total_length_right) },
         SSAStatement { target: result, op: SSAOp::Alloc(alloc_size) },
         SSAStatement { op: SSAOp::Copy(copy_left_src, copy_left_dst, copy_left_size), .. },
-        SSAStatement { target: right_dst, op: SSAOp::AddInt(right_dst_base, right_dst_offset) },
+        SSAStatement { target: right_dst, op: SSAOp::Offset(right_dst_base, right_dst_offset) },
         SSAStatement { op: SSAOp::Copy(copy_right_src, copy_right_dst, copy_right_size), .. },
         =>
         assert_eq!(&**a_value, "a");

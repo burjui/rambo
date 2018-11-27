@@ -1,4 +1,3 @@
-use num_traits::cast::ToPrimitive;
 use std::error::Error;
 
 use crate::codegen::Codegen;
@@ -40,8 +39,8 @@ fn eval() -> TestResult {
     ";
     let ssa = Codegen::new().build(&typecheck!(code)?);
     let result = SSAEvaluator::new().eval(&ssa);
-    let s_address = result.value.int().to_usize().unwrap();
-    let s = SSAEvaluator::str(&result.ram, s_address);
+    let (s_address, s_offset) = result.value.str();
+    let s = SSAEvaluator::str(&result.ram, s_address, s_offset);
     assert_eq!(s, "abc--efg--/test");
     Ok(())
 }

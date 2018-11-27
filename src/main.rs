@@ -18,6 +18,7 @@ use termcolor::WriteColor;
 
 use crate::pipeline::COMPILER_PASS_NAMES;
 use crate::pipeline::Evaluate;
+use crate::pipeline::EvaluateSSA;
 use crate::pipeline::Load;
 use crate::pipeline::Parse;
 use crate::pipeline::Pipeline;
@@ -39,8 +40,6 @@ mod pipeline;
 mod redundant_bindings;
 mod unique_rc;
 mod codegen;
-
-#[cfg(test)]
 mod ssa_eval;
 
 #[cfg(test)]
@@ -135,6 +134,7 @@ fn process(path: String, stdout: &mut StandardStream, options: &PipelineOptions)
         .map(VerifySemantics)?
         .map(ReportRedundantBindings)?
         .map(SSA)?
+        .map(EvaluateSSA)?
         .map(Evaluate)
         .map(|_| ())
 }

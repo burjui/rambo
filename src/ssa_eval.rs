@@ -26,8 +26,8 @@ crate struct SSAEvaluator {
 }
 
 crate struct EvalResult {
-    value: Value,
-    ram: Box<[u8]>
+    crate value: Value,
+    crate ram: Box<[u8]>
 }
 
 impl SSAEvaluator {
@@ -77,6 +77,11 @@ impl SSAEvaluator {
             SSAOp::AddInt(left, right) => self.set_statement_result(statement, Value::Int(self.value(left).int() + self.value(right).int())),
             SSAOp::MulInt(left, right) => self.set_statement_result(statement, Value::Int(self.value(left).int() * self.value(right).int())),
             SSAOp::DivInt(left, right) => self.set_statement_result(statement, Value::Int(self.value(left).int() / self.value(right).int())),
+            SSAOp::Offset(left, right) => {
+                let (s_address, s_offset) = self.value(left).str();
+                let offset = self.value(right).int().to_usize().unwrap();
+                self.set_statement_result(statement, Value::Str(s_address, s_offset + offset));
+            },
             SSAOp::Call(function, arguments) => {
                 self.stack.push(Value::CallResult(self.pc, statement.target.id.clone()));
                 self.stack_frames.push(self.stack.len());
@@ -102,7 +107,7 @@ impl SSAEvaluator {
                 let size = data.len();
                 let address = self.alloc(size);
                 self.ram[address .. address + size].copy_from_slice(data);
-                self.set_statement_result(statement, Value::Int(address.into()))
+                self.set_statement_result(statement, Value::Str(address, 0))
             },
             SSAOp::Br(label) => self.pc = self.value(label).label(),
             SSAOp::Cbz(value, label) =>
@@ -112,11 +117,13 @@ impl SSAEvaluator {
             SSAOp::Alloc(size) => {
                 let size = self.value(size).int().to_usize().unwrap();
                 let address = self.alloc(size);
-                self.set_statement_result(statement, Value::Int(address.into()));
+                self.set_statement_result(statement, Value::Str(address, 0));
             },
             SSAOp::Copy(src, dst, size) => {
-                let src = self.value(src).int().to_usize().unwrap();
-                let dst = self.value(dst).int().to_usize().unwrap();
+                let (src_address, src_offset) = self.value(src).str();
+                let src = src_address + src_offset;
+                let (dst_address, dst_offset) = self.value(dst).str();
+                let dst = dst_address + dst_offset;
                 let size = self.value(size).int().to_usize().unwrap();
                 let (src, dst) = if src < dst {
                     let (left, right) = self.ram.split_at_mut(dst);
@@ -130,8 +137,8 @@ impl SSAEvaluator {
                 dst.copy_from_slice(src);
             },
             SSAOp::Length(address) => {
-                let address = self.value(address).int().to_usize().unwrap();
-                let length = *Self::block_length(&mut self.ram, address);
+                let (address, offset) = self.value(address).str();
+                let length = *Self::block_length(&mut self.ram, address) - offset;
                 self.set_statement_result(statement, Value::Int(length.into()));
             },
             SSAOp::Phi(id, _) => {
@@ -174,15 +181,16 @@ impl SSAEvaluator {
         unsafe { &mut *(&mut ram[address - Self::BLOCK_LENGTH_SIZE] as *mut u8 as *mut usize) }
     }
 
-    crate fn str(ram: &[u8], address: usize) -> &str {
-        std::str::from_utf8(&ram[address .. address + *Self::block_length(ram, address)]).unwrap()
+    crate fn str(ram: &[u8], address: usize, offset: usize) -> &str {
+        std::str::from_utf8(&ram[address + offset .. address + *Self::block_length(ram, address)]).unwrap()
     }
 }
 
-#[derive(PartialEq, Debug, Clone)]
+#[derive(PartialEq, Clone, Debug)]
 crate enum Value {
     Unit,
     Int(BigInt),
+    Str(usize, usize),
     Label(usize),
     CallResult(usize, SSAId),
 }
@@ -191,6 +199,13 @@ impl Value {
     crate fn int(&self) -> &BigInt {
         match self {
             Value::Int(value) => value,
+            _ => unreachable!("\n{:?}", self)
+        }
+    }
+
+    crate fn str(&self) -> (usize, usize) {
+        match self {
+            Value::Str(address, offset) => (*address, *offset),
             _ => unreachable!("\n{:?}", self)
         }
     }

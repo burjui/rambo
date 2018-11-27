@@ -20,6 +20,8 @@ use crate::semantics::ExprRef;
 use crate::semantics::SemanticsChecker;
 use crate::source::SourceFile;
 use crate::source::SourceFileRef;
+use crate::ssa_eval::SSAEvaluator;
+use crate::ssa_eval::Value;
 
 #[derive(Clone)]
 crate struct PipelineOptions {
@@ -77,7 +79,7 @@ macro_rules! compiler_passes {
     }
 }
 
-compiler_passes!(Load, Parse, VerifySemantics, ReportRedundantBindings, SSA, Evaluate);
+compiler_passes!(Load, Parse, VerifySemantics, ReportRedundantBindings, SSA, EvaluateSSA, Evaluate);
 
 crate trait CompilerPass<Input, Output> {
     const NAME: &'static str;
@@ -164,13 +166,29 @@ impl CompilerPass<ExprRef, (ExprRef, Vec<SSAStatement>)> for SSA {
     }
 }
 
-impl CompilerPass<(ExprRef, Vec<SSAStatement>), Evalue> for Evaluate {
+impl CompilerPass<(ExprRef, Vec<SSAStatement>), ExprRef> for EvaluateSSA {
+    const NAME: &'static str = "eval_ssa";
+    const TITLE: &'static str = "Evaluating SSA";
+
+    fn apply(input: (ExprRef, Vec<SSAStatement>), stdout: &mut StandardStream, _: &PipelineOptions) -> Result<ExprRef, Box<dyn Error>> {
+        let result = SSAEvaluator::new().eval(&input.1);
+        match result.value {
+            Value::Unit => writeln!(stdout, "()")?,
+            Value::Int(value) => writeln!(stdout, "{}", value)?,
+            Value::Str(address, offset) => writeln!(stdout, "\"{}\"", SSAEvaluator::str(&result.ram, address, offset))?,
+            _ => unreachable!("{:?}", result.value)
+        }
+        Ok(input.0)
+    }
+}
+
+impl CompilerPass<ExprRef, Evalue> for Evaluate {
     const NAME: &'static str = "eval";
     const TITLE: &'static str = "Evaluating";
 
-    fn apply(ir: (ExprRef, Vec<SSAStatement>), stdout: &mut StandardStream, _: &PipelineOptions) -> Result<Evalue, Box<dyn Error>> {
+    fn apply(hir: ExprRef, stdout: &mut StandardStream, _: &PipelineOptions) -> Result<Evalue, Box<dyn Error>> {
         let mut evaluator = Evaluator::new();
-        let value = evaluator.eval(&ir.0)?;
+        let value = evaluator.eval(&hir)?;
         writeln!(stdout, "{:?}", value)?;
         Ok(value)
     }

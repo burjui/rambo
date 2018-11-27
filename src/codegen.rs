@@ -24,6 +24,7 @@ use crate::semantics::TypedExpr;
 use crate::semantics::TypedStatement;
 use crate::source::Source;
 use crate::unique_rc::UniqueRc;
+use crate::semantics::Type;
 
 #[cfg(test)] mod tests;
 
@@ -49,7 +50,12 @@ impl Codegen {
     crate fn build(mut self, expr: &ExprRef) -> Vec<SSAStatement> {
         self.process_expr(expr, None);
         if !self.lambda_cache.is_empty() {
-            self.push(None, SSAOp::End(self.ssa.last().unwrap().target.id.clone()), "");
+            let result = if let Type::Unit = expr.type_() {
+                self.push(None, SSAOp::Unit, "program result")
+            } else {
+                self.ssa.last().unwrap().target.id.clone()
+            };
+            self.push(None, SSAOp::End(result), "");
             for (_, code) in self.lambda_cache.values_mut() {
                 self.ssa.append(code);
             }
@@ -165,7 +171,7 @@ impl Codegen {
                 let total_length = self.push(None, SSAOp::AddInt(left_length.clone(), right_length.clone()), "total length");
                 let allocated_memory = self.push(target, SSAOp::Alloc(total_length), source.text());
                 self.push(None, SSAOp::Copy(left, allocated_memory.clone(), left_length.clone()), "copy left");
-                let right_dst = self.push(None, SSAOp::AddInt(allocated_memory.clone(), left_length), "right dst");
+                let right_dst = self.push(None, SSAOp::Offset(allocated_memory.clone(), left_length), "right dst");
                 self.push(None, SSAOp::Copy(right, right_dst, right_length), "copy right");
                 allocated_memory
             },
@@ -307,6 +313,7 @@ crate enum SSAOp {
     SubInt(SSAId, SSAId),
     MulInt(SSAId, SSAId),
     DivInt(SSAId, SSAId),
+    Offset(SSAId, SSAId),
     Label,
     Br(SSAId),
     Cbz(SSAId, SSAId),
@@ -331,6 +338,7 @@ impl Debug for SSAOp {
             SSAOp::SubInt(left, right) => write!(formatter, "{:?} - {:?}", left, right),
             SSAOp::MulInt(left, right) => write!(formatter, "{:?} * {:?}", left, right),
             SSAOp::DivInt(left, right) => write!(formatter, "{:?} / {:?}", left, right),
+            SSAOp::Offset(left, right) => write!(formatter, "&[{:?} + {:?}]", left, right),
             SSAOp::Label => formatter.write_str("label"),
             SSAOp::Br(label) => write!(formatter, "br {:?}", label),
             SSAOp::Cbz(condition, label) => write!(formatter, "cbz {:?}, {:?}", condition, label),
