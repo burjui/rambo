@@ -36,7 +36,7 @@ impl<T: ?Sized> Eq for UniqueRc<T> {}
 
 impl<T: ?Sized> Hash for UniqueRc<T> {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        Rc::into_raw(self.0.clone()).hash(state)
+        (&*self.0 as *const T).hash(state)
     }
 }
 
