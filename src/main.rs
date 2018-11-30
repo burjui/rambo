@@ -2,7 +2,6 @@
 #![warn(rust_2018_idioms)]
 #![feature(transpose_result)]
 #![feature(try_from)]
-#![feature(macro_at_most_once_rep)]
 #![feature(underscore_const_names)]
 #![feature(const_panic)]
 
