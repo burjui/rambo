@@ -138,7 +138,7 @@ impl SSAEvaluator {
             },
             SSAOp::Length(address) => {
                 let (address, offset) = self.value(address).str();
-                let length = *Self::block_length(&mut self.ram, address) - offset;
+                let length = Self::block_length(&self.ram, address) - offset;
                 self.set_statement_result(statement, Value::Int(length.into()));
             },
             SSAOp::Phi(id, _) => {
@@ -167,22 +167,30 @@ impl SSAEvaluator {
     fn alloc(&mut self, size: usize) -> usize {
         let address = self.ram.len() + Self::BLOCK_LENGTH_SIZE;
         self.ram.resize(address + size, 0);
-        *Self::block_length_mut(&mut self.ram, address) = size;
+        Self::set_block_length(&mut self.ram, address, size);
         address
     }
 
     const BLOCK_LENGTH_SIZE: usize = size_of::<usize>();
 
-    crate fn block_length(ram: &[u8], address: usize) -> &usize {
-        unsafe { &*(&ram[address - Self::BLOCK_LENGTH_SIZE] as *const u8 as *const usize) }
+    crate fn block_length(ram: &[u8], address: usize) -> usize {
+        unsafe {
+            #[allow(clippy::cast_ptr_alignment)]
+            let ptr = &ram[address - Self::BLOCK_LENGTH_SIZE] as *const u8 as *const usize;
+            std::ptr::read_unaligned(ptr)
+        }
     }
 
-    fn block_length_mut(ram: &mut [u8], address: usize) -> &mut usize {
-        unsafe { &mut *(&mut ram[address - Self::BLOCK_LENGTH_SIZE] as *mut u8 as *mut usize) }
+    fn set_block_length(ram: &mut [u8], address: usize, length: usize) {
+        unsafe {
+            #[allow(clippy::cast_ptr_alignment)]
+            let ptr = &mut ram[address - Self::BLOCK_LENGTH_SIZE] as *mut u8 as *mut usize;
+            std::ptr::write_unaligned(ptr, length)
+        }
     }
 
     crate fn str(ram: &[u8], address: usize, offset: usize) -> &str {
-        std::str::from_utf8(&ram[address + offset .. address + *Self::block_length(ram, address)]).unwrap()
+        std::str::from_utf8(&ram[address + offset .. address + Self::block_length(ram, address)]).unwrap()
     }
 }
 
