@@ -48,3 +48,26 @@ crate fn stdout() -> StandardStream {
     let color_choice = if is_tty { ColorChoice::Always } else { ColorChoice::Never };
     StandardStream::stdout(color_choice)
 }
+
+#[cfg(feature = "dump_ssa_in_tests")]
+crate mod ssa {
+    use std::error::Error;
+
+    use crate::codegen::SSAStatement;
+
+    #[cfg(feature = "dump_ssa_in_tests")]
+    crate fn dump(code: &str, ssa: &[SSAStatement]) -> Result<(), Box<dyn Error>> {
+        use std::fs::File;
+        use std::io::Write;
+        use std::sync::Mutex;
+        use itertools::Itertools;
+        use once_cell::sync::Lazy;
+        use once_cell::sync_lazy;
+
+        static SSA_TXT: Lazy<Mutex<File>> = sync_lazy!(Mutex::new(File::create("ssa.txt").unwrap()));
+        let mut file = SSA_TXT.lock().unwrap();
+        writeln!(file, "-------------\nCODE:\n{}\n\nSSA:\n{:#?}", code, ssa.iter().format("\n"))?;
+        Ok(())
+    }
+}
+

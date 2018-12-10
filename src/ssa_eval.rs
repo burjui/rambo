@@ -70,7 +70,6 @@ impl SSAEvaluator {
 
     fn eval_statement(&mut self, statement: &SSAStatement) {
         match &statement.op {
-            SSAOp::Id(id) => self.set_statement_result(statement, self.value(id).clone()),
             SSAOp::Unit => self.set_statement_result(statement, Value::Unit),
             SSAOp::Int(value) => self.set_statement_result(statement, Value::Int(value.clone())),
             SSAOp::SubInt(left, right) => self.set_statement_result(statement, Value::Int(self.value(left).int() - self.value(right).int())),
@@ -119,10 +118,10 @@ impl SSAEvaluator {
                 let address = self.alloc(size);
                 self.set_statement_result(statement, Value::Str(address, 0));
             },
-            SSAOp::Copy(src, dst, size) => {
-                let (src_address, src_offset) = self.value(src).str();
+            SSAOp::Copy(src_id, dst_id, size) => {
+                let (src_address, src_offset) = self.value(src_id).str();
                 let src = src_address + src_offset;
-                let (dst_address, dst_offset) = self.value(dst).str();
+                let (dst_address, dst_offset) = self.value(dst_id).str();
                 let dst = dst_address + dst_offset;
                 let size = self.value(size).int().to_usize().unwrap();
                 let (src, dst) = if src < dst {
@@ -135,6 +134,7 @@ impl SSAEvaluator {
                     return;
                 };
                 dst.copy_from_slice(src);
+                self.set_statement_result(statement, Value::Unit);
             },
             SSAOp::Length(address) => {
                 let (address, offset) = self.value(address).str();
@@ -161,6 +161,7 @@ impl SSAEvaluator {
     }
 
     fn value(&self, id: &SSAId) -> &Value {
+        assert!(self.values.contains_key(&id.name), "key no found: {:?}", id.name);
         &self.values[&id.name]
     }
 

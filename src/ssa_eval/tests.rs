@@ -35,7 +35,7 @@ fn eval() -> TestResult {
     (0 - a1) * (0 - 1)
     (a1 + a1)
     (a1 - a1)
-    s
+    s + \"\"
     ";
     let ssa = Codegen::new().build(&typecheck!(code)?);
     let result = SSAEvaluator::new().eval(&ssa);

@@ -1,7 +1,10 @@
 use std::error::Error;
+use std::fs::File;
 use std::io::Write;
 
 use itertools::Itertools;
+use petgraph::dot::Config;
+use petgraph::dot::Dot;
 use termcolor::Color;
 use termcolor::ColorSpec;
 use termcolor::StandardStream;
@@ -9,6 +12,7 @@ use termcolor::WriteColor;
 
 use crate::codegen::Codegen;
 use crate::codegen::SSAStatement;
+use crate::control_flow::build_control_flow_graph;
 use crate::eval::Evaluator;
 use crate::eval::Evalue;
 use crate::lexer::Lexer;
@@ -79,7 +83,7 @@ macro_rules! compiler_passes {
     }
 }
 
-compiler_passes!(Load, Parse, VerifySemantics, ReportRedundantBindings, SSA, EvaluateSSA, Evaluate);
+compiler_passes!(Load, Parse, VerifySemantics, ReportRedundantBindings, SSA, BuildControlFlowGraph, EvaluateSSA, Evaluate);
 
 crate trait CompilerPass<Input, Output> {
     const NAME: &'static str;
@@ -163,6 +167,20 @@ impl CompilerPass<ExprRef, (ExprRef, Vec<SSAStatement>)> for SSA {
             writeln!(stdout, "{:?}", ssa.iter().format("\n"))?;
         }
         Ok((hir, ssa))
+    }
+}
+
+impl CompilerPass<(ExprRef, Vec<SSAStatement>), (ExprRef, Vec<SSAStatement>)> for BuildControlFlowGraph {
+    const NAME: &'static str = "cfg";
+    const TITLE: &'static str = "Building control flow graph";
+
+    fn apply(input: (ExprRef, Vec<SSAStatement>), _stdout: &mut StandardStream, options: &PipelineOptions) -> Result<(ExprRef, Vec<SSAStatement>), Box<dyn Error>> {
+        if options.dump_cfg {
+            let graph = build_control_flow_graph(&input.1);
+            writeln!(&File::create("cfg.dot")?, "{:#?}", Dot::with_config(&graph, &[Config::EdgeNoLabel]))?;
+            // TODO implement export with rectangular nodes and maybe even syntax highlight
+        }
+        Ok(input)
     }
 }
 

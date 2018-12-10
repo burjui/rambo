@@ -15,6 +15,7 @@ use termcolor::ColorSpec;
 use termcolor::StandardStream;
 use termcolor::WriteColor;
 
+use crate::pipeline::BuildControlFlowGraph;
 use crate::pipeline::COMPILER_PASS_NAMES;
 use crate::pipeline::Evaluate;
 use crate::pipeline::EvaluateSSA;
@@ -40,6 +41,7 @@ mod redundant_bindings;
 mod unique_rc;
 mod codegen;
 mod ssa_eval;
+mod control_flow;
 
 #[cfg(test)]
 #[macro_use]
@@ -133,6 +135,7 @@ fn process(path: String, stdout: &mut StandardStream, options: &PipelineOptions)
         .map(VerifySemantics)?
         .map(ReportRedundantBindings)?
         .map(SSA)?
+        .map(BuildControlFlowGraph)?
         .map(EvaluateSSA)?
         .map(Evaluate)
         .map(|_| ())

@@ -20,11 +20,11 @@ use crate::semantics::BindingRef;
 use crate::semantics::Block;
 use crate::semantics::ExprRef;
 use crate::semantics::LambdaRef;
+use crate::semantics::Type;
 use crate::semantics::TypedExpr;
 use crate::semantics::TypedStatement;
 use crate::source::Source;
 use crate::unique_rc::UniqueRc;
-use crate::semantics::Type;
 
 #[cfg(test)] mod tests;
 
@@ -34,6 +34,22 @@ crate struct Codegen {
     env: Environment<BindingRef, SSAId>,
     modified: HashMap<BindingRef, SSAId>,
     lambda_cache: HashMap<LambdaRef, (SSAId, Vec<SSAStatement>)>
+}
+
+trait OptionCloneOrElse<T> {
+    fn clone_or_else(self, f: impl FnMut() -> T) -> T;
+}
+
+impl<T: Clone> OptionCloneOrElse<T> for Option<&T> {
+    fn clone_or_else(self, f: impl FnMut() -> T) -> T {
+        self.cloned().unwrap_or_else(f)
+    }
+}
+
+impl<T: Clone> OptionCloneOrElse<T> for Option<&mut T> {
+    fn clone_or_else(self, f: impl FnMut() -> T) -> T {
+        self.cloned().unwrap_or_else(f)
+    }
 }
 
 impl Codegen {
@@ -48,14 +64,16 @@ impl Codegen {
     }
 
     crate fn build(mut self, expr: &ExprRef) -> Vec<SSAStatement> {
-        self.process_expr(expr, None);
+        let result = self.process_expr(expr, None);
         if !self.lambda_cache.is_empty() {
             let result = if let Type::Unit = expr.type_() {
-                self.push(None, SSAOp::Unit, "program result")
+                let target = self.new_target("program result");
+                self.push(target, SSAOp::Unit)
             } else {
-                self.ssa.last().unwrap().target.id.clone()
+                result
             };
-            self.push(None, SSAOp::End(result), "");
+            let target = self.new_target("");
+            self.push(target, SSAOp::End(result));
             for (_, code) in self.lambda_cache.values_mut() {
                 self.ssa.append(code);
             }
@@ -63,14 +81,17 @@ impl Codegen {
         self.ssa
     }
 
-    fn process_expr(&mut self, expr: &ExprRef, target: Option<Target>) -> SSAId {
+    fn process_expr(&mut self, expr: &ExprRef, target: Option<&mut Target>) -> SSAId {
         match &**expr {
-            TypedExpr::Int(value, source) => self.push(target, SSAOp::Int(value.clone()), source.text()),
+            TypedExpr::Int(value, source) => {
+                let target = target.clone_or_else(|| self.new_target(source.text()));
+                self.push(target, SSAOp::Int(value.clone()))
+            },
             TypedExpr::Assign(binding, value, source) => {
                 let id = self.id(binding);
-                let new_version = self.next_version(binding, &id, source.text());
+                let mut new_version = self.next_version(binding, &id, source.text());
                 self.modified.insert(binding.clone(), new_version.id.clone());
-                self.process_expr(value, Some(new_version))
+                self.process_expr(value, Some(&mut new_version))
             },
             TypedExpr::AddInt(left, right, source) => self.push_int_op(target, left, right, source, SSAOp::AddInt),
             TypedExpr::SubInt(left, right, source) => self.push_int_op(target, left, right, source, SSAOp::SubInt),
@@ -78,7 +99,8 @@ impl Codegen {
             TypedExpr::DivInt(left, right, source) => self.push_int_op(target, left, right, source, SSAOp::DivInt),
             TypedExpr::Block(Block { statements, source }) => {
                 if statements.is_empty() {
-                    self.push(target, SSAOp::Unit, source.text())
+                    let target = target.clone_or_else(|| self.new_target(source.text()));
+                    self.push(target, SSAOp::Unit)
                 } else {
                     let (head, tail) = statements.split_at(statements.len() - 1);
                     for statement in head {
@@ -90,17 +112,22 @@ impl Codegen {
             TypedExpr::Conditional { condition, positive, negative, source } => {
                 let condition = self.process_expr(condition, None);
                 let negative_label = self.new_label("negative branch");
-                self.push(None, SSAOp::Cbz(condition, negative_label.id.clone()), "jump to negative branch");
+                let cbz_target = self.new_target("jump to negative branch");
+                self.push(cbz_target, SSAOp::Cbz(condition, negative_label.id.clone()));
 
                 self.env.push();
                 let positive = self.process_expr(positive, None);
                 let modified_in_positive = self.take_modified();
                 let end_label = self.new_label("end of conditional");
-                self.push(None, SSAOp::Br(end_label.id.clone()), "jump to the end of conditional");
-                self.push(Some(negative_label.clone()), SSAOp::Label, "");
+                let br_target = self.new_target("jump to the end of conditional");
+                self.push(br_target, SSAOp::Br(end_label.id.clone()));
+                self.push(negative_label, SSAOp::Label);
                 let negative = match negative {
                     Some(negative) => self.process_expr(negative, None),
-                    None => self.push(None, SSAOp::Unit, "negative branch value")
+                    None => {
+                        let unit_target = self.new_target("negative branch value");
+                        self.push(unit_target, SSAOp::Unit)
+                    }
                 };
                 let modified_in_negative = self.take_modified();
                 struct Modified(BindingRef, SSAId);
@@ -123,24 +150,32 @@ impl Codegen {
                         (modified, phi_arg_left, phi_arg_right)
                     })
                     .collect::<Vec<_>>();
-                self.push(Some(end_label.clone()), SSAOp::Label, "");
+                self.push(end_label, SSAOp::Label);
                 for (Modified(binding, last_id), id1, id2) in needs_phi {
                     let phi_target = self.next_version(&binding, &last_id, "modified in a branch");
                     let new_version = phi_target.id.clone();
-                    self.push(Some(phi_target), SSAOp::Phi(id1.clone(), id2.clone()), "");
+                    self.push(phi_target, SSAOp::Phi(id1.clone(), id2.clone()));
                     self.modified.insert(binding.clone(), new_version.clone());
                     self.env.bind(binding.clone(), new_version);
                 }
-                self.push(target, SSAOp::Phi(positive, negative), source.text())
+                let target = target.clone_or_else(|| self.new_target(source.text()));
+                self.push(target, SSAOp::Phi(positive, negative))
             },
-            TypedExpr::Unit(source) => self.push(target, SSAOp::Unit, source.text()),
+            TypedExpr::Unit(source) => {
+                let target = target.clone_or_else(|| self.new_target(source.text()));
+                self.push(target, SSAOp::Unit)
+            },
             TypedExpr::Reference(binding, source) => {
                 match binding.kind {
                     BindingKind::Let => {
-                        let id = self.id(binding);
-                        self.push(target, SSAOp::Id(id), source.text())
+                        let mut target = target.clone_or_else(|| self.new_target(source.text()));
+                        target.id = self.id(binding);
+                        target.id.clone()
                     },
-                    BindingKind::Arg(index) => self.push(None, SSAOp::Arg(index), source.text())
+                    BindingKind::Arg(index) => {
+                        let target = target.clone_or_else(|| self.new_target(source.text()));
+                        self.push(target, SSAOp::Arg(index))
+                    }
                 }
             },
             // TODO closures
@@ -149,9 +184,11 @@ impl Codegen {
                     id.clone()
                 } else {
                     let code = replace(&mut self.ssa, Vec::new());
-                    let label = self.push(target, SSAOp::Label, source.text());
+                    let target = target.clone_or_else(|| self.new_target(source.text()));
+                    let label = self.push(target, SSAOp::Label);
                     let return_value = self.process_expr(&lambda.body, None);
-                    self.push(None, SSAOp::Return(return_value), "");
+                    let return_target = self.new_target("");
+                    self.push(return_target, SSAOp::Return(return_value));
                     let lambda_code = replace(&mut self.ssa, code);
                     self.lambda_cache.insert(lambda.clone(), (label.clone(), lambda_code));
                     label
@@ -160,30 +197,42 @@ impl Codegen {
             TypedExpr::Application { function, arguments, source, .. } => {
                 let function = self.process_expr(function, None);
                 let arguments = arguments.iter().map(|argument| self.process_expr(argument, None)).collect();
-                self.push(target, SSAOp::Call(function, arguments), source.text())
+                let target = target.clone_or_else(|| self.new_target(source.text()));
+                self.push(target, SSAOp::Call(function, arguments))
             },
-            TypedExpr::String(str, source) => self.push(target, SSAOp::Str(str.clone()), source.text()),
+            TypedExpr::String(str, source) => {
+                let target = target.clone_or_else(|| self.new_target(source.text()));
+                self.push(target, SSAOp::Str(str.clone()))
+            },
             TypedExpr::AddStr(left, right, source) => {
                 let left = self.process_expr(left, None);
                 let right = self.process_expr(right, None);
-                let left_length = self.push(None, SSAOp::Length(left.clone()), "left length");
-                let right_length = self.push(None, SSAOp::Length(right.clone()), "right length");
-                let total_length = self.push(None, SSAOp::AddInt(left_length.clone(), right_length.clone()), "total length");
-                let allocated_memory = self.push(target, SSAOp::Alloc(total_length), source.text());
-                self.push(None, SSAOp::Copy(left, allocated_memory.clone(), left_length.clone()), "copy left");
-                let right_dst = self.push(None, SSAOp::Offset(allocated_memory.clone(), left_length), "right dst");
-                self.push(None, SSAOp::Copy(right, right_dst, right_length), "copy right");
+                let left_length_target = self.new_target("left length");
+                let left_length = self.push(left_length_target, SSAOp::Length(left.clone()));
+                let right_length_target = self.new_target("right length");
+                let right_length = self.push(right_length_target, SSAOp::Length(right.clone()));
+                let total_length_target = self.new_target("total length");
+                let total_length = self.push(total_length_target, SSAOp::AddInt(left_length.clone(), right_length.clone()));
+                let allocated_memory_target = target.clone_or_else(|| self.new_target(source.text()));
+                let allocated_memory = self.push(allocated_memory_target, SSAOp::Alloc(total_length));
+                let copy_left_target = self.new_target("copy left");
+                self.push(copy_left_target, SSAOp::Copy(left, allocated_memory.clone(), left_length.clone()));
+                let right_dst_target = self.new_target("right dst");
+                let right_dst = self.push(right_dst_target, SSAOp::Offset(allocated_memory.clone(), left_length));
+                let copy_right_target = self.new_target("copy right");
+                self.push(copy_right_target, SSAOp::Copy(right, right_dst, right_length));
                 allocated_memory
             },
             TypedExpr::ArgumentPlaceholder(_, _) => unreachable!()
         }
     }
 
-    fn process_statement(&mut self, statement: &TypedStatement, target: Option<Target>) -> SSAId {
+    fn process_statement(&mut self, statement: &TypedStatement, target: Option<&mut Target>) -> SSAId {
         match statement {
             TypedStatement::Binding(binding) => {
-                let target = Target::new(self.id(binding), binding.source.text());
-                self.process_expr(&binding.data, Some(target))
+                let id = self.process_expr(&binding.data, None);
+                self.env.bind(binding.clone(), id.clone());
+                id
             },
             TypedStatement::Expr(expr) => self.process_expr(expr, target)
         }
@@ -193,18 +242,19 @@ impl Codegen {
         replace(&mut self.modified, HashMap::new())
     }
 
-    fn push(&mut self, target: Option<Target>, op: SSAOp, comment: &str) -> SSAId {
-        let target = target.unwrap_or_else(|| self.new_target(comment));
-        self.ssa.push(SSAStatement::new(target.clone(), op));
-        target.id
+    fn push(&mut self, target: Target, op: SSAOp) -> SSAId {
+        let id = target.id.clone();
+        self.ssa.push(SSAStatement::new(target, op));
+        id
     }
 
-    fn push_int_op(&mut self, target: Option<Target>, left: &ExprRef, right: &ExprRef,
+    fn push_int_op(&mut self, target: Option<&mut Target>, left: &ExprRef, right: &ExprRef,
                    source: &Source, constructor: impl Fn(SSAId, SSAId) -> SSAOp) -> SSAId
     {
         let left = self.process_expr(left, None);
         let right = self.process_expr(right, None);
-        self.push(target, constructor(left, right), source.text())
+        let target = target.clone_or_else(|| self.new_target(source.text()));
+        self.push(target, constructor(left, right))
     }
 
     fn new_label(&mut self, comment: &str) -> Target {
@@ -305,7 +355,6 @@ impl Debug for SSAStatement {
 
 #[derive(Clone, PartialEq)]
 crate enum SSAOp {
-    Id(SSAId),
     Unit,
     Int(BigInt),
     Str(Rc<String>),
@@ -330,7 +379,6 @@ crate enum SSAOp {
 impl Debug for SSAOp {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            SSAOp::Id(id) => Debug::fmt(id, formatter),
             SSAOp::Unit => formatter.write_str("()"),
             SSAOp::Int(value) => write!(formatter, "{}", value),
             SSAOp::Str(value) => write!(formatter, "\"{}\"", value),
