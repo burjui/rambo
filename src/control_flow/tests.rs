@@ -1,11 +1,9 @@
-use petgraph::dot::Config;
-use petgraph::dot::Dot;
 use std::error::Error;
 use std::fs::File;
-use std::io::Write;
 
 use crate::codegen::Codegen;
 use crate::control_flow::build_control_flow_graph;
+use crate::control_flow::to_graphviz;
 
 type TestResult = Result<(), Box<dyn Error>>;
 
@@ -44,6 +42,6 @@ fn control_flow_graph_builder() -> TestResult {
     ";
     let ssa = Codegen::new().build(&typecheck!(code)?);
     let graph = build_control_flow_graph(&ssa);
-    writeln!(&File::create("cfg.dot")?, "{:#?}", Dot::with_config(&graph, &[Config::EdgeNoLabel]))?;
+    to_graphviz(&graph, &mut File::create("cfg.dot")?)?;
     Ok(())
 }

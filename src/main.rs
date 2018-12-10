@@ -4,6 +4,7 @@
 #![feature(try_from)]
 #![feature(underscore_const_names)]
 #![feature(const_panic)]
+#![feature(str_escape)]
 
 use std::env::args as program_args;
 use std::error::Error;

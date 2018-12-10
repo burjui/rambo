@@ -3,8 +3,6 @@ use std::fs::File;
 use std::io::Write;
 
 use itertools::Itertools;
-use petgraph::dot::Config;
-use petgraph::dot::Dot;
 use termcolor::Color;
 use termcolor::ColorSpec;
 use termcolor::StandardStream;
@@ -13,6 +11,7 @@ use termcolor::WriteColor;
 use crate::codegen::Codegen;
 use crate::codegen::SSAStatement;
 use crate::control_flow::build_control_flow_graph;
+use crate::control_flow::to_graphviz;
 use crate::eval::Evaluator;
 use crate::eval::Evalue;
 use crate::lexer::Lexer;
@@ -177,7 +176,7 @@ impl CompilerPass<(ExprRef, Vec<SSAStatement>), (ExprRef, Vec<SSAStatement>)> fo
     fn apply(input: (ExprRef, Vec<SSAStatement>), _stdout: &mut StandardStream, options: &PipelineOptions) -> Result<(ExprRef, Vec<SSAStatement>), Box<dyn Error>> {
         if options.dump_cfg {
             let graph = build_control_flow_graph(&input.1);
-            writeln!(&File::create("cfg.dot")?, "{:#?}", Dot::with_config(&graph, &[Config::EdgeNoLabel]))?;
+            to_graphviz(&graph, &mut File::create("cfg.dot")?)?;
             // TODO implement export with rectangular nodes and maybe even syntax highlight
         }
         Ok(input)
