@@ -43,6 +43,7 @@ mod unique_rc;
 mod codegen;
 mod ssa_eval;
 mod control_flow;
+mod graphviz;
 
 #[cfg(test)]
 #[macro_use]
@@ -96,7 +97,7 @@ fn parse_command_line() -> Result<CommandLine, Box<dyn Error>> {
     spec.optflag(HELP_OPTION, "help", "print this help menu");
     spec.optflag(WARNINGS_OPTION, "", "suppress warnings");
     spec.optflag(DUMP_OPTION, "dump", "dump intermediate compilation results, e.g. AST");
-    spec.optflag("", DUMP_CFG_OPTION, "dump CFGs");
+    spec.optflagmulti("", DUMP_CFG_OPTION, "dump CFG; use twice to include comments");
 
     let pass_name_list: String = COMPILER_PASS_NAMES.join(", ");
     spec.optopt(PASS_OPTION, "pass", &format!("name of the last compiler pass in the pipeline;\nvalid names are: {}", pass_name_list), "PASS");
@@ -112,6 +113,7 @@ fn parse_command_line() -> Result<CommandLine, Box<dyn Error>> {
         warnings: !matches.opt_present(WARNINGS_OPTION),
         dump_intermediate: matches.opt_present(DUMP_OPTION),
         dump_cfg: matches.opt_present(DUMP_CFG_OPTION),
+        cfg_include_comments: matches.opt_count(DUMP_CFG_OPTION) > 1,
         max_pass_name: {
             let result: Result<String, Box<dyn Error>> = matches.opt_str(PASS_OPTION)
                 .map(|max_pass_name|

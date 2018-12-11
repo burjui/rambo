@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::fmt;
-use std::io::Write;
 use std::iter::FromIterator;
 use std::iter::once;
 
@@ -125,26 +124,4 @@ crate fn build_control_flow_graph(ssa: &[SSAStatement]) -> ControlFlowGraph<'_> 
     graph
 }
 
-crate fn to_graphviz(graph: &ControlFlowGraph<'_>, writer: &mut impl Write) -> std::io::Result<()> {
-    let nodes = graph.node_indices()
-        .map(|node| {
-            let (label, shape) = match graph.node_weight(node).unwrap() {
-                CFGNode::Exit => ("exit".to_owned(), "ellipse"),
-                CFGNode::Entry => ("entry".to_owned(), "ellipse"),
-                CFGNode::BasicBlock(block) => {
-                    let escaped = block.iter()
-                        .map(|s| format!("{:?}\n", s))
-                        .join("")
-                        .escape_debug()
-                        .replace("\\n", "\\l")
-                        .to_string();
-                    (escaped, "box")
-                }
-            };
-            format!("  {} [ shape={} label=\"{}\" ]", node.index(), shape, label)
-        });
-    let edges = graph.raw_edges().iter()
-        .map(|edge| format!("  {:?} -> {:?}", edge.source().index(), edge.target().index()));
-    let fontspec = "  node [ fontname = \"Fira Code\"  ]";
-    writeln!(writer, "digraph {{\n{}\n{}\n{}\n}}", fontspec, nodes.format("\n"), edges.format("\n"))
-}
+

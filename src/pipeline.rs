@@ -11,9 +11,9 @@ use termcolor::WriteColor;
 use crate::codegen::Codegen;
 use crate::codegen::SSAStatement;
 use crate::control_flow::build_control_flow_graph;
-use crate::control_flow::to_graphviz;
 use crate::eval::Evaluator;
 use crate::eval::Evalue;
+use crate::graphviz::Graphviz;
 use crate::lexer::Lexer;
 use crate::parser::Block as ASTBlock;
 use crate::parser::Parser;
@@ -31,6 +31,7 @@ crate struct PipelineOptions {
     crate warnings: bool,
     crate dump_intermediate: bool,
     crate dump_cfg: bool,
+    crate cfg_include_comments: bool,
     crate max_pass_name: String
 }
 
@@ -176,8 +177,9 @@ impl CompilerPass<(ExprRef, Vec<SSAStatement>), (ExprRef, Vec<SSAStatement>)> fo
     fn apply(input: (ExprRef, Vec<SSAStatement>), _stdout: &mut StandardStream, options: &PipelineOptions) -> Result<(ExprRef, Vec<SSAStatement>), Box<dyn Error>> {
         if options.dump_cfg {
             let graph = build_control_flow_graph(&input.1);
-            to_graphviz(&graph, &mut File::create("cfg.dot")?)?;
-            // TODO implement export with rectangular nodes and maybe even syntax highlight
+            Graphviz::new()
+                .include_comments(options.cfg_include_comments)
+                .fmt(&mut File::create("cfg.dot")?, &graph)?;
         }
         Ok(input)
     }

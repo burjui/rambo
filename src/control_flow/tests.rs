@@ -3,7 +3,7 @@ use std::fs::File;
 
 use crate::codegen::Codegen;
 use crate::control_flow::build_control_flow_graph;
-use crate::control_flow::to_graphviz;
+use crate::graphviz::Graphviz;
 
 type TestResult = Result<(), Box<dyn Error>>;
 
@@ -20,28 +20,28 @@ fn control_flow_graph_builder() -> TestResult {
             } + b
         }
         z \"foo\" \"bar\"
-//        let s = if 0 {
-//            \"false\"
-//            y = \"x\"
-//            x = \"z\"
-//        } else {
-//            let a = (z x y)
-//            z a \"/test\"
-//        }
-//        let nn = 1
-//        let a1 = 0
-//        let a2 = a1
-//        let a3 = a1 + a2
-//        let c = \\ (a:num, b:num) -> 4
-//        c 1 2
-//        a1 = 10
-//        (0 - a1) * (0 - 1)
-//        (a1 + a1)
-//        (a1 - a1)
-//        s
+        let s = if 0 {
+            \"false\"
+            y = \"x\"
+            x = \"z\"
+        } else {
+            let a = (z x y)
+            z a \"/test\"
+        }
+        let nn = 1
+        let a1 = 0
+        let a2 = a1
+        let a3 = a1 + a2
+        let c = \\ (a:num, b:num) -> 4
+        c 1 2
+        a1 = 10
+        (0 - a1) * (0 - 1)
+        (a1 + a1)
+        (a1 - a1)
+        s
     ";
     let ssa = Codegen::new().build(&typecheck!(code)?);
     let graph = build_control_flow_graph(&ssa);
-    to_graphviz(&graph, &mut File::create("cfg.dot")?)?;
+    Graphviz::new().include_comments(false).fmt(&mut File::create("cfg.dot")?, &graph)?;
     Ok(())
 }
