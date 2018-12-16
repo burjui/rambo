@@ -1,6 +1,6 @@
 [package]
 name = "rambo"
-version = "0.1.2"
+version = "0.2.0"
 authors = [ "Artem Borisovsky <bytefu@gmail.com>" ]
 description = "Compiler for a toy programming language Rambo, written in Rust just for fun, i.e. with no practical purpose in mind."
 edition = '2018'
