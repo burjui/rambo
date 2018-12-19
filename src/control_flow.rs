@@ -1,9 +1,9 @@
-use std::collections::HashMap;
-use std::collections::HashSet;
 use std::fmt;
 use std::iter::FromIterator;
 use std::iter::once;
 
+use hashbrown::HashMap;
+use hashbrown::HashSet;
 use itertools::Itertools;
 use multimap::MultiMap;
 use petgraph::graph::DiGraph;

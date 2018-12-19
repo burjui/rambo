@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-use std::collections::HashSet;
 use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::hash::Hash;
@@ -7,6 +5,8 @@ use std::hash::Hasher;
 use std::mem::replace;
 use std::rc::Rc;
 
+use hashbrown::HashMap;
+use hashbrown::HashSet;
 use itertools::Itertools;
 use num_bigint::BigInt;
 use once_cell::sync::Lazy;

@@ -1,8 +1,8 @@
 use std::cell::RefCell;
-use std::collections::HashMap;
 use std::mem::size_of;
 use std::rc::Rc;
 
+use hashbrown::HashMap;
 use num_bigint::BigInt;
 use num_traits::cast::ToPrimitive;
 use num_traits::Zero;

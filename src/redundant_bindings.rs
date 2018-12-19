@@ -1,5 +1,5 @@
-use std::collections::HashMap;
-use std::collections::HashSet;
+use hashbrown::HashMap;
+use hashbrown::HashSet;
 
 use crate::semantics::BindingKind;
 use crate::semantics::BindingRef;

@@ -57,6 +57,7 @@ crate fn stdout() -> StandardStream {
 #[cfg(feature = "dump_ssa_in_tests")]
 crate mod ssa {
     use std::error::Error;
+
     use crate::codegen::SSAStatement;
 
     crate fn dump(code: &str, ssa: &[SSAStatement]) -> Result<(), Box<dyn Error>> {
