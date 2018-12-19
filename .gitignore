@@ -1,3 +1,10 @@
 /target/
-/.idea/
+/.idea
 /*.iml
+/ssa.txt
+/cfg.dot
+/test-data/x.rambo
+/test-data/y.rambo
+/test-data/z.rambo
+/test-data/str.rambo
+/TODO

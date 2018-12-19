@@ -1,8 +1,0 @@
-* hashbrown (nightly feature)
-* enum Str {
-  Owned(String),
-  Ref(Box<str>)
-}
-* SmallVec
-* optimizations
-  * liveness analysis
