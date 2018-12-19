@@ -8,7 +8,7 @@ use termcolor::ColorSpec;
 use termcolor::StandardStream;
 use termcolor::WriteColor;
 
-use crate::codegen::Codegen;
+use crate::codegen::generate_ssa;
 use crate::codegen::SSAStatement;
 use crate::control_flow::build_control_flow_graph;
 use crate::eval::Evaluator;
@@ -162,7 +162,7 @@ impl CompilerPass<ExprRef, (ExprRef, Vec<SSAStatement>)> for SSA {
     const TITLE: &'static str = "Generating SSA";
 
     fn apply(hir: ExprRef, stdout: &mut StandardStream, options: &PipelineOptions) -> Result<(ExprRef, Vec<SSAStatement>), Box<dyn Error>> {
-        let ssa = Codegen::new().build(&hir);
+        let ssa = generate_ssa(&hir);
         if options.dump_intermediate {
             writeln!(stdout, "{:?}", ssa.iter().format("\n"))?;
         }

@@ -1,7 +1,7 @@
 use std::error::Error;
 use std::fs::File;
 
-use crate::codegen::Codegen;
+use crate::codegen::generate_ssa;
 use crate::control_flow::build_control_flow_graph;
 use crate::graphviz::Graphviz;
 
@@ -40,7 +40,7 @@ fn control_flow_graph_builder() -> TestResult {
         (a1 - a1)
         s
     ";
-    let ssa = Codegen::new().build(&typecheck!(code)?);
+    let ssa = generate_ssa(&typecheck!(code)?);
     let graph = build_control_flow_graph(&ssa);
     Graphviz::new().include_comments(false).fmt(&mut File::create("cfg.dot")?, &graph)?;
     Ok(())

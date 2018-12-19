@@ -1,6 +1,6 @@
 use std::error::Error;
 
-use crate::codegen::Codegen;
+use crate::codegen::generate_ssa;
 use crate::ssa_eval::SSAEvaluator;
 
 type TestResult = Result<(), Box<dyn Error>>;
@@ -37,7 +37,7 @@ fn eval() -> TestResult {
     (a1 - a1)
     s + \"\"
     ";
-    let ssa = Codegen::new().build(&typecheck!(code)?);
+    let ssa = generate_ssa(&typecheck!(code)?);
     let result = SSAEvaluator::new().eval(&ssa);
     let (s_address, s_offset) = result.value.str();
     let s = SSAEvaluator::str(&result.ram, s_address, s_offset);

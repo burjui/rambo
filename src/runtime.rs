@@ -1,11 +1,11 @@
-use once_cell::unsync::Lazy;
-use once_cell::unsync_lazy;
+use once_cell::sync::Lazy;
+use once_cell::sync_lazy;
 
 use crate::vm::Instruction;
 use crate::vm::Instruction::*;
 use crate::vm::Register::*;
 
-crate const MEMCPY: Lazy<Vec<Instruction>> = unsync_lazy! {
+crate static MEMCPY: Lazy<Vec<Instruction>> = sync_lazy! {
     let (code, _) = asm!(vec![],
         Move(SP, R0) // frame pointer
         Push(R1)

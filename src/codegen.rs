@@ -28,7 +28,11 @@ use crate::unique_rc::UniqueRc;
 
 #[cfg(test)] mod tests;
 
-crate struct Codegen {
+crate fn generate_ssa(expr: &ExprRef) -> Vec<SSAStatement> {
+    Codegen::new().build(expr)
+}
+
+struct Codegen {
     ssa: Vec<SSAStatement>,
     id_factory: SSAIdFactory,
     env: Environment<BindingRef, SSAId>,
@@ -53,7 +57,7 @@ impl<T: Clone> OptionCloneOrElse<T> for Option<&mut T> {
 }
 
 impl Codegen {
-    crate fn new() -> Self {
+    fn new() -> Self {
         Self {
             ssa: Vec::new(),
             id_factory: SSAIdFactory::new(),
