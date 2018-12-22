@@ -1,5 +1,4 @@
 use std::convert::From;
-use std::convert::TryFrom;
 use std::error::Error;
 use std::fmt;
 use std::io::Write;
@@ -8,13 +7,12 @@ use std::ops::Deref;
 use std::ops::Range;
 
 use itertools::Itertools;
-use num_enum::IntoPrimitive;
-use num_enum::TryFromPrimitive;
+use strum::IntoEnumIterator;
+use strum_macros::*;
 use termcolor::Color;
 use termcolor::ColorSpec;
 use termcolor::StandardStream;
 use termcolor::WriteColor;
-use variant_count::VariantCount;
 
 use crate::vm::Instruction::*;
 use crate::vm::Register::*;
@@ -48,19 +46,17 @@ impl Deref for DebugPrint {
 }
 
 struct VM {
-    registers: [u32; Register::VARIANT_COUNT],
+    registers: [u32; REGISTER_COUNT],
     rodata: Vec<u8>,
     ram: Vec<u8>,
-    pc: u32,
 }
 
 impl VM {
     fn new() -> Self {
         let mut vm = Self {
-            registers: [0; Register::VARIANT_COUNT],
+            registers: [0; REGISTER_COUNT],
             rodata: vec![],
             ram: vec![0; RAM_SIZE],
-            pc: 0
         };
         vm.reset_sp();
         vm
@@ -108,15 +104,14 @@ impl VM {
     }
 
     fn dump_registers(&mut self, stdout: &mut StandardStream) -> Result<(), Box<dyn Error>> {
-        let registers = self.registers.iter().cloned().enumerate().collect::<Vec<_>>();
-        for (i, value) in registers {
-            self.dump_register(stdout, &format!("{:?}", Register::try_from(i as u8)?), value)?;
+        for (i, register) in Register::iter().enumerate() {
+            self.dump_register(stdout, &register, self.registers[i])?;
         }
         Ok(())
     }
 
-    fn dump_register(&mut self, stdout: &mut StandardStream, name: &str, value: u32) -> Result<(), std::io::Error> {
-        writeln!(stdout, "{}: {:08x} ({})", name, value, value)
+    fn dump_register(&mut self, stdout: &mut StandardStream, register: &Register, value: u32) -> Result<(), std::io::Error> {
+        writeln!(stdout, "{}: {:08x} ({})", register.as_ref(), value, value)
     }
 
     #[allow(unused)]
@@ -191,19 +186,19 @@ impl<'vm, 'program, 'stdout> Executor<'vm, 'program, 'stdout> {
     fn run(mut self) -> Result<(), Box<dyn Error>> {
         self.vm.rodata = self.program.rodata.clone();
         let program_length = self.program.code.len() as u32; // FIXME is it needed?
-        self.vm.pc = 0;
+        *self.vm.reg_mut(PC) = 0;
         if *self.debug_print {
             self.dump_code()?;
             self.vm.dump_registers(self.stdout)?;
             self.vm.dump_stack(self.stdout)?;
         }
-        while self.vm.pc < program_length {
+        while *self.vm.reg(PC) < program_length {
             let instruction = self.current_instruction();
-            let pc = self.vm.pc;
             if *self.debug_print {
-                self.dump_instruction(pc, instruction)?;
+                self.dump_instruction(*self.vm.reg(PC), instruction)?;
             }
-            self.vm.pc += 1;
+            let pc = *self.vm.reg(PC);
+            *self.vm.reg_mut(PC) += 1;
             match instruction {
                 Stop => break,
                 Debug => self.vm.dump_registers(self.stdout)?,
@@ -238,9 +233,9 @@ impl<'vm, 'program, 'stdout> Executor<'vm, 'program, 'stdout> {
                         self.br_rel(pc, offset)?;
                     }
                 },
-                Call(index) => self.call(pc, index)?,
-                CallIndirect(register) => self.call(pc, *self.vm.reg(register))?,
-                Ret => self.vm.pc = self.vm.pop()?,
+                Call(index) => self.call(*self.vm.reg(PC), index)?,
+                CallIndirect(register) => self.call(*self.vm.reg(PC), *self.vm.reg(register))?,
+                Ret => *self.vm.reg_mut(PC) = self.vm.pop()?,
                 Add(op1, op2, dst) => *self.vm.reg_mut(dst) = *self.vm.reg(op1) + *self.vm.reg(op2),
                 AddImm(op1, op2, dst) => *self.vm.reg_mut(dst) = *self.vm.reg(op1) + op2,
                 Sub(op1, op2, dst) => *self.vm.reg_mut(dst) = *self.vm.reg(op1) - *self.vm.reg(op2),
@@ -285,14 +280,14 @@ impl<'vm, 'program, 'stdout> Executor<'vm, 'program, 'stdout> {
     }
 
     fn current_instruction(&self) -> Instruction {
-        self.program.code[self.vm.pc as usize]
+        self.program.code[*self.vm.reg(PC) as usize]
     }
 
     fn br(&mut self, dst: u32) -> Result<(), BrRangeError> {
         if dst as usize >= self.program.code.len() {
             return Err(BrRangeError(dst));
         }
-        self.vm.pc = dst;
+        *self.vm.reg_mut(PC) = dst;
         Ok(())
     }
 
@@ -301,48 +296,15 @@ impl<'vm, 'program, 'stdout> Executor<'vm, 'program, 'stdout> {
         if new_pc < 0 || new_pc >= self.program.code.len() as i64 {
             return Err(BrRelRangeError(pc, offset));
         }
-        self.vm.pc = new_pc as u32;
+        *self.vm.reg_mut(PC) = new_pc as u32;
         Ok(())
     }
 
     fn call(&mut self, pc: u32, procedure: u32) -> Result<(), Box<dyn Error>> {
         self.vm.push(pc + 1)?;
-        self.vm.pc = procedure;
+        *self.vm.reg_mut(PC) = procedure;
         Ok(())
     }
-}
-
-#[test]
-crate fn vm() -> Result<(), Box<dyn Error>> {
-    let mut stdout = crate::utils::stdout();
-    let stdout = &mut stdout;
-
-    let mut vm = VM::new();
-    for i in 0..8 {
-        *vm.ram_mut::<u8>(u32::from(i))? = 0xf0 + i;
-    }
-    let (code, start) = asm!(vec![],
-        Debug // patch -> jump over MEMCPY
-    );
-    let (code, memcpy) = asm(code, &crate::runtime::MEMCPY);
-    let (mut code, entry) = asm!(code,
-        Call(memcpy)
-        Stop
-    );
-    code[start as usize] = Br(entry as u32);
-    let program = Program {
-        rodata: vec![],
-        code,
-    };
-    vm.reset_sp();
-    let src = 0;
-    let dst = 0x70;
-    vm.push(src)?;
-    vm.push(dst)?;
-    vm.push(8)?;
-    vm.run(stdout, &program, DebugPrint(false))?;
-    assert_eq!(*vm.ram::<u64>(src)?, *vm.ram::<u64>(dst)?);
-    Ok(())
 }
 
 struct Program {
@@ -395,7 +357,7 @@ crate enum Instruction {
 }
 
 #[repr(u8)]
-#[derive(Copy, Clone, VariantCount, Debug, IntoPrimitive, TryFromPrimitive, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq, EnumCount, EnumIter, AsRefStr)]
 crate enum Register {
     R0 = 0,
     R1,
@@ -406,6 +368,7 @@ crate enum Register {
     R6,
     R7,
     SP,
+    PC
 }
 
 #[derive(Debug)]
@@ -461,4 +424,37 @@ impl fmt::Display for BrRelRangeError  {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(formatter, "jump target out of range: pc = {:08x}, offset = {}", self.0, self.1)
     }
+}
+
+#[test]
+crate fn vm() -> Result<(), Box<dyn Error>> {
+    let mut stdout = crate::utils::stdout();
+    let stdout = &mut stdout;
+
+    let mut vm = VM::new();
+    for i in 0..8 {
+        *vm.ram_mut::<u8>(u32::from(i))? = 0xf0 + i;
+    }
+    let (code, start) = asm!(vec![],
+        Debug // patch -> jump over MEMCPY
+    );
+    let (code, memcpy) = asm(code, &crate::runtime::MEMCPY);
+    let (mut code, entry) = asm!(code,
+        Call(memcpy)
+        Stop
+    );
+    code[start as usize] = Br(entry as u32);
+    let program = Program {
+        rodata: vec![],
+        code,
+    };
+    vm.reset_sp();
+    let src = 0;
+    let dst = 0x70;
+    vm.push(src)?;
+    vm.push(dst)?;
+    vm.push(8)?;
+    vm.run(stdout, &program, DebugPrint(false))?;
+    assert_eq!(*vm.ram::<u64>(src)?, *vm.ram::<u64>(dst)?);
+    Ok(())
 }
