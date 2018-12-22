@@ -12,7 +12,8 @@ use crate::codegen::SSAId;
 use crate::codegen::SSAOp;
 use crate::codegen::SSAStatement;
 
-#[cfg(test)] mod tests;
+#[cfg(test)]
+mod tests;
 
 crate type ControlFlowGraph<'a> = DiGraph<CFGNode<'a>, ()>;
 
@@ -123,5 +124,3 @@ crate fn build_control_flow_graph(ssa: &[SSAStatement]) -> ControlFlowGraph<'_> 
     }
     graph
 }
-
-
