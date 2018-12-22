@@ -1,5 +1,6 @@
-use num_bigint::BigInt;
 use std::error::Error;
+
+use num_bigint::BigInt;
 
 use crate::codegen::Codegen;
 use crate::codegen::SSAOp;
