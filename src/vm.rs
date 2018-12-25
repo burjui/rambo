@@ -37,14 +37,6 @@ const STACK_SIZE: usize = 8 * 1024;
 
 struct DebugPrint(bool);
 
-impl Deref for DebugPrint {
-    type Target = bool;
-
-    fn deref(&self) -> &<Self as Deref>::Target {
-        &self.0
-    }
-}
-
 struct VM {
     registers: [u32; REGISTER_COUNT],
     rodata: Vec<u8>,
@@ -62,7 +54,7 @@ impl VM {
         vm
     }
 
-    fn run(&mut self, stdout: &mut StandardStream, program: &Program, debug_print: DebugPrint) -> Result<(), Box<dyn Error>> {
+    fn run(&mut self, stdout: &mut StandardStream, program: &Program, DebugPrint(debug_print): DebugPrint) -> Result<(), Box<dyn Error>> {
         let executor = Executor {
             vm: self,
             program,
@@ -179,7 +171,7 @@ struct Executor<'vm, 'program, 'stdout> {
     vm: &'vm mut VM,
     program: &'program Program,
     stdout: &'stdout mut StandardStream,
-    debug_print: DebugPrint
+    debug_print: bool
 }
 
 impl<'vm, 'program, 'stdout> Executor<'vm, 'program, 'stdout> {
@@ -187,14 +179,14 @@ impl<'vm, 'program, 'stdout> Executor<'vm, 'program, 'stdout> {
         self.vm.rodata = self.program.rodata.clone();
         let program_length = self.program.code.len() as u32; // FIXME is it needed?
         *self.vm.reg_mut(PC) = 0;
-        if *self.debug_print {
+        if self.debug_print {
             self.dump_code()?;
             self.vm.dump_registers(self.stdout)?;
             self.vm.dump_stack(self.stdout)?;
         }
         while *self.vm.reg(PC) < program_length {
             let instruction = self.current_instruction();
-            if *self.debug_print {
+            if self.debug_print {
                 self.dump_instruction(*self.vm.reg(PC), instruction)?;
             }
             let pc = *self.vm.reg(PC);
@@ -245,7 +237,7 @@ impl<'vm, 'program, 'stdout> Executor<'vm, 'program, 'stdout> {
                 And(op1, op2, dst) => *self.vm.reg_mut(dst) = *self.vm.reg(op1) & *self.vm.reg(op2),
                 Or(op1, op2, dst) => *self.vm.reg_mut(dst) = *self.vm.reg(op1) | *self.vm.reg(op2),
             }
-            if *self.debug_print {
+            if self.debug_print {
                 self.vm.dump_registers(self.stdout)?;
                 self.vm.dump_stack(self.stdout)?;
             }
