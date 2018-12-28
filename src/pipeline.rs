@@ -25,6 +25,7 @@ use crate::source::SourceFile;
 use crate::source::SourceFileRef;
 use crate::ssa_eval::SSAEvaluator;
 use crate::ssa_eval::Value;
+use crate::utils::stdout;
 
 #[derive(Clone)]
 crate struct PipelineOptions {
@@ -37,23 +38,23 @@ crate struct PipelineOptions {
 
 crate struct Pipeline<'a, T> {
     input: Option<T>,
-    stdout: &'a mut StandardStream,
     options: &'a PipelineOptions
 }
 
 impl<'a, T> Pipeline<'a, T> {
-    crate fn new(input: T, stdout: &'a mut StandardStream, options: &'a PipelineOptions) -> Self {
-        Self { input: Some(input), stdout, options }
+    crate fn new(input: T, options: &'a PipelineOptions) -> Self {
+        Self { input: Some(input), options }
     }
 
     crate fn map<U, Pass: CompilerPass<T, U>>(self, _: Pass) -> Result<Pipeline<'a, U>, Box<dyn Error>> {
-        let Pipeline { input, stdout, options } = self;
+        let Pipeline { input, options } = self;
         input.map(|input| {
+            let stdout = &mut stdout();
             stdout.write_title("::", Pass::TITLE, Color::White)?;
             stdout.set_color(ColorSpec::new()
                 .set_fg(Some(Color::Black))
                 .set_intense(true))?;
-            let (elapsed, result) = elapsed::measure_time(|| Pass::apply(input, stdout, options));
+            let (elapsed, result) = elapsed::measure_time(|| Pass::apply(input, options));
             stdout.set_color(ColorSpec::new()
                 .set_fg(Some(Color::White)))?;
             write!(stdout, "(")?;
@@ -69,7 +70,7 @@ impl<'a, T> Pipeline<'a, T> {
         .transpose()
         .map(move |output| {
             let input = output.filter(|_| options.max_pass_name != Pass::NAME);
-            Pipeline { input, stdout, options }
+            Pipeline { input, options }
         })
     }
 }
@@ -88,7 +89,7 @@ compiler_passes!(Load, Parse, VerifySemantics, ReportRedundantBindings, SSA, Bui
 crate trait CompilerPass<Input, Output> {
     const NAME: &'static str;
     const TITLE: &'static str;
-    fn apply(input: Input, stdout: &mut StandardStream, options: &PipelineOptions) -> Result<Output, Box<dyn Error>>;
+    fn apply(input: Input, options: &PipelineOptions) -> Result<Output, Box<dyn Error>>;
 }
 
 impl Load {
@@ -107,9 +108,10 @@ impl CompilerPass<String, SourceFileRef> for Load {
     const NAME: &'static str = "load";
     const TITLE: &'static str = "Loading";
 
-    fn apply(path: String, stdout: &mut StandardStream, _: &PipelineOptions) -> Result<SourceFileRef, Box<dyn Error>> {
+    fn apply(path: String, _: &PipelineOptions) -> Result<SourceFileRef, Box<dyn Error>> {
         let source_file = SourceFile::load(&path)?;
         let line_count = source_file.lines().len();
+        let stdout = &mut stdout();
         writeln!(stdout, "{}, {} lines", Self::file_size_pretty(source_file.size()), line_count)?;
         Ok(source_file)
     }
@@ -119,11 +121,12 @@ impl CompilerPass<SourceFileRef, ASTBlock> for Parse {
     const NAME: &'static str = "parse";
     const TITLE: &'static str = "Parsing";
 
-    fn apply(source_file: SourceFileRef, stdout: &mut StandardStream, options: &PipelineOptions) -> Result<ASTBlock, Box<dyn Error>> {
+    fn apply(source_file: SourceFileRef, options: &PipelineOptions) -> Result<ASTBlock, Box<dyn Error>> {
         let lexer = Lexer::new(source_file);
         let mut parser = Parser::new(lexer);
         let ast = parser.parse()?;
         let stats = { parser.lexer_stats() };
+        let stdout = &mut stdout();
         writeln!(stdout, "{} lexemes", stats.lexeme_count)?;
         if options.dump_intermediate {
             writeln!(stdout, "{:?}", ast.statements.iter().format("\n"))?;
@@ -136,11 +139,11 @@ impl CompilerPass<ASTBlock, ExprRef> for VerifySemantics {
     const NAME: &'static str = "sem";
     const TITLE: &'static str = "Verifying semantics";
 
-    fn apply(ast: ASTBlock, stdout: &mut StandardStream, options: &PipelineOptions) -> Result<ExprRef, Box<dyn Error>> {
+    fn apply(ast: ASTBlock, options: &PipelineOptions) -> Result<ExprRef, Box<dyn Error>> {
         let checker = SemanticsChecker::new();
         let hir = checker.check_module(&ast)?;
         if options.dump_intermediate {
-            writeln!(stdout, "{:?}", hir)?;
+            writeln!(&mut stdout(), "{:?}", hir)?;
         }
         Ok(hir)
     }
@@ -150,7 +153,7 @@ impl CompilerPass<ExprRef, ExprRef> for ReportRedundantBindings {
     const NAME: &'static str = "rb";
     const TITLE: &'static str = "Detecting redundant bindings";
 
-    fn apply(hir: ExprRef, _stdout: &mut StandardStream, options: &PipelineOptions) -> Result<ExprRef, Box<dyn Error>> {
+    fn apply(hir: ExprRef, options: &PipelineOptions) -> Result<ExprRef, Box<dyn Error>> {
         // TODO pass stdout to report_redundant_bindings()
         report_redundant_bindings(&hir, Warnings(options.warnings));
         Ok(hir)
@@ -161,10 +164,10 @@ impl CompilerPass<ExprRef, (ExprRef, Vec<SSAStatement>)> for SSA {
     const NAME: &'static str = "ssa";
     const TITLE: &'static str = "Generating SSA";
 
-    fn apply(hir: ExprRef, stdout: &mut StandardStream, options: &PipelineOptions) -> Result<(ExprRef, Vec<SSAStatement>), Box<dyn Error>> {
+    fn apply(hir: ExprRef, options: &PipelineOptions) -> Result<(ExprRef, Vec<SSAStatement>), Box<dyn Error>> {
         let ssa = generate_ssa(&hir);
         if options.dump_intermediate {
-            writeln!(stdout, "{:?}", ssa.iter().format("\n"))?;
+            writeln!(&mut stdout(), "{:?}", ssa.iter().format("\n"))?;
         }
         Ok((hir, ssa))
     }
@@ -174,7 +177,7 @@ impl CompilerPass<(ExprRef, Vec<SSAStatement>), (ExprRef, Vec<SSAStatement>)> fo
     const NAME: &'static str = "cfg";
     const TITLE: &'static str = "Building control flow graph";
 
-    fn apply(input: (ExprRef, Vec<SSAStatement>), _stdout: &mut StandardStream, options: &PipelineOptions) -> Result<(ExprRef, Vec<SSAStatement>), Box<dyn Error>> {
+    fn apply(input: (ExprRef, Vec<SSAStatement>), options: &PipelineOptions) -> Result<(ExprRef, Vec<SSAStatement>), Box<dyn Error>> {
         if options.dump_cfg {
             let graph = build_control_flow_graph(&input.1);
             Graphviz::new()
@@ -189,8 +192,9 @@ impl CompilerPass<(ExprRef, Vec<SSAStatement>), ExprRef> for EvaluateSSA {
     const NAME: &'static str = "eval_ssa";
     const TITLE: &'static str = "Evaluating SSA";
 
-    fn apply(input: (ExprRef, Vec<SSAStatement>), stdout: &mut StandardStream, _: &PipelineOptions) -> Result<ExprRef, Box<dyn Error>> {
+    fn apply(input: (ExprRef, Vec<SSAStatement>), _: &PipelineOptions) -> Result<ExprRef, Box<dyn Error>> {
         let result = SSAEvaluator::new().eval(&input.1);
+        let stdout = &mut stdout();
         match result.value {
             Value::Unit => writeln!(stdout, "()")?,
             Value::Int(value) => writeln!(stdout, "{}", value)?,
@@ -205,10 +209,10 @@ impl CompilerPass<ExprRef, Evalue> for Evaluate {
     const NAME: &'static str = "eval";
     const TITLE: &'static str = "Evaluating";
 
-    fn apply(hir: ExprRef, stdout: &mut StandardStream, _: &PipelineOptions) -> Result<Evalue, Box<dyn Error>> {
+    fn apply(hir: ExprRef, _: &PipelineOptions) -> Result<Evalue, Box<dyn Error>> {
         let mut evaluator = Evaluator::new();
         let value = evaluator.eval(&hir)?;
-        writeln!(stdout, "{:?}", value)?;
+        writeln!(&mut stdout(), "{:?}", value)?;
         Ok(value)
     }
 }

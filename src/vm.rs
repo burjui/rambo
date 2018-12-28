@@ -16,6 +16,7 @@ use termcolor::WriteColor;
 
 use crate::vm::Instruction::*;
 use crate::vm::Register::*;
+use crate::utils::stdout;
 
 macro_rules! asm {
     ($code: expr, $($instructions: expr)*) => ({
@@ -420,8 +421,7 @@ impl fmt::Display for BrRelRangeError  {
 
 #[test]
 crate fn vm() -> Result<(), Box<dyn Error>> {
-    let mut stdout = crate::utils::stdout();
-    let stdout = &mut stdout;
+    let stdout = &mut stdout();
 
     let mut vm = VM::new();
     for i in 0..8 {

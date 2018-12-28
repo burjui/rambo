@@ -13,7 +13,6 @@ use std::io::Write;
 use getopts::Options;
 use termcolor::Color;
 use termcolor::ColorSpec;
-use termcolor::StandardStream;
 use termcolor::WriteColor;
 
 use crate::pipeline::BuildControlFlowGraph;
@@ -53,7 +52,7 @@ mod vm;
 mod runtime;
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let mut stdout = stdout();
+    let stdout = &mut stdout();
     let result = parse_command_line()
         .and_then(|command_line|
             if command_line.input_files.is_empty() {
@@ -61,7 +60,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 std::process::exit(1)
             } else {
                 command_line.input_files.iter()
-                    .map(|path| process(path.clone(), &mut stdout, &command_line.pipeline_options))
+                    .map(|path| process(path.clone(), &command_line.pipeline_options))
                     .collect::<Result<(), Box<dyn Error>>>()
             });
     match result {
@@ -70,9 +69,9 @@ fn main() -> Result<(), Box<dyn Error>> {
             stdout.set_color(ColorSpec::new()
                 .set_fg(Some(Color::Red))
                 .set_bold(true))?;
-            write!(&mut stdout, "error: ")?;
+            write!(stdout, "error: ")?;
             stdout.reset()?;
-            writeln!(&mut stdout, "{}", error)?;
+            writeln!(stdout, "{}", error)?;
         }
     }
     stdout.reset()?;
@@ -130,9 +129,10 @@ fn parse_command_line() -> Result<CommandLine, Box<dyn Error>> {
     Ok(CommandLine { program_name, input_files, pipeline_options })
 }
 
-fn process(path: String, stdout: &mut StandardStream, options: &PipelineOptions) -> Result<(), Box<dyn Error>> {
+fn process(path: String, options: &PipelineOptions) -> Result<(), Box<dyn Error>> {
+    let stdout = &mut stdout();
     stdout.write_title("==>", &path, Color::Yellow)?;
-    Pipeline::new(path, stdout, options)
+    Pipeline::new(path, options)
         .map(Load)?
         .map(Parse)?
         .map(VerifySemantics)?
