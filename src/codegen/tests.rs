@@ -3,8 +3,8 @@ use std::error::Error;
 use num_bigint::BigInt;
 
 use crate::codegen::Codegen;
-use crate::codegen::SSAOp;
-use crate::codegen::SSAStatement;
+use crate::ssa::SSAOp;
+use crate::ssa::SSAStatement;
 
 type TestResult = Result<(), Box<dyn Error>>;
 

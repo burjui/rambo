@@ -8,10 +8,10 @@ use askama_escape::escape;
 use itertools::Itertools;
 use petgraph::graph::NodeIndex;
 
-use crate::codegen::SSAOp;
-use crate::codegen::SSAStatement;
 use crate::control_flow::CFGNode;
 use crate::control_flow::ControlFlowGraph;
+use crate::ssa::SSAOp;
+use crate::ssa::SSAStatement;
 use crate::utils::WHITESPACE_REGEX;
 
 crate struct Graphviz {

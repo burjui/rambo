@@ -1,19 +1,8 @@
-use std::fmt::Debug;
-use std::fmt::Formatter;
-use std::hash::Hash;
-use std::hash::Hasher;
 use std::mem::replace;
-use std::rc::Rc;
 
 use hashbrown::HashMap;
 use hashbrown::HashSet;
-use itertools::Itertools;
-use num_bigint::BigInt;
-use once_cell::sync::Lazy;
-use once_cell::sync_lazy;
-use regex::Regex;
 
-use crate::codegen::ssaid_factory::SSAIdFactory;
 use crate::env::Environment;
 use crate::semantics::BindingKind;
 use crate::semantics::BindingRef;
@@ -24,8 +13,15 @@ use crate::semantics::Type;
 use crate::semantics::TypedExpr;
 use crate::semantics::TypedStatement;
 use crate::source::Source;
+use crate::ssa::generator::SSAIdGenerator;
+use crate::ssa::SSAId;
+use crate::ssa::SSAIdName;
+use crate::ssa::SSAOp;
+use crate::ssa::SSAStatement;
+use crate::ssa::Target;
 
-#[cfg(test)] mod tests;
+#[cfg(test)]
+mod tests;
 
 crate fn generate_ssa(expr: &ExprRef) -> Vec<SSAStatement> {
     Codegen::new().build(expr)
@@ -33,7 +29,7 @@ crate fn generate_ssa(expr: &ExprRef) -> Vec<SSAStatement> {
 
 struct Codegen {
     ssa: Vec<SSAStatement>,
-    id_factory: SSAIdFactory,
+    id_generator: SSAIdGenerator,
     env: Environment<BindingRef, SSAId>,
     modified: HashMap<BindingRef, SSAId>,
     lambda_cache: HashMap<LambdaRef, (SSAId, Vec<SSAStatement>)>,
@@ -61,7 +57,7 @@ impl Codegen {
     fn new() -> Self {
         Self {
             ssa: Vec::new(),
-            id_factory: SSAIdFactory::new(),
+            id_generator: SSAIdGenerator::new(),
             env: Environment::new(),
             modified: HashMap::new(),
             lambda_cache: HashMap::new(),
@@ -96,7 +92,6 @@ impl Codegen {
             },
             TypedExpr::Assign(binding, value, source) => {
                 let id = self.binding_id(binding);
-//                eprintln!("ASSIGN TO {:?}", id);
                 let mut new_version = self.next_version(binding, &id, source.text());
                 self.modified.insert(binding.clone(), new_version.id.clone());
                 self.process_expr(value, Some(&mut new_version))
@@ -240,7 +235,6 @@ impl Codegen {
             TypedStatement::Binding(binding) => {
                 let binding_id = self.binding_id(binding);
                 let id = self.process_expr(&binding.data, Some(&mut Target::new(binding_id, binding.source.text())));
-//                eprintln!("#1 {:?}", id);
                 self.env.bind(binding.clone(), id.clone());
                 id
             },
@@ -270,7 +264,7 @@ impl Codegen {
     fn new_label(&mut self, comment: &str) -> Target {
         let new_id = self.unique_label_id + 1;
         let id = replace(&mut self.unique_label_id, new_id);
-        Target::new(self.id_factory.new_id(SSAIdName::Label(id)), comment)
+        Target::new(self.id_generator.new_id(SSAIdName::Label(id)), comment)
     }
 
     fn new_target(&mut self, comment: &str) -> Target {
@@ -280,252 +274,25 @@ impl Codegen {
     fn new_tmp(&mut self) -> SSAId {
         let new_id = self.unique_tmp_id + 1;
         let id = replace(&mut self.unique_tmp_id, new_id);
-        self.id_factory.new_id(SSAIdName::Tmp(id))
+        self.id_generator.new_id(SSAIdName::Tmp(id))
     }
 
     fn binding_id(&mut self, binding: &BindingRef) -> SSAId {
         if let Ok(id) = self.env.resolve(binding) {
-//            eprintln!("GOT {:?} for {:?}", id, binding);
             id.clone()
         } else {
-            let id = self.id_factory.new_id(SSAIdName::Binding {
+            let id = self.id_generator.new_id(SSAIdName::Binding {
                 binding: binding.clone(),
                 version: 0
             });
-//            eprintln!("CREATED {:?}", id);
             self.env.bind(binding.clone(), id.clone());
             id
         }
     }
 
     fn next_version(&mut self, binding: &BindingRef, id: &SSAId, comment: &str) -> Target {
-        let new_id = self.id_factory.next_version(id);
+        let new_id = self.id_generator.next_version(id);
         self.env.bind(binding.clone(), new_id.clone());
         Target::new(new_id, comment)
-    }
-}
-
-#[derive(Clone)]
-crate struct Target {
-    crate id: SSAId,
-    crate comment: String
-}
-
-impl Target {
-    fn new(id: SSAId, comment: &str) -> Self {
-        Self { id, comment: comment.to_owned() }
-    }
-}
-
-impl PartialEq for Target {
-    fn eq(&self, other: &Self) -> bool {
-        self.id == other.id
-    }
-}
-
-impl Eq for Target {}
-
-impl Hash for Target {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.id.hash(state)
-    }
-}
-
-impl Debug for Target {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        self.id.fmt(formatter)
-    }
-}
-
-#[derive(Clone)]
-crate struct SSAStatement {
-    crate target: Target,
-    crate op: SSAOp
-}
-
-impl SSAStatement {
-    fn new(target: Target, op: SSAOp) -> Self {
-        Self { target, op }
-    }
-}
-
-impl Debug for SSAStatement {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        let code = if let SSAOp::Label = &self.op {
-            format!("{:?}:", &self.target.id)
-        } else {
-            let s = match &self.op {
-                SSAOp::Br(_) | SSAOp::Cbz(_, _) | SSAOp::Return(_) => format!("{:?}", &self.op),
-                _ => format!("{:?} = {:?}", &self.target.id, &self.op)
-            };
-            format!("    {}", s)
-        };
-
-        static WHITESPACE_REGEX: Lazy<Regex> = sync_lazy!(Regex::new(r"[ \t]+").unwrap());
-        let comment = self.target.comment.replace("\n", " ");
-        let comment = WHITESPACE_REGEX.replace_all(&comment, " ");
-        if !comment.is_empty() {
-            write!(formatter, "{:40}    // {}", code, comment)
-        } else {
-            formatter.write_str(&code)
-        }
-    }
-}
-
-#[derive(Clone, PartialEq)]
-crate enum SSAOp {
-    Unit,
-    Int(BigInt),
-    Str(Rc<String>),
-    AddInt(SSAId, SSAId),
-    SubInt(SSAId, SSAId),
-    MulInt(SSAId, SSAId),
-    DivInt(SSAId, SSAId),
-    Offset(SSAId, SSAId),
-    Label,
-    Br(SSAId),
-    Cbz(SSAId, SSAId),
-    Arg(usize),
-    Return(SSAId),
-    Call(SSAId, Vec<SSAId>),
-    Alloc(SSAId),
-    Copy(SSAId, SSAId, SSAId),
-    Length(SSAId),
-    Phi(SSAId, SSAId),
-    End(SSAId)
-}
-
-impl Debug for SSAOp {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            SSAOp::Unit => formatter.write_str("()"),
-            SSAOp::Int(value) => write!(formatter, "{}", value),
-            SSAOp::Str(value) => write!(formatter, "\"{}\"", value),
-            SSAOp::AddInt(left, right) => write!(formatter, "{:?} + {:?}", left, right),
-            SSAOp::SubInt(left, right) => write!(formatter, "{:?} - {:?}", left, right),
-            SSAOp::MulInt(left, right) => write!(formatter, "{:?} * {:?}", left, right),
-            SSAOp::DivInt(left, right) => write!(formatter, "{:?} / {:?}", left, right),
-            SSAOp::Offset(left, right) => write!(formatter, "&[{:?} + {:?}]", left, right),
-            SSAOp::Label => formatter.write_str("label"),
-            SSAOp::Br(label) => write!(formatter, "br {:?}", label),
-            SSAOp::Cbz(condition, label) => write!(formatter, "cbz {:?}, {:?}", condition, label),
-            SSAOp::Arg(index) => write!(formatter, "arg[{}]", index),
-            SSAOp::Return(id) => write!(formatter, "ret {:?}", id),
-            SSAOp::Call(id, args) => write!(formatter, "call {:?}, {:?}", id, args.iter().format(", ")),
-            SSAOp::Alloc(size) => write!(formatter, "alloc {:?}", size),
-            SSAOp::Copy(src, dst, size) => write!(formatter, "copy {:?}, {:?}, {:?}", src, dst, size),
-            SSAOp::Length(str) => write!(formatter, "length {:?}", str),
-            SSAOp::Phi(left, right) => write!(formatter, "ϕ({:?}, {:?})", left, right),
-            SSAOp::End(value) => write!(formatter, "end {:?}", value)
-        }
-    }
-}
-
-#[derive(Clone, Eq)]
-crate enum SSAIdName {
-    Tmp(usize),
-    Label(usize),
-    Binding {
-        binding: BindingRef,
-        version: usize
-    }
-}
-
-impl PartialEq for SSAIdName {
-    fn eq(&self, other: &SSAIdName) -> bool {
-        match (self, other) {
-            (SSAIdName::Tmp(this), SSAIdName::Tmp(other)) => this == other,
-            (SSAIdName::Label(this), SSAIdName::Label(other)) => this == other,
-            (SSAIdName::Binding { binding: this, .. }, SSAIdName::Binding { binding: other, .. }) => this == other,
-            _ => false
-        }
-    }
-}
-
-impl Hash for SSAIdName {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        match self {
-            SSAIdName::Tmp(id) => Hash::hash(id, state),
-            SSAIdName::Label(id) => Hash::hash(id, state),
-            SSAIdName::Binding { binding, .. } => Hash::hash(binding, state),
-        }
-    }
-}
-
-impl Debug for SSAIdName {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            SSAIdName::Tmp(id) => write!(formatter, "@tmp{}", id),
-            SSAIdName::Label(id) => write!(formatter, "@label{}", id),
-            SSAIdName::Binding { binding, version } => write!(formatter, "{}'{}", binding.name, version),
-        }
-    }
-}
-
-#[derive(Clone)]
-crate struct SSAId {
-    crate name: SSAIdName,
-    unique_id: usize
-}
-
-impl Debug for SSAId {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        Debug::fmt(&self.name, formatter)
-    }
-}
-
-impl PartialEq for SSAId {
-    fn eq(&self, other: &Self) -> bool {
-        self.unique_id == other.unique_id
-    }
-}
-
-impl Eq for SSAId {}
-
-impl Hash for SSAId {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.unique_id.hash(state)
-    }
-}
-
-mod ssaid_factory {
-    use std::mem::replace;
-
-    use crate::codegen::SSAId;
-    use crate::codegen::SSAIdName;
-
-    crate struct SSAIdFactory {
-        next_id: usize,
-    }
-
-    impl SSAIdFactory {
-        crate fn new() -> Self {
-            SSAIdFactory { next_id: 0 }
-        }
-
-        crate fn new_id(&mut self, name: SSAIdName) -> SSAId {
-            SSAId {
-                name,
-                unique_id: self.unique_id()
-            }
-        }
-
-        crate fn next_version(&mut self, id: &SSAId) -> SSAId {
-            match &id.name {
-                SSAIdName::Binding { binding, version } => SSAId {
-                    name: SSAIdName::Binding {
-                        binding: binding.clone(),
-                        version: version + 1
-                    },
-                    unique_id: self.unique_id()
-                },
-                _ => panic!("trying to get next version of an SSA id that is not tied to any binding: {:?}", id)
-            }
-        }
-
-        fn unique_id(&mut self) -> usize {
-            let new_id = self.next_id + 1;
-            replace(&mut self.next_id, new_id)
-        }
     }
 }

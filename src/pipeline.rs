@@ -9,7 +9,6 @@ use termcolor::StandardStream;
 use termcolor::WriteColor;
 
 use crate::codegen::generate_ssa;
-use crate::codegen::SSAStatement;
 use crate::control_flow::build_control_flow_graph;
 use crate::eval::Evaluator;
 use crate::eval::Evalue;
@@ -23,6 +22,7 @@ use crate::semantics::ExprRef;
 use crate::semantics::SemanticsChecker;
 use crate::source::SourceFile;
 use crate::source::SourceFileRef;
+use crate::ssa::SSAStatement;
 use crate::ssa_eval::SSAEvaluator;
 use crate::ssa_eval::Value;
 use crate::utils::stdout;

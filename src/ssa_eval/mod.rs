@@ -7,12 +7,13 @@ use num_bigint::BigInt;
 use num_traits::cast::ToPrimitive;
 use num_traits::Zero;
 
-use crate::codegen::SSAId;
-use crate::codegen::SSAIdName;
-use crate::codegen::SSAOp;
-use crate::codegen::SSAStatement;
+use crate::ssa::SSAId;
+use crate::ssa::SSAIdName;
+use crate::ssa::SSAOp;
+use crate::ssa::SSAStatement;
 
-#[cfg(test)] mod tests;
+#[cfg(test)]
+mod tests;
 
 crate struct SSAEvaluator {
     values: HashMap<SSAIdName, Value>,

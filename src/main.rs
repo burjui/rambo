@@ -43,6 +43,7 @@ mod codegen;
 mod ssa_eval;
 mod control_flow;
 mod graphviz;
+mod ssa;
 
 #[cfg(test)]
 #[macro_use]

@@ -8,9 +8,9 @@ use itertools::Itertools;
 use multimap::MultiMap;
 use petgraph::graph::DiGraph;
 
-use crate::codegen::SSAId;
-use crate::codegen::SSAOp;
-use crate::codegen::SSAStatement;
+use crate::ssa::SSAId;
+use crate::ssa::SSAOp;
+use crate::ssa::SSAStatement;
 
 #[cfg(test)]
 mod tests;

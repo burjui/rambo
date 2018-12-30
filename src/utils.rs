@@ -58,7 +58,7 @@ crate fn stdout() -> StandardStream {
 crate mod ssa {
     use std::error::Error;
 
-    use crate::codegen::SSAStatement;
+    use crate::ssa::SSAStatement;
 
     crate fn dump(code: &str, ssa: &[SSAStatement]) -> Result<(), Box<dyn Error>> {
         use std::fs::File;
