@@ -24,7 +24,6 @@ use crate::semantics::Type;
 use crate::semantics::TypedExpr;
 use crate::semantics::TypedStatement;
 use crate::source::Source;
-use crate::unique_rc::UniqueRc;
 
 #[cfg(test)] mod tests;
 
@@ -37,7 +36,9 @@ struct Codegen {
     id_factory: SSAIdFactory,
     env: Environment<BindingRef, SSAId>,
     modified: HashMap<BindingRef, SSAId>,
-    lambda_cache: HashMap<LambdaRef, (SSAId, Vec<SSAStatement>)>
+    lambda_cache: HashMap<LambdaRef, (SSAId, Vec<SSAStatement>)>,
+    unique_tmp_id: usize,
+    unique_label_id: usize,
 }
 
 trait OptionCloneOrElse<T> {
@@ -63,7 +64,9 @@ impl Codegen {
             id_factory: SSAIdFactory::new(),
             env: Environment::new(),
             modified: HashMap::new(),
-            lambda_cache: HashMap::new()
+            lambda_cache: HashMap::new(),
+            unique_tmp_id: 0,
+            unique_label_id: 0
         }
     }
 
@@ -92,7 +95,8 @@ impl Codegen {
                 self.push(target, SSAOp::Int(value.clone()))
             },
             TypedExpr::Assign(binding, value, source) => {
-                let id = self.id(binding);
+                let id = self.binding_id(binding);
+//                eprintln!("ASSIGN TO {:?}", id);
                 let mut new_version = self.next_version(binding, &id, source.text());
                 self.modified.insert(binding.clone(), new_version.id.clone());
                 self.process_expr(value, Some(&mut new_version))
@@ -173,7 +177,7 @@ impl Codegen {
                 match binding.kind {
                     BindingKind::Let => {
                         let mut target = target.clone_or_else(|| self.new_target(source.text()));
-                        target.id = self.id(binding);
+                        target.id = self.binding_id(binding);
                         target.id.clone()
                     },
                     BindingKind::Arg(index) => {
@@ -234,7 +238,9 @@ impl Codegen {
     fn process_statement(&mut self, statement: &TypedStatement, target: Option<&mut Target>) -> SSAId {
         match statement {
             TypedStatement::Binding(binding) => {
-                let id = self.process_expr(&binding.data, None);
+                let binding_id = self.binding_id(binding);
+                let id = self.process_expr(&binding.data, Some(&mut Target::new(binding_id, binding.source.text())));
+//                eprintln!("#1 {:?}", id);
                 self.env.bind(binding.clone(), id.clone());
                 id
             },
@@ -262,22 +268,31 @@ impl Codegen {
     }
 
     fn new_label(&mut self, comment: &str) -> Target {
-        Target::new(self.id_factory.new_id_prefix("@label"), comment)
+        let new_id = self.unique_label_id + 1;
+        let id = replace(&mut self.unique_label_id, new_id);
+        Target::new(self.id_factory.new_id(SSAIdName::Label(id)), comment)
     }
 
     fn new_target(&mut self, comment: &str) -> Target {
-        Target::new(self.new_id(), comment)
+        Target::new(self.new_tmp(), comment)
     }
 
-    fn new_id(&mut self) -> SSAId {
-        self.id_factory.new_id_prefix("@tmp")
+    fn new_tmp(&mut self) -> SSAId {
+        let new_id = self.unique_tmp_id + 1;
+        let id = replace(&mut self.unique_tmp_id, new_id);
+        self.id_factory.new_id(SSAIdName::Tmp(id))
     }
 
-    fn id(&mut self, binding: &BindingRef) -> SSAId {
+    fn binding_id(&mut self, binding: &BindingRef) -> SSAId {
         if let Ok(id) = self.env.resolve(binding) {
+//            eprintln!("GOT {:?} for {:?}", id, binding);
             id.clone()
         } else {
-            let id = self.id_factory.new_id(SSAIdName::Binding(binding.clone()));
+            let id = self.id_factory.new_id(SSAIdName::Binding {
+                binding: binding.clone(),
+                version: 0
+            });
+//            eprintln!("CREATED {:?}", id);
             self.env.bind(binding.clone(), id.clone());
             id
         }
@@ -406,17 +421,43 @@ impl Debug for SSAOp {
     }
 }
 
-#[derive(Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, Eq)]
 crate enum SSAIdName {
-    String(UniqueRc<String>),
-    Binding(BindingRef)
+    Tmp(usize),
+    Label(usize),
+    Binding {
+        binding: BindingRef,
+        version: usize
+    }
+}
+
+impl PartialEq for SSAIdName {
+    fn eq(&self, other: &SSAIdName) -> bool {
+        match (self, other) {
+            (SSAIdName::Tmp(this), SSAIdName::Tmp(other)) => this == other,
+            (SSAIdName::Label(this), SSAIdName::Label(other)) => this == other,
+            (SSAIdName::Binding { binding: this, .. }, SSAIdName::Binding { binding: other, .. }) => this == other,
+            _ => false
+        }
+    }
+}
+
+impl Hash for SSAIdName {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        match self {
+            SSAIdName::Tmp(id) => Hash::hash(id, state),
+            SSAIdName::Label(id) => Hash::hash(id, state),
+            SSAIdName::Binding { binding, .. } => Hash::hash(binding, state),
+        }
+    }
 }
 
 impl Debug for SSAIdName {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            SSAIdName::String(s) => formatter.write_str(s),
-            SSAIdName::Binding(binding) => formatter.write_str(&binding.name)
+            SSAIdName::Tmp(id) => write!(formatter, "@tmp{}", id),
+            SSAIdName::Label(id) => write!(formatter, "@label{}", id),
+            SSAIdName::Binding { binding, version } => write!(formatter, "{}'{}", binding.name, version),
         }
     }
 }
@@ -424,16 +465,12 @@ impl Debug for SSAIdName {
 #[derive(Clone)]
 crate struct SSAId {
     crate name: SSAIdName,
-    crate version: usize,
     unique_id: usize
 }
 
 impl Debug for SSAId {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        match &self.name {
-            SSAIdName::String(_) => Debug::fmt(&self.name, formatter),
-            SSAIdName::Binding(_) => write!(formatter, "{:?}'{}", self.name, self.version)
-        }
+        Debug::fmt(&self.name, formatter)
     }
 }
 
@@ -452,9 +489,10 @@ impl Hash for SSAId {
 }
 
 mod ssaid_factory {
+    use std::mem::replace;
+
     use crate::codegen::SSAId;
     use crate::codegen::SSAIdName;
-    use crate::unique_rc::UniqueRc;
 
     crate struct SSAIdFactory {
         next_id: usize,
@@ -465,31 +503,29 @@ mod ssaid_factory {
             SSAIdFactory { next_id: 0 }
         }
 
-        crate fn new_id_prefix(&mut self, prefix: &str) -> SSAId {
-            let name = UniqueRc::from(format!("{}{}", prefix, self.next_id));
-            self.new_id(SSAIdName::String(name))
-        }
-
         crate fn new_id(&mut self, name: SSAIdName) -> SSAId {
             SSAId {
                 name,
-                version: 0,
                 unique_id: self.unique_id()
             }
         }
 
         crate fn next_version(&mut self, id: &SSAId) -> SSAId {
-            SSAId {
-                name: id.name.clone(),
-                version: id.version + 1,
-                unique_id: self.unique_id()
+            match &id.name {
+                SSAIdName::Binding { binding, version } => SSAId {
+                    name: SSAIdName::Binding {
+                        binding: binding.clone(),
+                        version: version + 1
+                    },
+                    unique_id: self.unique_id()
+                },
+                _ => panic!("trying to get next version of an SSA id that is not tied to any binding: {:?}", id)
             }
         }
 
         fn unique_id(&mut self) -> usize {
-            let unique_id = self.next_id;
-            self.next_id += 1;
-            unique_id
+            let new_id = self.next_id + 1;
+            replace(&mut self.next_id, new_id)
         }
     }
 }

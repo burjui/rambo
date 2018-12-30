@@ -54,8 +54,6 @@ fn assign() -> TestResult {
         assert_ne!(two, three);
         assert_eq!(one.id.name, two.id.name);
         assert_eq!(two.id.name, three.id.name);
-        assert_ne!(one.id.version, two.id.version);
-        assert_ne!(two.id.version, three.id.version);
     )
 }
 
