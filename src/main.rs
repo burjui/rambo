@@ -1,6 +1,5 @@
 #![feature(crate_visibility_modifier)]
 #![warn(rust_2018_idioms)]
-#![feature(transpose_result)]
 #![feature(try_from)]
 #![feature(underscore_const_names)]
 #![feature(const_panic)]
