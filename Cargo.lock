@@ -215,7 +215,7 @@ dependencies = [
 
 [[package]]
 name = "rambo"
-version = "0.2.0"
+version = "0.2.2"
 dependencies = [
  "askama_escape 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "elapsed 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
