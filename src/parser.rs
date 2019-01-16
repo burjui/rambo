@@ -283,7 +283,7 @@ impl Parser {
                     left: Box::new(result),
                     right: Box::new(right_operand)
                 };
-                start = self.lexeme.source.clone();
+//                start = self.lexeme.source.clone();
             }
         }
 
