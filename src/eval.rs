@@ -86,12 +86,7 @@ impl<'a> Evaluator {
                     Evalue::String(value) => value.is_empty(),
                     _ => unreachable!()
                 };
-                let clause = if condition {
-                    Some(positive)
-                } else {
-                    negative.as_ref()
-                };
-                clause.map(|expr| self.eval(expr)).unwrap_or_else(|| Ok(Evalue::Unit))
+                self.eval(if condition { positive } else { negative })
             },
             TypedExpr::Block(Block { statements, .. }) => {
                 self.env.push();

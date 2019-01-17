@@ -1,3 +1,6 @@
+#[cfg(test)]
+use std::error::Error;
+
 use once_cell::sync::Lazy;
 use once_cell::sync_lazy;
 use regex::Regex;
@@ -75,3 +78,5 @@ crate mod ssa {
     }
 }
 
+#[cfg(test)]
+crate type TestResult = Result<(), Box<dyn Error>>;

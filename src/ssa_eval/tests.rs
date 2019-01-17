@@ -1,9 +1,6 @@
-use std::error::Error;
-
 use crate::codegen::generate_ssa;
 use crate::ssa_eval::SSAEvaluator;
-
-type TestResult = Result<(), Box<dyn Error>>;
+use crate::utils::TestResult;
 
 #[test]
 fn eval() -> TestResult {

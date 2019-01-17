@@ -258,7 +258,7 @@ impl Parser {
             }
         };
 
-        let mut start = self.lexeme.source.clone();
+        let start = self.lexeme.source.clone();
         let mut result = parse_next(self, precedence.next_binary_precedence())?;
         let first_lexeme_token = self.lexeme.token;
         if self.previous_lexeme_line != self.lexeme_line || !first_lexeme_token.is_binary_operator() {

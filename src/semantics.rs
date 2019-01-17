@@ -176,41 +176,52 @@ impl SemanticsChecker {
                     return error!("a condition can only be of type `num': {:?}", condition.source())
                 }
 
-                let (positive, positive_source) = match positive.deref() {
+                let (positive_statements, positive_source) = match positive.deref() {
                     Expr::Block(ASTBlock { source, statements }) => (statements, source),
                     _ => unreachable!()
                 };
-                if positive.is_empty() {
+                let positive = if positive_statements.is_empty() {
                     warning!("empty positive branch: {:?}", positive_source);
-                }
-                let mut positive = self.check_block(positive.iter(), positive_source.clone())?;
+                    TypedExpr::Unit(positive_source.clone())
+                } else {
+                    let additional_statement = if negative.is_none() {
+                        vec![Statement::Expr(Expr::Unit(positive_source.clone()))]
+                    } else {
+                        vec![]
+                    };
+                    let statements = positive_statements.iter().chain(additional_statement.iter());
+                    self.check_block(statements, positive_source.clone())?
+                };
                 let positive_type = positive.type_();
 
-                let negative = match negative.as_ref().map(Deref::deref) {
-                    Some(Expr::Block(ASTBlock { source, statements, .. })) => {
-                        if statements.is_empty() {
-                            warning!("empty negative branch: {:?}", source);
+                let negative = match negative {
+                    Some(negative) => {
+                        let (negative_statements, negative_source) = match negative.deref() {
+                            Expr::Block(ASTBlock { source, statements }) => (statements, source),
+                            _ => unreachable!()
+                        };
+                        if negative_statements.is_empty() {
+                            warning!("empty negative branch: {:?}", negative_source);
+                            TypedExpr::Unit(negative_source.clone())
+                        } else {
+                            self.check_block(negative_statements.iter(), negative_source.clone())?
                         }
-                        let block = self.check_block(statements.iter(), source.clone())?;
-                        Some(ExprRef(self.expr_arena.alloc(block)))
-                    },
-                    _ => None
-                };
-                let negative_type = negative.as_ref().map(|expr| expr.type_());
-
-                if let Some(negative_type) = negative_type {
-                    if positive_type != negative_type {
-                        return error!("types of positive and negative branches of a conditional don't match: `{:?}' and `{:?}'",
-                                      positive_type, negative_type);
                     }
-                } else if let TypedExpr::Block(block) = &mut positive {
-                    block.statements.push(TypedStatement::Expr(ExprRef(self.expr_arena.alloc(TypedExpr::Unit(block.source.clone())))))
+
+                    None => TypedExpr::Unit(source.clone())
+                };
+                let negative_type = negative.type_();
+
+                if positive_type != negative_type {
+                    return error!("types of positive and negative branches of a conditional don't match: `{:?}' and `{:?}'",
+                                  positive_type, negative_type);
                 }
 
                 Ok(ExprRef(self.expr_arena.alloc(TypedExpr::Conditional {
                     condition: condition_typed,
                     positive: ExprRef(self.expr_arena.alloc(positive)),
-                    negative,
+                    negative: ExprRef(self.expr_arena.alloc(negative)),
+                    type_: positive_type,
                     source: source.clone()
                 })))
             },
@@ -382,7 +393,8 @@ crate enum TypedExpr {
     Conditional {
         condition: ExprRef,
         positive: ExprRef,
-        negative: Option<ExprRef>,
+        negative: ExprRef,
+        type_: Type,
         source: Source
     },
     Block(Block)
@@ -404,13 +416,8 @@ impl Debug for TypedExpr {
             TypedExpr::Assign(binding, value, _) => write!(formatter, "({} = {:?})", &binding.name, value),
             TypedExpr::Lambda(lambda, _) => lambda.fmt(formatter),
             TypedExpr::Application { function, arguments, .. } => write!(formatter, "({:?} @ {:?})", function, arguments),
-            TypedExpr::Conditional { condition, positive, negative, .. } => {
-                let negative = match negative {
-                    Some(negative) => format!(" else {:?})", negative),
-                    _ => "".to_owned()
-                };
-                write!(formatter, "(if {:?} {:?}{})", condition, positive, negative)
-            },
+            TypedExpr::Conditional { condition, positive, negative, .. } =>
+                write!(formatter, "(if ({:?}) {:?} else {:?})", condition, positive, negative),
             TypedExpr::Block(block) => block.fmt(formatter)
         }
     }
@@ -435,13 +442,7 @@ impl TypedExpr {
             TypedExpr::Assign(_, value, _) => value.type_(),
             TypedExpr::Lambda(lambda, _) => Type::Function(lambda.type_.clone()),
             TypedExpr::Application { type_, .. } => type_.clone(),
-            TypedExpr::Conditional { positive, negative, .. } => {
-                if negative.is_none() {
-                    Type::Unit
-                } else {
-                    positive.type_()
-                }
-            },
+            TypedExpr::Conditional { type_, .. } => type_.clone(),
             TypedExpr::Block(Block { statements, .. }) => statements.last().map(TypedStatement::type_).unwrap_or_else(|| Type::Unit)
         }
     }

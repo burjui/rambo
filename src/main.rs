@@ -4,6 +4,7 @@
 #![feature(underscore_const_names)]
 #![feature(const_panic)]
 #![feature(str_escape)]
+#![feature(impl_trait_in_bindings)]
 
 use std::env::args as program_args;
 use std::error::Error;
@@ -28,7 +29,16 @@ use crate::pipeline::StandardStreamUtils;
 use crate::pipeline::VerifySemantics;
 use crate::utils::stdout;
 
-#[macro_use] mod utils;
+#[macro_use]
+mod utils;
+
+#[cfg(test)]
+#[macro_use]
+mod vm;
+
+#[cfg(test)]
+mod runtime;
+
 mod source;
 mod lexer;
 mod parser;
@@ -43,13 +53,7 @@ mod ssa_eval;
 mod control_flow;
 mod graphviz;
 mod ssa;
-
-#[cfg(test)]
-#[macro_use]
-mod vm;
-
-#[cfg(test)]
-mod runtime;
+mod ir;
 
 fn main() -> Result<(), Box<dyn Error>> {
     let stdout = &mut stdout();

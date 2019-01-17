@@ -1,12 +1,9 @@
-use std::error::Error;
-
 use num_bigint::BigInt;
 
 use crate::codegen::Codegen;
 use crate::ssa::SSAOp;
 use crate::ssa::SSAStatement;
-
-type TestResult = Result<(), Box<dyn Error>>;
+use crate::utils::TestResult;
 
 macro_rules! match_ssa {
     ($code: expr $(, $patterns: pat)* $(,)? => $($handlers: stmt;)*) => ({

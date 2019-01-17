@@ -112,7 +112,7 @@ impl Codegen {
                     self.process_statement(tail.first().unwrap(), target)
                 }
             },
-            TypedExpr::Conditional { condition, positive, negative, source } => {
+            TypedExpr::Conditional { condition, positive, negative, source, .. } => {
                 let condition = self.process_expr(condition, None);
                 let negative_label = self.new_label("negative branch");
                 let cbz_target = self.new_target("jump to negative branch");
@@ -125,13 +125,7 @@ impl Codegen {
                 let br_target = self.new_target("jump to the end of conditional");
                 self.push(br_target, SSAOp::Br(end_label.id.clone()));
                 self.push(negative_label, SSAOp::Label);
-                let negative = match negative {
-                    Some(negative) => self.process_expr(negative, None),
-                    None => {
-                        let unit_target = self.new_target("negative branch value");
-                        self.push(unit_target, SSAOp::Unit)
-                    }
-                };
+                let negative = self.process_expr(negative, None);
                 let modified_in_negative = self.take_modified();
                 struct Modified(BindingRef, SSAId);
                 let modified = modified_in_positive.keys()

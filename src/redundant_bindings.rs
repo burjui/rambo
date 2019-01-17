@@ -74,9 +74,7 @@ impl Detector {
             TypedExpr::Conditional { condition, positive, negative, .. } => {
                 self.process(condition);
                 self.process(positive);
-                if let Some(negative) = negative {
-                    self.process(negative);
-                }
+                self.process(negative);
             },
             TypedExpr::Block(block) => self.process_block(block),
             TypedExpr::ArgumentPlaceholder(_, _) |

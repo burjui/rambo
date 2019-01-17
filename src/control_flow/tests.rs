@@ -1,11 +1,9 @@
-use std::error::Error;
 use std::fs::File;
 
 use crate::codegen::generate_ssa;
 use crate::control_flow::build_control_flow_graph;
 use crate::graphviz::Graphviz;
-
-type TestResult = Result<(), Box<dyn Error>>;
+use crate::utils::TestResult;
 
 #[test]
 fn control_flow_graph_builder() -> TestResult {
