@@ -1,4 +1,3 @@
-use std::cell::RefCell;
 use std::fmt;
 use std::iter::once;
 
@@ -12,8 +11,6 @@ use petgraph::graph::DiGraph;
 use petgraph::graph::NodeIndex;
 use petgraph::prelude::Direction::Incoming;
 use petgraph::visit::EdgeRef;
-use rc_arena::Arena;
-use rc_arena::Rc;
 
 use crate::semantics::BindingRef;
 use crate::semantics::ExprRef;
@@ -65,10 +62,6 @@ crate struct CFGSSA {
     crate exit_block: NodeIndex,
 }
 
-// TODO ger rid of cells
-type PhiOperandsCell = RefCell<Vec<Ident>>;
-type PhiOperands = Rc<PhiOperandsCell>;
-
 #[derive(Copy, Clone, Debug)]
 struct StatementLocation {
     block: NodeIndex,
@@ -88,8 +81,6 @@ crate struct FrontEnd {
     values: HashMap<BindingRef, HashMap<NodeIndex, Ident>>,
     sealed_blocks: HashSet<NodeIndex>,
     incomplete_phis: HashMap<NodeIndex, HashMap<BindingRef, Ident>>,
-    phi_operands_arena: Arena<PhiOperandsCell>,
-    phi_operands: HashMap<Ident, PhiOperands>,
     phi_locations: HashMap<Ident, StatementLocation>,
     phi_users: MultiMap<Ident, StatementLocation>,
     trivial_phis: HashSet<Ident>,
@@ -106,8 +97,6 @@ impl FrontEnd {
             values: HashMap::new(),
             sealed_blocks: HashSet::new(),
             incomplete_phis: HashMap::new(),
-            phi_operands_arena: Arena::new(),
-            phi_operands: HashMap::new(),
             phi_locations: HashMap::new(),
             phi_users: MultiMap::new(),
             trivial_phis: HashSet::new(),
@@ -117,7 +106,7 @@ impl FrontEnd {
     crate fn build(mut self, code: &ExprRef) -> CFGSSA {
         let (exit_block, _) = self.process_expr(code, self.entry_block);
         self.seal_block(exit_block);
-        self.remove_trivial_phis();
+        self.remove_trivial_phi();
 
         CFGSSA {
             graph: self.cfg,
@@ -126,7 +115,7 @@ impl FrontEnd {
         }
     }
 
-    fn remove_trivial_phis(&mut self) {
+    fn remove_trivial_phi(&mut self) {
         // Sort localtions by block
         let mut trivial_phi_locations = self.trivial_phis.iter()
             .map(|phi| self.phi_locations[phi])
@@ -145,8 +134,7 @@ impl FrontEnd {
             })
             .collect();
         for (block, indices) in trivial_phis_by_block {
-            eprintln!("!! removing({}): {}", block.index(), indices.iter().format("\n"));
-            let basic_block = self.block_mut(block);
+            let basic_block = self.cfg.block(block);
             let block_length = basic_block.len();
             let indices_length = indices.len();
             let mut pruned = Vec::with_capacity(block_length - indices_length);
@@ -154,7 +142,7 @@ impl FrontEnd {
             for (from_excluded, to) in indices.into_iter().chain(once(block_length)).tuple_windows() {
                 pruned.extend_from_slice(&basic_block[from_excluded + 1 .. to]);
             }
-            *self.block_mut(block) = BasicBlock(pruned);
+            *self.cfg.block_mut(block) = BasicBlock(pruned);
         }
     }
 
@@ -194,27 +182,26 @@ impl FrontEnd {
                 (block, ident)
             }
 
+            // TODO try rearranging seal_block() calls
+
             TypedExpr::Conditional { condition, positive, negative, source, .. } => {
                 let (block, condition) = self.process_expr(condition, block);
                 let positive_block = self.cfg.new_block();
                 let negative_block = self.cfg.new_block();
-                let basic_block = self.block_mut(block);
-                basic_block.push(Statement::CondJump(condition, positive_block, negative_block));
+                self.cfg.block_mut(block).push(
+                    Statement::CondJump(condition, positive_block, negative_block));
                 self.seal_block(block);
 
                 self.cfg.add_edge(block, positive_block, ());
                 self.cfg.add_edge(block, negative_block, ());
                 let (positive_exit_block, positive) = self.process_expr(positive, positive_block);
                 let (negative_exit_block, negative) = self.process_expr(negative, negative_block);
-                eprintln!("positive_block:\n.. {:?}", self.block_mut(positive_block).iter().format("\n.. "));
-                eprintln!("negative_block:\n.. {:?}", self.block_mut(negative_block).iter().format("\n.. "));
                 let exit = self.cfg.new_block();
                 self.cfg.add_edge(positive_exit_block, exit, ());
                 self.cfg.add_edge(negative_exit_block, exit, ());
                 self.seal_block(positive_exit_block);
                 self.seal_block(negative_exit_block);
 
-                self.comment(block, source.text());
                 let result_phi = self.define_phi(exit, &[positive, negative]);
                 let result_phi = self.try_remove_trivial_phi(result_phi);
                 (exit, result_phi)
@@ -300,16 +287,14 @@ impl FrontEnd {
             .collect::<Vec<_>>();
         for predecessor in predecessors {
             let operand = self.read_variable(variable, predecessor);
-            self.phi_operands[&phi].borrow_mut().push(operand);
+            self.phi_operands_mut(phi).push(operand);
         }
         self.try_remove_trivial_phi(phi)
     }
 
     fn try_remove_trivial_phi(&mut self, phi: Ident) -> Ident {
-        eprintln!("try_remove_trivial_phi: {:?}", phi);
         let mut same = None;
-        let operands = self.phi_operands[&phi].borrow();
-        for operand in operands.iter() {
+        for operand in self.phi_operands(phi) {
             if Some(*operand) == same || *operand == phi {
                 // Unique value or self−reference
                 continue;
@@ -320,10 +305,9 @@ impl FrontEnd {
             }
             same = Some(*operand);
         }
-        drop(operands);
         self.trivial_phis.insert(phi);
 
-        /*
+        /* FIXME
         Next part differs from the algorithm from the paper
         Original code:
 
@@ -332,17 +316,15 @@ impl FrontEnd {
             users ← phi.users.remove(phi) # Remember all users except the phi itself
             phi.replaceBy(same) # Reroute all uses of phi to same and remove phi
         */
+        // TODO remove self from users
         let users = self.phi_users
             .get_vec(&phi)
             .map(|vec| vec.to_vec())
             .unwrap_or_else(Vec::new);
-        eprintln!("users({:?}):\n  {:?}", phi, users.iter()
-            .map(|user| &self.cfg.node_weight(user.block).unwrap()[user.index])
-            .format("\n  "));
         let same = same.unwrap();
         let mut possible_trivial_phis = vec![];
         for user in &users {
-            if let Statement::Definition { ident, value } = &mut self.block_mut(user.block)[user.index] {
+            if let Statement::Definition { ident, value } = &mut self.cfg.block_mut(user.block)[user.index] {
                 replace_phi(value, phi, same);
                 if let Value::Phi(_) = value {
                     possible_trivial_phis.push(*ident);
@@ -382,7 +364,7 @@ impl FrontEnd {
             value
         };
 
-        let basic_block = self.block_mut(block);
+        let basic_block = self.cfg.block_mut(block);
         let index = basic_block.len();
         basic_block.push(definition);
 
@@ -397,38 +379,30 @@ impl FrontEnd {
     }
 
     fn define_phi(&mut self, block: NodeIndex, operands: &[Ident]) -> Ident {
-        let operands = self.phi_operands_arena.alloc(RefCell::new(Vec::from(operands)));
-        let (phi, index) = self.define(block, Value::Phi(operands.clone()));
-        self.phi_operands.insert(phi, operands);
+        let (phi, index) = self.define(block, Value::Phi(operands.to_vec()));
         self.phi_locations.insert(phi, StatementLocation::new(block, index));
         phi
     }
 
     fn get_phis(&self, value: &Value) -> Vec<Ident> {
-        let operands: Vec<&Ident> = match value {
+        let operands: Vec<Ident> = match value {
             Value::AddInt(left, right) |
             Value::SubInt(left, right) |
             Value::MulInt(left, right) |
-            Value::DivInt(left, right) => vec![left, right],
+            Value::DivInt(left, right) => vec![*left, *right],
 
             Value::Call(function, arguments) => {
-                let mut operands = vec![function];
-                operands.extend(arguments.iter());
+                let mut operands = vec![*function];
+                operands.extend_from_slice(&arguments);
                 operands
-            },
-            Value::Return(value) => vec![value],
-            Value::Phi(operands) => {
-                let borrowed = operands.borrow();
-                borrowed.iter()
-                    .map(|operand| operand as *const Ident)
-                    .map(|ptr| unsafe { &*ptr })
-                    .collect()
-            },
+            }
+
+            Value::Return(value) => vec![*value],
+            Value::Phi(operands) => operands.clone(),
             _ => vec![]
         };
         operands.into_iter()
-            .filter(|operand| self.phi_operands.contains_key(operand))
-            .cloned()
+            .filter(|operand| self.phi_locations.contains_key(operand))
             .collect()
     }
 
@@ -436,13 +410,25 @@ impl FrontEnd {
         self.cfg.block_mut(block).push(Statement::Comment(comment.to_owned()))
     }
 
-    fn block_mut(&mut self, node: NodeIndex) -> &mut BasicBlock {
-        self.cfg.node_weight_mut(node).unwrap()
+    fn phi_operands(&self, phi: Ident) -> &[Ident] {
+        let location = self.phi_locations[&phi];
+        match &self.cfg.block(location.block)[location.index] {
+            Statement::Definition { value: Value::Phi(operands), .. } => &operands,
+            _ => unreachable!()
+        }
+    }
+
+    fn phi_operands_mut(&mut self, phi: Ident) -> &mut Vec<Ident> {
+        let location = self.phi_locations[&phi];
+        match &mut self.cfg.block_mut(location.block)[location.index] {
+            Statement::Definition { value: Value::Phi(operands), .. } => operands,
+            _ => unreachable!()
+        }
     }
 }
 
-fn replace_phi(phi_user: &mut Value, phi: Ident, value: Ident) {
-    let operands: Vec<&mut Ident> = match phi_user {
+fn replace_phi(value: &mut Value, phi: Ident, replacement: Ident) {
+    let operands: Vec<&mut Ident> = match value {
         Value::AddInt(left, right) |
         Value::SubInt(left, right) |
         Value::MulInt(left, right) |
@@ -454,18 +440,12 @@ fn replace_phi(phi_user: &mut Value, phi: Ident, value: Ident) {
             operands
         },
         Value::Return(value) => vec![value],
-        Value::Phi(operands) => {
-            let mut borrowed = operands.borrow_mut();
-            borrowed.iter_mut()
-                .map(|operand| operand as *mut Ident)
-                .map(|ptr| unsafe { &mut *ptr })
-                .collect()
-        },
+        Value::Phi(operands) => operands.iter_mut().collect(),
         _ => vec![]
     };
     for operand in operands {
         if *operand == phi {
-            *operand = value;
+            *operand = replacement;
         }
     }
 }
@@ -536,7 +516,7 @@ crate enum Value {
 //    },
     Call(Ident, Vec<Ident>),
     Return(Ident),
-    Phi(PhiOperands),
+    Phi(Vec<Ident>),
 }
 
 impl fmt::Debug for Value {
@@ -551,7 +531,7 @@ impl fmt::Debug for Value {
             Value::Arg(index) => write!(f, "arg[{:?}]", index),
             Value::Call(callee, arguments) => write!(f, "call {:?}({:?})", callee, arguments.iter().format(", ")),
             Value::Return(result) => write!(f, "return {:?}", result),
-            Value::Phi(operands) => write!(f, "ϕ({:?})", operands.borrow().iter().format(", ")),
+            Value::Phi(operands) => write!(f, "ϕ({:?})", operands.iter().format(", ")),
         }
     }
 }
