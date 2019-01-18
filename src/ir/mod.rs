@@ -23,14 +23,10 @@ use crate::source::Source;
 #[cfg(test)] use crate::utils::TestResult;
 use crate::utils::WHITESPACE_REGEX;
 
+// TODO peephole optimizations
+
 #[derive(Deref, DerefMut)]
 crate struct BasicBlock(Vec<Statement>);
-
-impl BasicBlock {
-    crate fn new() -> Self {
-        Self(Vec::new())
-    }
-}
 
 impl fmt::Debug for BasicBlock {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -42,16 +38,24 @@ type ControlFlowGraph = DiGraph<BasicBlock, ()>;
 
 trait ControlFlowGraphUtils {
     fn new_block(&mut self) -> NodeIndex;
+    fn block(&self, block: NodeIndex) -> &BasicBlock;
+    fn block_mut(&mut self, block: NodeIndex) -> &mut BasicBlock;
 }
 
 impl ControlFlowGraphUtils for ControlFlowGraph {
     fn new_block(&mut self) -> NodeIndex {
-        let block = self.add_node(BasicBlock::new());
-        eprintln!("*** BLOCK #{} ***", block.index());
-        // TODO self.comment()
+        let block = self.add_node(BasicBlock(vec![]));
         self.node_weight_mut(block).unwrap().push(
             Statement::Comment(format!("*** BLOCK #{} ***", block.index())));
         block
+    }
+
+    fn block(&self, block: NodeIndex<u32>) -> &BasicBlock {
+        self.node_weight(block).unwrap()
+    }
+
+    fn block_mut(&mut self, block: NodeIndex<u32>) -> &mut BasicBlock {
+        self.node_weight_mut(block).unwrap()
     }
 }
 
@@ -169,11 +173,12 @@ impl FrontEnd {
             }
 
             TypedExpr::Unit(source) => {
+                self.comment(block, source.text());
                 (block, self.define(block, Value::Unit).0)
             }
 
             TypedExpr::Int(value, source) => {
-                self.block_mut(block).push(Statement::Comment(source.text().to_owned()));
+                self.comment(block, source.text());
                 let (ident, _) = self.define(block, Value::Int(value.clone()));
                 (block, ident)
             }
@@ -184,7 +189,7 @@ impl FrontEnd {
             TypedExpr::DivInt(left, right, source) => self.process_binary(block, left, right, source, Value::DivInt),
 
             TypedExpr::Reference(binding, source) => {
-                self.block_mut(block).push(Statement::Comment(source.text().to_owned()));
+                self.comment(block, source.text());
                 let ident = self.read_variable(binding, block);
                 (block, ident)
             }
@@ -209,14 +214,14 @@ impl FrontEnd {
                 self.seal_block(positive_exit_block);
                 self.seal_block(negative_exit_block);
 
-                self.block_mut(exit).push(Statement::Comment(source.text().to_owned()));
+                self.comment(block, source.text());
                 let result_phi = self.define_phi(exit, &[positive, negative]);
                 let result_phi = self.try_remove_trivial_phi(result_phi);
                 (exit, result_phi)
             }
 
             TypedExpr::Assign(binding, value, source) => {
-                self.block_mut(block).push(Statement::Comment(source.text().to_owned()));
+                self.comment(block, source.text());
                 let (block, value) = self.process_expr(value, block);
                 self.write_variable(binding, block, value);
                 (block, value)
@@ -231,7 +236,7 @@ impl FrontEnd {
     {
         let (block, left_value) = self.process_expr(left, block);
         let (block, right_value) = self.process_expr(right, block);
-        self.block_mut(block).push(Statement::Comment(source.text().to_owned()));
+        self.comment(block, source.text());
         let (ident, _) = self.define(block, value_constructor(left_value, right_value));
         (block, ident)
     }
@@ -239,7 +244,7 @@ impl FrontEnd {
     fn process_statement(&mut self, statement: &TypedStatement, block: NodeIndex) -> (NodeIndex, Ident) {
         match statement {
             TypedStatement::Binding(binding) => {
-                self.block_mut(block).push(Statement::Comment(binding.source.text().to_owned()));
+                self.comment(block, binding.source.text());
                 let (block, ident) = self.process_expr(&binding.data, block);
                 self.write_variable(binding, block, ident);
                 (block, ident)
@@ -366,7 +371,7 @@ impl FrontEnd {
             }
         }
         self.sealed_blocks.insert(block);
-        self.block_mut(block).push(Statement::Comment(String::from("*** SEALED ***")));
+        self.comment(block, "*** SEALED ***");
     }
 
     fn define(&mut self, block: NodeIndex, value: Value) -> (Ident, usize) {
@@ -425,6 +430,10 @@ impl FrontEnd {
             .filter(|operand| self.phi_operands.contains_key(operand))
             .cloned()
             .collect()
+    }
+
+    fn comment(&mut self, block: NodeIndex, comment: &str) {
+        self.cfg.block_mut(block).push(Statement::Comment(comment.to_owned()))
     }
 
     fn block_mut(&mut self, node: NodeIndex) -> &mut BasicBlock {
