@@ -26,6 +26,7 @@ once_cell = "0.1.6"
 multimap = { version = "0.4.0", features = [] }
 askama_escape = "0.1.0"
 hashbrown = "0.1.7"
+derive_deref = "1.0.1"
 
 [features]
 dump_ssa_in_tests = []

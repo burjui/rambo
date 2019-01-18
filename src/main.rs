@@ -6,6 +6,9 @@
 #![feature(str_escape)]
 #![feature(impl_trait_in_bindings)]
 
+#[macro_use]
+extern crate derive_deref;
+
 use std::env::args as program_args;
 use std::error::Error;
 use std::io::Write;

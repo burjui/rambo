@@ -6,11 +6,9 @@ use std::rc::Rc;
 
 use itertools::Itertools;
 use num_bigint::BigInt;
-use once_cell::sync::Lazy;
-use once_cell::sync_lazy;
-use regex::Regex;
 
 use crate::semantics::BindingRef;
+use crate::utils::WHITESPACE_REGEX;
 
 crate mod generator;
 
@@ -70,7 +68,6 @@ impl Debug for SSAStatement {
             format!("    {}", s)
         };
 
-        static WHITESPACE_REGEX: Lazy<Regex> = sync_lazy!(Regex::new(r"[ \t]+").unwrap());
         let comment = self.target.comment.replace("\n", " ");
         let comment = WHITESPACE_REGEX.replace_all(&comment, " ");
         if !comment.is_empty() {
