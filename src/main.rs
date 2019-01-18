@@ -5,6 +5,7 @@
 #![feature(const_panic)]
 #![feature(str_escape)]
 #![feature(impl_trait_in_bindings)]
+#![feature(vec_remove_item)]
 
 #[macro_use]
 extern crate derive_deref;

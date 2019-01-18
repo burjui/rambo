@@ -6,7 +6,8 @@ use hashbrown::HashSet;
 use itertools::Itertools;
 use multimap::MultiMap;
 use num_bigint::BigInt;
-use once_cell::unsync::Lazy;
+use once_cell::sync;
+use once_cell::unsync;
 use petgraph::graph::DiGraph;
 use petgraph::graph::NodeIndex;
 use petgraph::prelude::Direction::Incoming;
@@ -62,7 +63,7 @@ crate struct CFGSSA {
     crate exit_block: NodeIndex,
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 struct StatementLocation {
     block: NodeIndex,
     index: usize
@@ -185,6 +186,7 @@ impl FrontEnd {
             // TODO try rearranging seal_block() calls
 
             TypedExpr::Conditional { condition, positive, negative, source, .. } => {
+                self.comment(block, source.text());
                 let (block, condition) = self.process_expr(condition, block);
                 let positive_block = self.cfg.new_block();
                 let negative_block = self.cfg.new_block();
@@ -201,7 +203,6 @@ impl FrontEnd {
                 self.cfg.add_edge(negative_exit_block, exit, ());
                 self.seal_block(positive_exit_block);
                 self.seal_block(negative_exit_block);
-
                 let result_phi = self.define_phi(exit, &[positive, negative]);
                 let result_phi = self.try_remove_trivial_phi(result_phi);
                 (exit, result_phi)
@@ -258,7 +259,9 @@ impl FrontEnd {
     }
 
     fn read_variable_recursive(&mut self, variable: &BindingRef, block: NodeIndex) -> Ident {
-        let predecessors = Lazy::new(|| self.cfg.edges_directed(block, Incoming).collect::<Vec<_>>());
+        let predecessors = unsync::Lazy::new(|| self.cfg
+            .edges_directed(block, Incoming)
+            .collect::<Vec<_>>());
         let value = if !self.sealed_blocks.contains(&block) {
             // Incomplete CFG
             let phi = self.define_phi(block, &[]);
@@ -307,23 +310,21 @@ impl FrontEnd {
         }
         self.trivial_phis.insert(phi);
 
-        /* FIXME
-        Next part differs from the algorithm from the paper
-        Original code:
-
-            if same = None:
-                same ← new Undef(); # The phi is unreachable or in the start block
-            users ← phi.users.remove(phi) # Remember all users except the phi itself
-            phi.replaceBy(same) # Reroute all uses of phi to same and remove phi
+        /* NOTE: this part from the original algorithm from the paper is not implemented:
+        if same = None:
+            same ← new Undef(); # The phi is unreachable or in the start block
         */
-        // TODO remove self from users
+        if let Some(vec) = self.phi_users.get_vec_mut(&phi) {
+            vec.remove_item(&self.phi_locations[&phi]);
+        }
+
+        static EMPTY_USERS: sync::Lazy<Vec<StatementLocation>> = once_cell::sync_lazy!(vec![]);
         let users = self.phi_users
             .get_vec(&phi)
-            .map(|vec| vec.to_vec())
-            .unwrap_or_else(Vec::new);
+            .unwrap_or_else(|| &*EMPTY_USERS);
         let same = same.unwrap();
         let mut possible_trivial_phis = vec![];
-        for user in &users {
+        for user in users {
             if let Statement::Definition { ident, value } = &mut self.cfg.block_mut(user.block)[user.index] {
                 replace_phi(value, phi, same);
                 if let Value::Phi(_) = value {
