@@ -1,5 +1,6 @@
 use std::fmt;
 use std::iter::once;
+use std::mem::replace;
 
 use hashbrown::HashMap;
 use hashbrown::HashSet;
@@ -32,33 +33,10 @@ impl fmt::Debug for BasicBlock {
     }
 }
 
-type ControlFlowGraph = DiGraph<BasicBlock, ()>;
+type BasicBlockGraph = DiGraph<BasicBlock, ()>;
 
-trait ControlFlowGraphUtils {
-    fn new_block(&mut self) -> NodeIndex;
-    fn block(&self, block: NodeIndex) -> &BasicBlock;
-    fn block_mut(&mut self, block: NodeIndex) -> &mut BasicBlock;
-}
-
-impl ControlFlowGraphUtils for ControlFlowGraph {
-    fn new_block(&mut self) -> NodeIndex {
-        let block = self.add_node(BasicBlock(vec![]));
-        self.node_weight_mut(block).unwrap().push(
-            Statement::Comment(format!("*** BLOCK #{} ***", block.index())));
-        block
-    }
-
-    fn block(&self, block: NodeIndex<u32>) -> &BasicBlock {
-        self.node_weight(block).unwrap()
-    }
-
-    fn block_mut(&mut self, block: NodeIndex<u32>) -> &mut BasicBlock {
-        self.node_weight_mut(block).unwrap()
-    }
-}
-
-crate struct CFGSSA {
-    crate graph: ControlFlowGraph,
+crate struct ControlFlowGraph {
+    crate graph: BasicBlockGraph,
     crate entry_block: NodeIndex,
     crate exit_block: NodeIndex,
 }
@@ -76,9 +54,8 @@ impl StatementLocation {
 }
 
 crate struct FrontEnd {
-    cfg: ControlFlowGraph,
-    entry_block: NodeIndex,
-    idgen: IdentGenerator,
+    graph: BasicBlockGraph,
+    next_id: usize,
     values: HashMap<BindingRef, HashMap<NodeIndex, Ident>>,
     sealed_blocks: HashSet<NodeIndex>,
     incomplete_phis: HashMap<NodeIndex, HashMap<BindingRef, Ident>>,
@@ -89,12 +66,9 @@ crate struct FrontEnd {
 
 impl FrontEnd {
     crate fn new() -> Self {
-        let mut cfg = ControlFlowGraph::new();
-        let entry_block = cfg.new_block();
         Self {
-            cfg,
-            entry_block,
-            idgen: IdentGenerator::new(),
+            graph:  DiGraph::new(),
+            next_id: 0,
             values: HashMap::new(),
             sealed_blocks: HashSet::new(),
             incomplete_phis: HashMap::new(),
@@ -104,15 +78,16 @@ impl FrontEnd {
         }
     }
 
-    crate fn build(mut self, code: &ExprRef) -> CFGSSA {
-        let (exit_block, _) = self.process_expr(code, self.entry_block);
+    crate fn build(mut self, code: &ExprRef) -> ControlFlowGraph {
+        let entry_block = self.new_block();
+        let (exit_block, _) = self.process_expr(code, entry_block);
         self.seal_block(exit_block);
         self.remove_trivial_phi();
 
-        CFGSSA {
-            graph: self.cfg,
-            entry_block: self.entry_block,
-            exit_block
+        ControlFlowGraph {
+            graph: self.graph,
+            entry_block,
+            exit_block,
         }
     }
 
@@ -135,7 +110,7 @@ impl FrontEnd {
             })
             .collect();
         for (block, indices) in trivial_phis_by_block {
-            let basic_block = self.cfg.block(block);
+            let basic_block = self.block(block);
             let block_length = basic_block.len();
             let indices_length = indices.len();
             let mut pruned = Vec::with_capacity(block_length - indices_length);
@@ -143,7 +118,7 @@ impl FrontEnd {
             for (from_excluded, to) in indices.into_iter().chain(once(block_length)).tuple_windows() {
                 pruned.extend_from_slice(&basic_block[from_excluded + 1 .. to]);
             }
-            *self.cfg.block_mut(block) = BasicBlock(pruned);
+            *block_mut(&mut self.graph, block) = BasicBlock(pruned);
         }
     }
 
@@ -188,19 +163,19 @@ impl FrontEnd {
             TypedExpr::Conditional { condition, positive, negative, source, .. } => {
                 self.comment(block, source.text());
                 let (block, condition) = self.process_expr(condition, block);
-                let positive_block = self.cfg.new_block();
-                let negative_block = self.cfg.new_block();
-                self.cfg.block_mut(block).push(
+                let positive_block = self.new_block();
+                let negative_block = self.new_block();
+                block_mut(&mut self.graph, block).push(
                     Statement::CondJump(condition, positive_block, negative_block));
                 self.seal_block(block);
 
-                self.cfg.add_edge(block, positive_block, ());
-                self.cfg.add_edge(block, negative_block, ());
+                self.graph.add_edge(block, positive_block, ());
+                self.graph.add_edge(block, negative_block, ());
                 let (positive_exit_block, positive) = self.process_expr(positive, positive_block);
                 let (negative_exit_block, negative) = self.process_expr(negative, negative_block);
-                let exit = self.cfg.new_block();
-                self.cfg.add_edge(positive_exit_block, exit, ());
-                self.cfg.add_edge(negative_exit_block, exit, ());
+                let exit = self.new_block();
+                self.graph.add_edge(positive_exit_block, exit, ());
+                self.graph.add_edge(negative_exit_block, exit, ());
                 self.seal_block(positive_exit_block);
                 self.seal_block(negative_exit_block);
                 let result_phi = self.define_phi(exit, &[positive, negative]);
@@ -243,6 +218,21 @@ impl FrontEnd {
         }
     }
 
+    fn new_id(&mut self) -> Ident {
+        let next_id = self.next_id + 1;
+        Ident(replace(&mut self.next_id, next_id))
+    }
+
+    fn new_block(&mut self) -> NodeIndex {
+        let block = self.graph.add_node(BasicBlock(vec![]));
+        self.comment(block, &format!("--- BLOCK {} ---", block.index()));
+        block
+    }
+
+    fn block(&self, block: NodeIndex) -> &BasicBlock {
+        self.graph.node_weight(block).unwrap()
+    }
+
     fn write_variable(&mut self, variable: &BindingRef, block: NodeIndex, value: Ident) {
         self.values
             .entry(variable.clone())
@@ -259,7 +249,7 @@ impl FrontEnd {
     }
 
     fn read_variable_recursive(&mut self, variable: &BindingRef, block: NodeIndex) -> Ident {
-        let predecessors = unsync::Lazy::new(|| self.cfg
+        let predecessors = unsync::Lazy::new(|| self.graph
             .edges_directed(block, Incoming)
             .collect::<Vec<_>>());
         let value = if !self.sealed_blocks.contains(&block) {
@@ -284,7 +274,7 @@ impl FrontEnd {
     }
 
     fn add_phi_operands(&mut self, variable: &BindingRef, phi: Ident) -> Ident {
-        let predecessors = self.cfg
+        let predecessors = self.graph
             .edges_directed(self.phi_locations[&phi].block, Incoming)
             .map(|edge| edge.source())
             .collect::<Vec<_>>();
@@ -325,7 +315,7 @@ impl FrontEnd {
         let same = same.unwrap();
         let mut possible_trivial_phis = vec![];
         for user in users {
-            if let Statement::Definition { ident, value } = &mut self.cfg.block_mut(user.block)[user.index] {
+            if let Statement::Definition { ident, value } = &mut block_mut(&mut self.graph, user.block)[user.index] {
                 replace_phi(value, phi, same);
                 if let Value::Phi(_) = value {
                     possible_trivial_phis.push(*ident);
@@ -354,18 +344,18 @@ impl FrontEnd {
             }
         }
         self.sealed_blocks.insert(block);
-        self.comment(block, "*** SEALED ***");
+        self.comment(block, "--- SEALED ---");
     }
 
     fn define(&mut self, block: NodeIndex, value: Value) -> (Ident, usize) {
         let phi_usages = self.get_phis(&value);
-        let ident = self.idgen.new_id();
+        let ident = self.new_id();
         let definition = Statement::Definition {
             ident,
             value
         };
 
-        let basic_block = self.cfg.block_mut(block);
+        let basic_block = block_mut(&mut self.graph, block);
         let index = basic_block.len();
         basic_block.push(definition);
 
@@ -408,12 +398,12 @@ impl FrontEnd {
     }
 
     fn comment(&mut self, block: NodeIndex, comment: &str) {
-        self.cfg.block_mut(block).push(Statement::Comment(comment.to_owned()))
+        block_mut(&mut self.graph, block).push(Statement::Comment(comment.to_owned()))
     }
 
     fn phi_operands(&self, phi: Ident) -> &[Ident] {
         let location = self.phi_locations[&phi];
-        match &self.cfg.block(location.block)[location.index] {
+        match &self.block(location.block)[location.index] {
             Statement::Definition { value: Value::Phi(operands), .. } => &operands,
             _ => unreachable!()
         }
@@ -421,11 +411,15 @@ impl FrontEnd {
 
     fn phi_operands_mut(&mut self, phi: Ident) -> &mut Vec<Ident> {
         let location = self.phi_locations[&phi];
-        match &mut self.cfg.block_mut(location.block)[location.index] {
+        match &mut block_mut(&mut self.graph, location.block)[location.index] {
             Statement::Definition { value: Value::Phi(operands), .. } => operands,
             _ => unreachable!()
         }
     }
+}
+
+fn block_mut(graph: &mut BasicBlockGraph, block: NodeIndex) -> &mut BasicBlock {
+    graph.node_weight_mut(block).unwrap()
 }
 
 fn replace_phi(value: &mut Value, phi: Ident, replacement: Ident) {
@@ -457,20 +451,6 @@ crate struct Ident(usize);
 impl fmt::Debug for Ident {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "v{:?}", self.0)
-    }
-}
-
-crate struct IdentGenerator(usize);
-
-impl IdentGenerator {
-    crate fn new() -> Self {
-        Self(0)
-    }
-
-    crate fn new_id(&mut self) -> Ident {
-        let id = self.0;
-        self.0 += 1;
-        Ident(id)
     }
 }
 
