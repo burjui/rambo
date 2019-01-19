@@ -64,6 +64,15 @@ crate struct FrontEnd {
     trivial_phis: HashSet<Ident>,
 }
 
+/*
+The algorithm used here to produce IR in minimal SSA form is from the following paper:
+
+Braun M., Buchwald S., Hack S., Leißa R., Mallon C., Zwinkau A.
+(2013) Simple and Efficient Construction of Static Single Assignment Form.
+In: Jhala R., De Bosschere K. (eds)
+Compiler Construction. CC 2013.
+Lecture Notes in Computer Science, vol 7791. Springer, Berlin, Heidelberg
+*/
 impl FrontEnd {
     crate fn new() -> Self {
         Self {
@@ -82,43 +91,12 @@ impl FrontEnd {
         let entry_block = self.new_block();
         let (exit_block, _) = self.process_expr(code, entry_block);
         self.seal_block(exit_block);
-        self.remove_trivial_phi();
+        self.remove_trivial_phi_statements();
 
         ControlFlowGraph {
             graph: self.graph,
             entry_block,
             exit_block,
-        }
-    }
-
-    fn remove_trivial_phi(&mut self) {
-        // Sort localtions by block
-        let mut trivial_phi_locations = self.trivial_phis.iter()
-            .map(|phi| self.phi_locations[phi])
-            .collect::<Vec<_>>();
-        trivial_phi_locations.sort_unstable_by(|a, b| a.block.cmp(&b.block));
-        // Then group by block and sort by index
-        let trivial_phis_by_block: Vec<(NodeIndex, Vec<usize>)> = trivial_phi_locations.iter()
-            .group_by(|location| location.block)
-            .into_iter()
-            .map(|(block, locations)| {
-                let mut indices: Vec<usize> = locations
-                    .map(|location| location.index)
-                    .collect();
-                indices.sort_unstable();
-                (block, indices)
-            })
-            .collect();
-        for (block, indices) in trivial_phis_by_block {
-            let basic_block = self.block(block);
-            let block_length = basic_block.len();
-            let indices_length = indices.len();
-            let mut pruned = Vec::with_capacity(block_length - indices_length);
-            pruned.extend_from_slice(&basic_block[0 .. indices[0]]);
-            for (from_excluded, to) in indices.into_iter().chain(once(block_length)).tuple_windows() {
-                pruned.extend_from_slice(&basic_block[from_excluded + 1 .. to]);
-            }
-            *block_mut(&mut self.graph, block) = BasicBlock(pruned);
         }
     }
 
@@ -218,19 +196,35 @@ impl FrontEnd {
         }
     }
 
-    fn new_id(&mut self) -> Ident {
-        let next_id = self.next_id + 1;
-        Ident(replace(&mut self.next_id, next_id))
-    }
-
-    fn new_block(&mut self) -> NodeIndex {
-        let block = self.graph.add_node(BasicBlock(vec![]));
-        self.comment(block, &format!("--- BLOCK {} ---", block.index()));
-        block
-    }
-
-    fn block(&self, block: NodeIndex) -> &BasicBlock {
-        self.graph.node_weight(block).unwrap()
+    fn remove_trivial_phi_statements(&mut self) {
+        // Sort locations by block
+        let mut trivial_phi_locations = self.trivial_phis.iter()
+            .map(|phi| self.phi_locations[phi])
+            .collect::<Vec<_>>();
+        trivial_phi_locations.sort_unstable_by(|a, b| a.block.cmp(&b.block));
+        // Then group by block and sort by index
+        let trivial_phis_by_block: Vec<(NodeIndex, Vec<usize>)> = trivial_phi_locations.iter()
+            .group_by(|location| location.block)
+            .into_iter()
+            .map(|(block, locations)| {
+                let mut indices: Vec<usize> = locations
+                    .map(|location| location.index)
+                    .collect();
+                indices.sort_unstable();
+                (block, indices)
+            })
+            .collect();
+        for (block, indices) in trivial_phis_by_block {
+            let basic_block = self.block(block);
+            let block_length = basic_block.len();
+            let indices_length = indices.len();
+            let mut pruned = Vec::with_capacity(block_length - indices_length);
+            pruned.extend_from_slice(&basic_block[0 .. indices[0]]);
+            for (from_excluded, to) in indices.into_iter().chain(once(block_length)).tuple_windows() {
+                pruned.extend_from_slice(&basic_block[from_excluded + 1 .. to]);
+            }
+            *block_mut(&mut self.graph, block) = BasicBlock(pruned);
+        }
     }
 
     fn write_variable(&mut self, variable: &BindingRef, block: NodeIndex, value: Ident) {
@@ -397,10 +391,6 @@ impl FrontEnd {
             .collect()
     }
 
-    fn comment(&mut self, block: NodeIndex, comment: &str) {
-        block_mut(&mut self.graph, block).push(Statement::Comment(comment.to_owned()))
-    }
-
     fn phi_operands(&self, phi: Ident) -> &[Ident] {
         let location = self.phi_locations[&phi];
         match &self.block(location.block)[location.index] {
@@ -415,6 +405,25 @@ impl FrontEnd {
             Statement::Definition { value: Value::Phi(operands), .. } => operands,
             _ => unreachable!()
         }
+    }
+
+    fn comment(&mut self, block: NodeIndex, comment: &str) {
+        block_mut(&mut self.graph, block).push(Statement::Comment(comment.to_owned()))
+    }
+
+    fn new_id(&mut self) -> Ident {
+        let next_id = self.next_id + 1;
+        Ident(replace(&mut self.next_id, next_id))
+    }
+
+    fn new_block(&mut self) -> NodeIndex {
+        let block = self.graph.add_node(BasicBlock(vec![]));
+        self.comment(block, &format!("--- BLOCK {} ---", block.index()));
+        block
+    }
+
+    fn block(&self, block: NodeIndex) -> &BasicBlock {
+        self.graph.node_weight(block).unwrap()
     }
 }
 
