@@ -1,5 +1,4 @@
 use std::fmt;
-use std::iter::once;
 use std::mem::replace;
 
 use hashbrown::HashMap;
@@ -61,7 +60,6 @@ crate struct FrontEnd {
     incomplete_phis: HashMap<NodeIndex, HashMap<BindingRef, Ident>>,
     phi_locations: HashMap<Ident, StatementLocation>,
     phi_users: MultiMap<Ident, StatementLocation>,
-    trivial_phis: HashSet<Ident>,
 }
 
 /*
@@ -83,7 +81,6 @@ impl FrontEnd {
             incomplete_phis: HashMap::new(),
             phi_locations: HashMap::new(),
             phi_users: MultiMap::new(),
-            trivial_phis: HashSet::new(),
         }
     }
 
@@ -91,7 +88,6 @@ impl FrontEnd {
         let entry_block = self.new_block();
         self.seal_block(entry_block);
         let (exit_block, _) = self.process_expr(code, entry_block);
-        self.remove_trivial_phi_statements();
 
         ControlFlowGraph {
             graph: self.graph,
@@ -193,37 +189,6 @@ impl FrontEnd {
         }
     }
 
-    fn remove_trivial_phi_statements(&mut self) {
-        // Sort locations by block
-        let mut trivial_phi_locations = self.trivial_phis.iter()
-            .map(|phi| self.phi_locations[phi])
-            .collect::<Vec<_>>();
-        trivial_phi_locations.sort_unstable_by(|a, b| a.block.cmp(&b.block));
-        // Then group by block and sort by index
-        let trivial_phis_by_block: Vec<(NodeIndex, Vec<usize>)> = trivial_phi_locations.iter()
-            .group_by(|location| location.block)
-            .into_iter()
-            .map(|(block, locations)| {
-                let mut indices: Vec<usize> = locations
-                    .map(|location| location.index)
-                    .collect();
-                indices.sort_unstable();
-                (block, indices)
-            })
-            .collect();
-        for (block, indices) in trivial_phis_by_block {
-            let basic_block = self.block(block);
-            let block_length = basic_block.len();
-            let indices_length = indices.len();
-            let mut pruned = Vec::with_capacity(block_length - indices_length);
-            pruned.extend_from_slice(&basic_block[0 .. indices[0]]);
-            for (from_excluded, to) in indices.into_iter().chain(once(block_length)).tuple_windows() {
-                pruned.extend_from_slice(&basic_block[from_excluded + 1 .. to]);
-            }
-            *block_mut(&mut self.graph, block) = BasicBlock(pruned);
-        }
-    }
-
     fn write_variable(&mut self, variable: &BindingRef, block: NodeIndex, value: Ident) {
         self.variables
             .entry(variable.clone())
@@ -289,7 +254,6 @@ impl FrontEnd {
             }
             same = Some(*operand);
         }
-        self.trivial_phis.insert(phi);
 
         /* NOTE: this part from the original algorithm from the paper is not implemented:
         if same = None:
@@ -335,7 +299,6 @@ impl FrontEnd {
             }
         }
         self.sealed_blocks.insert(block);
-        self.comment(block, "--- SEALED ---");
     }
 
     fn define(&mut self, block: NodeIndex, value: Value) -> Ident {
@@ -367,20 +330,14 @@ impl FrontEnd {
 
     fn get_phis(&self, value: &Value) -> Vec<Ident> {
         let operands: Vec<Ident> = match value {
+            Value::Unit |
+            Value::Int(_) => vec![],
+            
             Value::AddInt(left, right) |
             Value::SubInt(left, right) |
             Value::MulInt(left, right) |
             Value::DivInt(left, right) => vec![*left, *right],
-
-            Value::Call(function, arguments) => {
-                let mut operands = vec![*function];
-                operands.extend_from_slice(&arguments);
-                operands
-            }
-
-            Value::Return(value) => vec![*value],
             Value::Phi(operands) => operands.clone(),
-            _ => vec![]
         };
         operands.into_iter()
             .filter(|operand| self.phi_locations.contains_key(operand))
@@ -404,7 +361,7 @@ impl FrontEnd {
     }
 
     fn comment(&mut self, block: NodeIndex, comment: &str) {
-        block_mut(&mut self.graph, block).push(Statement::Comment(comment.to_owned()))
+//        block_mut(&mut self.graph, block).push(Statement::Comment(comment.to_owned()))
     }
 
     fn new_id(&mut self) -> Ident {
@@ -429,19 +386,14 @@ fn block_mut(graph: &mut BasicBlockGraph, block: NodeIndex) -> &mut BasicBlock {
 
 fn replace_phi(value: &mut Value, phi: Ident, replacement: Ident) {
     let operands: Vec<&mut Ident> = match value {
+        Value::Unit |
+        Value::Int(_) => vec![],
+
         Value::AddInt(left, right) |
         Value::SubInt(left, right) |
         Value::MulInt(left, right) |
         Value::DivInt(left, right) => vec![left, right],
-
-        Value::Call(function, arguments) => {
-            let mut operands = vec![function];
-            operands.extend(arguments.iter_mut());
-            operands
-        },
-        Value::Return(value) => vec![value],
         Value::Phi(operands) => operands.iter_mut().collect(),
-        _ => vec![]
     };
     for operand in operands {
         if *operand == phi {
@@ -459,7 +411,6 @@ impl fmt::Debug for Ident {
     }
 }
 
-#[derive(Clone)]
 crate enum Statement {
     Comment(String),
     Definition {
@@ -482,26 +433,13 @@ impl fmt::Debug for Statement {
     }
 }
 
-#[derive(Clone)]
 crate enum Value {
     Unit,
     Int(BigInt),
-//    String(String),
     AddInt(Ident, Ident),
     SubInt(Ident, Ident),
     MulInt(Ident, Ident),
     DivInt(Ident, Ident),
-//    Offset(Ident, Ident),
-    Arg(usize),
-//    Alloc(Ident),
-//    Length(Ident),
-//    Copy {
-//        src: Ident,
-//        dst: Ident,
-//        size: Ident
-//    },
-    Call(Ident, Vec<Ident>),
-    Return(Ident),
     Phi(Vec<Ident>),
 }
 
@@ -514,9 +452,6 @@ impl fmt::Debug for Value {
             Value::SubInt(left, right) => write!(f, "{:?} - {:?}", left, right),
             Value::MulInt(left, right) => write!(f, "{:?} * {:?}", left, right),
             Value::DivInt(left, right) => write!(f, "{:?} / {:?}", left, right),
-            Value::Arg(index) => write!(f, "arg[{:?}]", index),
-            Value::Call(callee, arguments) => write!(f, "call {:?}({:?})", callee, arguments.iter().format(", ")),
-            Value::Return(result) => write!(f, "return {:?}", result),
             Value::Phi(operands) => write!(f, "ϕ({:?})", operands.iter().format(", ")),
         }
     }
