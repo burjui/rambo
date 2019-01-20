@@ -267,9 +267,11 @@ impl SemanticsChecker {
     fn check_block<'a, BlockIterator>(&mut self, block: BlockIterator, source: Source) -> CheckResult<TypedExpr>
         where BlockIterator: Iterator<Item = &'a Statement>
     {
+        self.env.push();
         let statements = block
             .map(|statement| self.check_statement(statement))
             .collect::<Result<_, _>>()?;
+        self.env.pop();
         Ok(TypedExpr::Block(Block {
             statements,
             source
