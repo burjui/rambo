@@ -56,7 +56,7 @@ impl StatementLocation {
 crate struct FrontEnd {
     graph: BasicBlockGraph,
     next_id: usize,
-    values: HashMap<BindingRef, HashMap<NodeIndex, Ident>>,
+    variables: HashMap<BindingRef, HashMap<NodeIndex, Ident>>,
     sealed_blocks: HashSet<NodeIndex>,
     incomplete_phis: HashMap<NodeIndex, HashMap<BindingRef, Ident>>,
     phi_locations: HashMap<Ident, StatementLocation>,
@@ -78,7 +78,7 @@ impl FrontEnd {
         Self {
             graph:  DiGraph::new(),
             next_id: 0,
-            values: HashMap::new(),
+            variables: HashMap::new(),
             sealed_blocks: HashSet::new(),
             incomplete_phis: HashMap::new(),
             phi_locations: HashMap::new(),
@@ -89,8 +89,8 @@ impl FrontEnd {
 
     crate fn build(mut self, code: &ExprRef) -> ControlFlowGraph {
         let entry_block = self.new_block();
+        self.seal_block(entry_block);
         let (exit_block, _) = self.process_expr(code, entry_block);
-        self.seal_block(exit_block);
         self.remove_trivial_phi_statements();
 
         ControlFlowGraph {
@@ -110,19 +110,18 @@ impl FrontEnd {
                     current_block = block;
                     current_value = Some(ident);
                 }
-                let value = current_value.unwrap_or_else(|| self.define(block, Value::Unit).0);
+                let value = current_value.unwrap_or_else(|| self.define(block, Value::Unit));
                 (current_block, value)
             }
 
             TypedExpr::Unit(source) => {
                 self.comment(block, source.text());
-                (block, self.define(block, Value::Unit).0)
+                (block, self.define(block, Value::Unit))
             }
 
             TypedExpr::Int(value, source) => {
                 self.comment(block, source.text());
-                let (ident, _) = self.define(block, Value::Int(value.clone()));
-                (block, ident)
+                (block, self.define(block, Value::Int(value.clone())))
             }
 
             TypedExpr::AddInt(left, right, source) => self.process_binary(block, left, right, source, Value::AddInt),
@@ -132,8 +131,7 @@ impl FrontEnd {
 
             TypedExpr::Reference(binding, source) => {
                 self.comment(block, source.text());
-                let ident = self.read_variable(binding, block);
-                (block, ident)
+                (block, self.read_variable(binding, block))
             }
 
             // TODO try rearranging seal_block() calls
@@ -145,17 +143,17 @@ impl FrontEnd {
                 let negative_block = self.new_block();
                 block_mut(&mut self.graph, block).push(
                     Statement::CondJump(condition, positive_block, negative_block));
-                self.seal_block(block);
-
                 self.graph.add_edge(block, positive_block, ());
                 self.graph.add_edge(block, negative_block, ());
+                self.seal_block(positive_block);
+                self.seal_block(negative_block);
+
                 let (positive_exit_block, positive) = self.process_expr(positive, positive_block);
                 let (negative_exit_block, negative) = self.process_expr(negative, negative_block);
                 let exit = self.new_block();
                 self.graph.add_edge(positive_exit_block, exit, ());
                 self.graph.add_edge(negative_exit_block, exit, ());
-                self.seal_block(positive_exit_block);
-                self.seal_block(negative_exit_block);
+                self.seal_block(exit);
                 let result_phi = self.define_phi(exit, &[positive, negative]);
                 let result_phi = self.try_remove_trivial_phi(result_phi);
                 (exit, result_phi)
@@ -178,8 +176,7 @@ impl FrontEnd {
         let (block, left_value) = self.process_expr(left, block);
         let (block, right_value) = self.process_expr(right, block);
         self.comment(block, source.text());
-        let (ident, _) = self.define(block, value_constructor(left_value, right_value));
-        (block, ident)
+        (block, self.define(block, value_constructor(left_value, right_value)))
     }
 
     fn process_statement(&mut self, statement: &TypedStatement, block: NodeIndex) -> (NodeIndex, Ident) {
@@ -228,14 +225,14 @@ impl FrontEnd {
     }
 
     fn write_variable(&mut self, variable: &BindingRef, block: NodeIndex, value: Ident) {
-        self.values
+        self.variables
             .entry(variable.clone())
             .or_insert_with(HashMap::new)
             .insert(block, value);
     }
 
     fn read_variable(&mut self, variable: &BindingRef, block: NodeIndex) -> Ident {
-        self.values
+        self.variables
             .get(variable)
             .and_then(|map| map.get(&block))
             .map(Clone::clone)
@@ -341,30 +338,29 @@ impl FrontEnd {
         self.comment(block, "--- SEALED ---");
     }
 
-    fn define(&mut self, block: NodeIndex, value: Value) -> (Ident, usize) {
+    fn define(&mut self, block: NodeIndex, value: Value) -> Ident {
         let phi_usages = self.get_phis(&value);
         let ident = self.new_id();
-        let definition = Statement::Definition {
+        let basic_block = block_mut(&mut self.graph, block);
+        basic_block.push(Statement::Definition {
             ident,
             value
-        };
-
-        let basic_block = block_mut(&mut self.graph, block);
-        let index = basic_block.len();
-        basic_block.push(definition);
+        });
 
         if !phi_usages.is_empty() {
-            let user = StatementLocation::new(block, index);
+            let index = basic_block.len() - 1;
+            let this = StatementLocation::new(block, index);
             for phi in phi_usages {
-                self.phi_users.insert(phi, user);
+                self.phi_users.insert(phi, this);
             }
         }
 
-        (ident, index)
+        ident
     }
 
     fn define_phi(&mut self, block: NodeIndex, operands: &[Ident]) -> Ident {
-        let (phi, index) = self.define(block, Value::Phi(operands.to_vec()));
+        let phi = self.define(block, Value::Phi(operands.to_vec()));
+        let index = self.block(block).len() - 1;
         self.phi_locations.insert(phi, StatementLocation::new(block, index));
         phi
     }
