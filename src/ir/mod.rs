@@ -1,4 +1,5 @@
 use std::fmt;
+use std::iter::once;
 use std::mem::replace;
 
 use hashbrown::HashMap;
@@ -13,6 +14,7 @@ use petgraph::graph::NodeIndex;
 use petgraph::prelude::Direction::Incoming;
 use petgraph::visit::EdgeRef;
 
+use crate::semantics::BindingKind;
 use crate::semantics::BindingRef;
 use crate::semantics::ExprRef;
 use crate::semantics::TypedExpr;
@@ -52,6 +54,8 @@ impl StatementLocation {
     }
 }
 
+type TrivialPhiMap = MultiMap<NodeIndex, usize>;
+
 crate struct FrontEnd {
     graph: BasicBlockGraph,
     next_id: usize,
@@ -60,6 +64,7 @@ crate struct FrontEnd {
     incomplete_phis: HashMap<NodeIndex, HashMap<BindingRef, Ident>>,
     phi_locations: HashMap<Ident, StatementLocation>,
     phi_users: MultiMap<Ident, StatementLocation>,
+    trivial_phis: TrivialPhiMap,
 }
 
 /*
@@ -81,6 +86,7 @@ impl FrontEnd {
             incomplete_phis: HashMap::new(),
             phi_locations: HashMap::new(),
             phi_users: MultiMap::new(),
+            trivial_phis: TrivialPhiMap::new(),
         }
     }
 
@@ -88,6 +94,7 @@ impl FrontEnd {
         let entry_block = self.new_block();
         self.seal_block(entry_block);
         let (exit_block, _) = self.process_expr(code, entry_block);
+        remove_trivial_phi_statements(&mut self.graph, self.trivial_phis);
 
         ControlFlowGraph {
             graph: self.graph,
@@ -130,8 +137,6 @@ impl FrontEnd {
                 (block, self.read_variable(binding, block))
             }
 
-            // TODO try rearranging seal_block() calls
-
             TypedExpr::Conditional { condition, positive, negative, source, .. } => {
                 self.comment(block, source.text());
                 let (block, condition) = self.process_expr(condition, block);
@@ -151,7 +156,6 @@ impl FrontEnd {
                 self.graph.add_edge(negative_exit_block, exit, ());
                 self.seal_block(exit);
                 let result_phi = self.define_phi(exit, &[positive, negative]);
-                let result_phi = self.try_remove_trivial_phi(result_phi);
                 (exit, result_phi)
             }
 
@@ -160,6 +164,37 @@ impl FrontEnd {
                 let (block, value) = self.process_expr(value, block);
                 self.write_variable(binding, block, value);
                 (block, value)
+            }
+
+            TypedExpr::Lambda(lambda, source) => {
+                let entry_block = self.new_block();
+                self.seal_block(entry_block);
+                self.comment(entry_block, source.text());
+                for parameter in &lambda.parameters {
+                    self.comment(entry_block, &parameter.name);
+                    let index = if let BindingKind::Arg(index) = parameter.kind {
+                        index
+                    } else {
+                        unreachable!()
+                    };
+                    let declaration = self.define(entry_block, Value::Arg(index));
+                    self.write_variable(parameter, entry_block, declaration);
+                }
+                let (exit_block, result) = self.process_expr(&lambda.body, entry_block);
+                (block, self.define(block, Value::Function { entry_block, exit_block, result }))
+            }
+
+            TypedExpr::Application { function, arguments, source, .. } => {
+                self.comment(block, source.text());
+                let (block, function_ident) = self.process_expr(function, block);
+                let mut current_block = block;
+                let mut argument_values = vec![];
+                for argument in arguments {
+                    let (block, ident) = self.process_expr(argument, current_block);
+                    argument_values.push(ident);
+                    current_block = block;
+                }
+                (block, self.define(current_block, Value::Call(function_ident, argument_values)))
             }
 
             _ => unimplemented!("process_expr: {:?}", expr)
@@ -267,7 +302,11 @@ impl FrontEnd {
         let users = self.phi_users
             .get_vec(&phi)
             .unwrap_or_else(|| &*EMPTY_USERS);
-        let same = same.unwrap();
+        // TODO check why this doesn't work on x.rambo: let same = same.unwrap();
+        let same = match same {
+            Some(value) => value,
+            None => return phi,
+        };
         let mut possible_trivial_phis = vec![];
         for user in users {
             if let Statement::Definition { ident, value } = &mut block_mut(&mut self.graph, user.block)[user.index] {
@@ -281,6 +320,9 @@ impl FrontEnd {
         for phi in possible_trivial_phis {
             self.try_remove_trivial_phi(phi);
         }
+
+        let location = self.phi_locations[&phi];
+        self.trivial_phis.insert(location.block, location.index);
 
         same
     }
@@ -331,13 +373,21 @@ impl FrontEnd {
     fn get_phis(&self, value: &Value) -> Vec<Ident> {
         let operands: Vec<Ident> = match value {
             Value::Unit |
-            Value::Int(_) => vec![],
+            Value::Int(_) |
+            Value::Function {..} |
+            Value::Arg(_) => vec![],
             
             Value::AddInt(left, right) |
             Value::SubInt(left, right) |
             Value::MulInt(left, right) |
             Value::DivInt(left, right) => vec![*left, *right],
             Value::Phi(operands) => operands.clone(),
+
+            Value::Call(function, arguments) => {
+                once(*function)
+                    .chain(arguments.iter().cloned())
+                    .collect()
+            }
         };
         operands.into_iter()
             .filter(|operand| self.phi_locations.contains_key(operand))
@@ -361,7 +411,7 @@ impl FrontEnd {
     }
 
     fn comment(&mut self, block: NodeIndex, comment: &str) {
-//        block_mut(&mut self.graph, block).push(Statement::Comment(comment.to_owned()))
+        block_mut(&mut self.graph, block).push(Statement::Comment(comment.to_owned()))
     }
 
     fn new_id(&mut self) -> Ident {
@@ -380,6 +430,29 @@ impl FrontEnd {
     }
 }
 
+fn remove_trivial_phi_statements(graph: &mut BasicBlockGraph, trivial_phis: TrivialPhiMap) {
+    for (block, mut phi_indices) in trivial_phis.into_iter() {
+        phi_indices.sort_unstable();
+        let mut phi_indices = phi_indices.into_iter().peekable();
+        let basic_block = block_mut(graph, block);
+        let pruned = replace(basic_block, BasicBlock(vec![]))
+            .0
+            .into_iter()
+            .enumerate()
+            .filter_map(|(index, statement)| {
+                if let Some(phi_index) = phi_indices.peek() {
+                    if *phi_index == index {
+                        let _ = phi_indices.next();
+                        return None;
+                    }
+                }
+                Some(statement)
+            })
+            .collect_vec();
+        *basic_block = BasicBlock(pruned);
+    }
+}
+
 fn block_mut(graph: &mut BasicBlockGraph, block: NodeIndex) -> &mut BasicBlock {
     graph.node_weight_mut(block).unwrap()
 }
@@ -387,13 +460,16 @@ fn block_mut(graph: &mut BasicBlockGraph, block: NodeIndex) -> &mut BasicBlock {
 fn replace_phi(value: &mut Value, phi: Ident, replacement: Ident) {
     let operands: Vec<&mut Ident> = match value {
         Value::Unit |
-        Value::Int(_) => vec![],
+        Value::Int(_) |
+        Value::Function {..} |
+        Value::Arg(_) => vec![],
 
         Value::AddInt(left, right) |
         Value::SubInt(left, right) |
         Value::MulInt(left, right) |
         Value::DivInt(left, right) => vec![left, right],
         Value::Phi(operands) => operands.iter_mut().collect(),
+        Value::Call(function, arguments) => once(function).chain(arguments.iter_mut()).collect(),
     };
     for operand in operands {
         if *operand == phi {
@@ -428,7 +504,8 @@ impl fmt::Debug for Statement {
                 write!(f, "// {}", WHITESPACE_REGEX.replace_all(&comment, " "))
             },
             Statement::Definition { ident, value } => write!(f, "{:?} ← {:?}", ident, value),
-            Statement::CondJump(ident, positive, negative) => write!(f, "condjump {:?}, {}, {}", ident, positive.index(), negative.index()),
+            Statement::CondJump(ident, positive, negative) =>
+                write!(f, "condjump {:?}, {}, {}", ident, positive.index(), negative.index()),
         }
     }
 }
@@ -436,11 +513,18 @@ impl fmt::Debug for Statement {
 crate enum Value {
     Unit,
     Int(BigInt),
+    Function {
+        entry_block: NodeIndex,
+        exit_block: NodeIndex,
+        result: Ident
+    },
     AddInt(Ident, Ident),
     SubInt(Ident, Ident),
     MulInt(Ident, Ident),
     DivInt(Ident, Ident),
     Phi(Vec<Ident>),
+    Call(Ident, Vec<Ident>),
+    Arg(usize),
 }
 
 impl fmt::Debug for Value {
@@ -448,11 +532,15 @@ impl fmt::Debug for Value {
         match self {
             Value::Unit => f.write_str("()"),
             Value::Int(n) => write!(f, "{}", n),
+            Value::Function { entry_block, exit_block, result } =>
+                write!(f, "λ({}..{}, {:?}) ", entry_block.index(), exit_block.index(), result),
             Value::AddInt(left, right) => write!(f, "{:?} + {:?}", left, right),
             Value::SubInt(left, right) => write!(f, "{:?} - {:?}", left, right),
             Value::MulInt(left, right) => write!(f, "{:?} * {:?}", left, right),
             Value::DivInt(left, right) => write!(f, "{:?} / {:?}", left, right),
             Value::Phi(operands) => write!(f, "ϕ({:?})", operands.iter().format(", ")),
+            Value::Call(function, arguments) => write!(f, "call {:?}({:?})", function, arguments.iter().format(", ")),
+            Value::Arg(index) => write!(f, "arg[{}]", index),
         }
     }
 }
@@ -480,13 +568,9 @@ fn gen_ir() -> TestResult {
     z
     r + 1
 
-//    let z = \\ (a:num, b:num) -> {
-//        if a {
-//            a
-//        } else {
-//            a + 1
-//        } + b
-//    }
+    let f = \\ (u:num, v:num) -> u + v
+    f x y
+    f z r
 //    let s = {
 //        let a = (z x y)
 //        z a 3

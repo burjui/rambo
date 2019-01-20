@@ -1,10 +1,5 @@
-#![feature(crate_visibility_modifier)]
 #![warn(rust_2018_idioms)]
-#![feature(try_from)]
-#![feature(underscore_const_names)]
-#![feature(const_panic)]
-#![feature(str_escape)]
-#![feature(impl_trait_in_bindings)]
+#![feature(crate_visibility_modifier)]
 #![feature(vec_remove_item)]
 
 #[macro_use]
@@ -24,6 +19,7 @@ use crate::pipeline::COMPILER_PASS_NAMES;
 use crate::pipeline::Evaluate;
 use crate::pipeline::EvaluateSSA;
 use crate::pipeline::Load;
+use crate::pipeline::NewIR;
 use crate::pipeline::Parse;
 use crate::pipeline::Pipeline;
 use crate::pipeline::PipelineOptions;
@@ -145,9 +141,11 @@ fn process(path: String, options: &PipelineOptions) -> Result<(), Box<dyn Error>
         .map(Parse)?
         .map(VerifySemantics)?
         .map(ReportRedundantBindings)?
+        .map(NewIR)?
         .map(SSA)?
         .map(BuildControlFlowGraph)?
         .map(EvaluateSSA)?
         .map(Evaluate)
         .map(|_| ())
 }
+

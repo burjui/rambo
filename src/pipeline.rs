@@ -3,6 +3,8 @@ use std::fs::File;
 use std::io::Write;
 
 use itertools::Itertools;
+use petgraph::dot::Config::EdgeNoLabel;
+use petgraph::dot::Dot;
 use termcolor::Color;
 use termcolor::ColorSpec;
 use termcolor::StandardStream;
@@ -13,6 +15,7 @@ use crate::control_flow::build_control_flow_graph;
 use crate::eval::Evaluator;
 use crate::eval::Evalue;
 use crate::graphviz::Graphviz;
+use crate::ir;
 use crate::lexer::Lexer;
 use crate::parser::Block as ASTBlock;
 use crate::parser::Parser;
@@ -84,7 +87,17 @@ macro_rules! compiler_passes {
     }
 }
 
-compiler_passes!(Load, Parse, VerifySemantics, ReportRedundantBindings, SSA, BuildControlFlowGraph, EvaluateSSA, Evaluate);
+compiler_passes! {
+    Load,
+    Parse,
+    VerifySemantics,
+    ReportRedundantBindings,
+    NewIR,
+    SSA,
+    BuildControlFlowGraph,
+    EvaluateSSA,
+    Evaluate
+}
 
 crate trait CompilerPass<Input, Output> {
     const NAME: &'static str;
@@ -160,11 +173,26 @@ impl CompilerPass<ExprRef, ExprRef> for ReportRedundantBindings {
     }
 }
 
-impl CompilerPass<ExprRef, (ExprRef, Vec<SSAStatement>)> for SSA {
+impl CompilerPass<ExprRef, (ExprRef, ir::ControlFlowGraph)> for NewIR {
+    const NAME: &'static str = "ir";
+    const TITLE: &'static str = "Generating IR";
+
+    fn apply(hir: ExprRef, options: &PipelineOptions) -> Result<(ExprRef, ir::ControlFlowGraph), Box<dyn Error>> {
+        let frontend = ir::FrontEnd::new();
+        let cfg = frontend.build(&hir);
+        if options.dump_cfg {
+            let mut output = File::create("ir_cfg.dot")?;
+            write!(output, "{:?}", Dot::with_config(&cfg.graph, &[EdgeNoLabel]))?;
+        }
+        Ok((hir, cfg))
+    }
+}
+
+impl CompilerPass<(ExprRef, ir::ControlFlowGraph), (ExprRef, Vec<SSAStatement>)> for SSA {
     const NAME: &'static str = "ssa";
     const TITLE: &'static str = "Generating SSA";
 
-    fn apply(hir: ExprRef, options: &PipelineOptions) -> Result<(ExprRef, Vec<SSAStatement>), Box<dyn Error>> {
+    fn apply((hir, _): (ExprRef, ir::ControlFlowGraph), options: &PipelineOptions) -> Result<(ExprRef, Vec<SSAStatement>), Box<dyn Error>> {
         let ssa = generate_ssa(&hir);
         if options.dump_intermediate {
             writeln!(&mut stdout(), "{:?}", ssa.iter().format("\n"))?;
