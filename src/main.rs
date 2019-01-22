@@ -1,6 +1,4 @@
 #![warn(rust_2018_idioms)]
-#![feature(crate_visibility_modifier)]
-#![feature(vec_remove_item)]
 
 #[macro_use]
 extern crate derive_deref;

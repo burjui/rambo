@@ -13,10 +13,10 @@ use crate::semantics::Type;
 use crate::source::Source;
 
 #[derive(Clone)]
-crate struct Parameter {
-    crate name: Source,
-    crate type_: Type,
-    crate source: Source,
+pub(crate) struct Parameter {
+    pub(crate) name: Source,
+    pub(crate) type_: Type,
+    pub(crate) source: Source,
 }
 
 impl PartialEq for Parameter {
@@ -32,7 +32,7 @@ impl Debug for Parameter {
 }
 
 #[derive(Copy, Clone)]
-crate enum BinaryOperation {
+pub(crate) enum BinaryOperation {
     Assign, Add, Subtract, Multiply, Divide
 }
 
@@ -49,13 +49,13 @@ impl Debug for BinaryOperation {
 }
 
 #[derive(Clone)]
-crate struct Block {
-    crate statements: Vec<Statement>,
-    crate source: Source
+pub(crate) struct Block {
+    pub(crate) statements: Vec<Statement>,
+    pub(crate) source: Source
 }
 
 #[derive(Clone)]
-crate enum Expr {
+pub(crate) enum Expr {
     Unit(Source),
     Int(Source),
     String(Source),
@@ -92,7 +92,7 @@ impl Debug for Expr {
 }
 
 impl Expr {
-    crate fn source(&self) -> &Source {
+    pub(crate) fn source(&self) -> &Source {
         match self {
             Expr::Unit(source) |
             Expr::String(source) |
@@ -109,7 +109,7 @@ impl Expr {
 }
 
 #[derive(Clone)]
-crate enum Statement {
+pub(crate) enum Statement {
     Expr(Expr),
     Binding {
         name: Source,
@@ -129,7 +129,7 @@ impl Debug for Statement {
 
 type ParseResult<T> = Result<T, Box<dyn Error>>;
 
-crate struct Parser {
+pub(crate) struct Parser {
     lexer: Lexer,
     lexeme: Lexeme,
     lexeme_line: usize,
@@ -142,7 +142,7 @@ macro_rules! error {
 }
 
 impl Parser {
-    crate fn new(lexer: Lexer) -> Parser {
+    pub(crate) fn new(lexer: Lexer) -> Parser {
         let eof_lexeme = lexer.eof_lexeme.clone();
         let dummy_source = eof_lexeme.source.clone();
         Parser {
@@ -154,7 +154,7 @@ impl Parser {
         }
     }
 
-    crate fn parse(&mut self) -> ParseResult<Block> {
+    pub(crate) fn parse(&mut self) -> ParseResult<Block> {
         self.read_lexeme()?;
         let start = self.lexeme.source.clone();
         let mut statements = vec![];
@@ -167,7 +167,7 @@ impl Parser {
         })
     }
 
-    crate fn lexer_stats(&self) -> &LexerStats {
+    pub(crate) fn lexer_stats(&self) -> &LexerStats {
         self.lexer.stats()
     }
 

@@ -15,7 +15,7 @@ use crate::ssa::SSAStatement;
 #[cfg(test)]
 mod tests;
 
-crate struct SSAEvaluator {
+pub(crate) struct SSAEvaluator {
     values: HashMap<SSAIdName, Value>,
     phi: HashMap<SSAId, Rc<RefCell<SSAId>>>,
     stack: Vec<Value>,
@@ -26,13 +26,13 @@ crate struct SSAEvaluator {
     ram: Vec<u8>
 }
 
-crate struct EvalResult {
-    crate value: Value,
-    crate ram: Box<[u8]>
+pub(crate) struct EvalResult {
+    pub(crate) value: Value,
+    pub(crate) ram: Box<[u8]>
 }
 
 impl SSAEvaluator {
-    crate fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             values: HashMap::new(),
             phi: HashMap::new(),
@@ -45,7 +45,7 @@ impl SSAEvaluator {
         }
     }
 
-    crate fn eval(mut self, ssa: &[SSAStatement]) -> EvalResult {
+    pub(crate) fn eval(mut self, ssa: &[SSAStatement]) -> EvalResult {
         for (index, statement) in ssa.iter().enumerate() {
             match &statement.op {
                 SSAOp::Label => self.set_value(&statement.target.id, Value::Label(index)),
@@ -175,7 +175,7 @@ impl SSAEvaluator {
 
     const BLOCK_LENGTH_SIZE: usize = size_of::<usize>();
 
-    crate fn block_length(ram: &[u8], address: usize) -> usize {
+    pub(crate) fn block_length(ram: &[u8], address: usize) -> usize {
         unsafe {
             #[allow(clippy::cast_ptr_alignment)]
             let ptr = &ram[address - Self::BLOCK_LENGTH_SIZE] as *const u8 as *const usize;
@@ -191,13 +191,13 @@ impl SSAEvaluator {
         }
     }
 
-    crate fn str(ram: &[u8], address: usize, offset: usize) -> &str {
+    pub(crate) fn str(ram: &[u8], address: usize, offset: usize) -> &str {
         std::str::from_utf8(&ram[address + offset .. address + Self::block_length(ram, address)]).unwrap()
     }
 }
 
 #[derive(PartialEq, Clone, Debug)]
-crate enum Value {
+pub(crate) enum Value {
     Unit,
     Int(BigInt),
     Str(usize, usize),
@@ -206,14 +206,14 @@ crate enum Value {
 }
 
 impl Value {
-    crate fn int(&self) -> &BigInt {
+    pub(crate) fn int(&self) -> &BigInt {
         match self {
             Value::Int(value) => value,
             _ => unreachable!("\n{:?}", self)
         }
     }
 
-    crate fn str(&self) -> (usize, usize) {
+    pub(crate) fn str(&self) -> (usize, usize) {
         match self {
             Value::Str(address, offset) => (*address, *offset),
             _ => unreachable!("\n{:?}", self)

@@ -11,9 +11,9 @@ use crate::semantics::TypedStatement;
 
 // TODO rewrite for SSA
 
-crate struct Warnings(crate bool);
+pub(crate) struct Warnings(pub(crate) bool);
 
-crate fn report_redundant_bindings(code: &ExprRef, Warnings(warnings): Warnings) {
+pub(crate) fn report_redundant_bindings(code: &ExprRef, Warnings(warnings): Warnings) {
     let mut detector = Detector {
         binding_usages: HashMap::new(),
         lambdas_processed: HashSet::new(),

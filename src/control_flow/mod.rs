@@ -15,9 +15,9 @@ use crate::ssa::SSAStatement;
 #[cfg(test)]
 mod tests;
 
-crate type ControlFlowGraph<'a> = DiGraph<CFGNode<'a>, ()>;
+pub(crate) type ControlFlowGraph<'a> = DiGraph<CFGNode<'a>, ()>;
 
-crate enum CFGNode<'a> {
+pub(crate) enum CFGNode<'a> {
     Entry,
     Exit,
     BasicBlock(&'a [SSAStatement])
@@ -33,7 +33,7 @@ impl<'a> fmt::Debug for CFGNode<'a> {
     }
 }
 
-crate fn build_control_flow_graph(ssa: &[SSAStatement]) -> ControlFlowGraph<'_> {
+pub(crate) fn build_control_flow_graph(ssa: &[SSAStatement]) -> ControlFlowGraph<'_> {
     let mut graph = ControlFlowGraph::new();
     let entry = graph.add_node(CFGNode::Entry);
     let exit = graph.add_node(CFGNode::Exit);

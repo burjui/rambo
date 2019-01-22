@@ -7,7 +7,7 @@ use regex::Regex;
 use termcolor::ColorChoice;
 use termcolor::StandardStream;
 
-crate static WHITESPACE_REGEX: Lazy<Regex> = sync_lazy!(Regex::new(r"[ \t]+").unwrap());
+pub(crate) static WHITESPACE_REGEX: Lazy<Regex> = sync_lazy!(Regex::new(r"[ \t]+").unwrap());
 
 macro_rules! error {
     ($format_string: expr $(, $argument: expr)*) => { Err(From::from(format!($format_string $(, $argument)*))) };
@@ -40,7 +40,7 @@ macro_rules! typecheck {
 }
 
 #[cfg(test)]
-crate fn typecheck(name: String, text: &str) -> Result<crate::semantics::ExprRef, Box<dyn std::error::Error>> {
+pub(crate) fn typecheck(name: String, text: &str) -> Result<crate::semantics::ExprRef, Box<dyn std::error::Error>> {
     let file = crate::source::SourceFile::create(name, text);
     let lexer = crate::lexer::Lexer::new(file);
     let mut parser = crate::parser::Parser::new(lexer);
@@ -51,19 +51,19 @@ crate fn typecheck(name: String, text: &str) -> Result<crate::semantics::ExprRef
     checker.check_module(&ast)
 }
 
-crate fn stdout() -> StandardStream {
+pub(crate) fn stdout() -> StandardStream {
     let is_tty = unsafe { libc::isatty(libc::STDOUT_FILENO as i32) } != 0;
     let color_choice = if is_tty { ColorChoice::Always } else { ColorChoice::Never };
     StandardStream::stdout(color_choice)
 }
 
 #[cfg(feature = "dump_ssa_in_tests")]
-crate mod ssa {
+pub(crate) mod ssa {
     use std::error::Error;
 
     use crate::ssa::SSAStatement;
 
-    crate fn dump(code: &str, ssa: &[SSAStatement]) -> Result<(), Box<dyn Error>> {
+    pub(crate) fn dump(code: &str, ssa: &[SSAStatement]) -> Result<(), Box<dyn Error>> {
         use std::fs::File;
         use std::io::Write;
         use std::sync::Mutex;
@@ -79,4 +79,4 @@ crate mod ssa {
 }
 
 #[cfg(test)]
-crate type TestResult = Result<(), Box<dyn Error>>;
+pub(crate) type TestResult = Result<(), Box<dyn Error>>;

@@ -31,25 +31,25 @@ use crate::ssa_eval::Value;
 use crate::utils::stdout;
 
 #[derive(Clone)]
-crate struct PipelineOptions {
-    crate warnings: bool,
-    crate dump_intermediate: bool,
-    crate dump_cfg: bool,
-    crate cfg_include_comments: bool,
-    crate max_pass_name: String
+pub(crate) struct PipelineOptions {
+    pub(crate) warnings: bool,
+    pub(crate) dump_intermediate: bool,
+    pub(crate) dump_cfg: bool,
+    pub(crate) cfg_include_comments: bool,
+    pub(crate) max_pass_name: String
 }
 
-crate struct Pipeline<'a, T> {
+pub(crate) struct Pipeline<'a, T> {
     input: Option<T>,
     options: &'a PipelineOptions
 }
 
 impl<'a, T> Pipeline<'a, T> {
-    crate fn new(input: T, options: &'a PipelineOptions) -> Self {
+    pub(crate) fn new(input: T, options: &'a PipelineOptions) -> Self {
         Self { input: Some(input), options }
     }
 
-    crate fn map<U, Pass: CompilerPass<T, U>>(self, _: Pass) -> Result<Pipeline<'a, U>, Box<dyn Error>> {
+    pub(crate) fn map<U, Pass: CompilerPass<T, U>>(self, _: Pass) -> Result<Pipeline<'a, U>, Box<dyn Error>> {
         let Pipeline { input, options } = self;
         input.map(|input| {
             let stdout = &mut stdout();
@@ -70,7 +70,7 @@ impl<'a, T> Pipeline<'a, T> {
             writeln!(stdout, ")")?;
             result
         })
-        .transpose()
+        .transpose_result()
         .map(move |output| {
             let input = output.filter(|_| options.max_pass_name != Pass::NAME);
             Pipeline { input, options }
@@ -78,10 +78,25 @@ impl<'a, T> Pipeline<'a, T> {
     }
 }
 
+// TODO use Iterator::transpose() when it's stabilized
+trait TransposeResult<T, E> {
+    fn transpose_result(self) -> Result<Option<T>, E>;
+}
+
+impl<T, E> TransposeResult<T, E> for Option<Result<T, E>> {
+    fn transpose_result(self) -> Result<Option<T>, E> {
+        match self {
+            Some(Ok(x)) => Ok(Some(x)),
+            Some(Err(e)) => Err(e),
+            None => Ok(None),
+        }
+    }
+}
+
 macro_rules! compiler_passes {
     ($($struct_name: ident),+) => {
-        $(crate struct $struct_name;)*
-        crate const COMPILER_PASS_NAMES: &[&'static str] = &[
+        $(pub(crate) struct $struct_name;)*
+        pub(crate) const COMPILER_PASS_NAMES: &[&'static str] = &[
             $($struct_name::NAME,)*
         ];
     }
@@ -99,7 +114,7 @@ compiler_passes! {
     Evaluate
 }
 
-crate trait CompilerPass<Input, Output> {
+pub(crate) trait CompilerPass<Input, Output> {
     const NAME: &'static str;
     const TITLE: &'static str;
     fn apply(input: Input, options: &PipelineOptions) -> Result<Output, Box<dyn Error>>;
@@ -245,7 +260,7 @@ impl CompilerPass<ExprRef, Evalue> for Evaluate {
     }
 }
 
-crate trait StandardStreamUtils {
+pub(crate) trait StandardStreamUtils {
     fn write_title(&mut self, prefix: &str, title: &str, color: Color) -> std::io::Result<()>;
 }
 

@@ -10,16 +10,16 @@ use num_bigint::BigInt;
 use crate::semantics::BindingRef;
 use crate::utils::WHITESPACE_REGEX;
 
-crate mod generator;
+pub(crate) mod generator;
 
 #[derive(Clone)]
-crate struct Target {
-    crate id: SSAId,
-    crate comment: String
+pub(crate) struct Target {
+    pub(crate) id: SSAId,
+    pub(crate) comment: String
 }
 
 impl Target {
-    crate fn new(id: SSAId, comment: &str) -> Self {
+    pub(crate) fn new(id: SSAId, comment: &str) -> Self {
         Self { id, comment: comment.to_owned() }
     }
 }
@@ -45,13 +45,13 @@ impl Debug for Target {
 }
 
 #[derive(Clone)]
-crate struct SSAStatement {
-    crate target: Target,
-    crate op: SSAOp
+pub(crate) struct SSAStatement {
+    pub(crate) target: Target,
+    pub(crate) op: SSAOp
 }
 
 impl SSAStatement {
-    crate fn new(target: Target, op: SSAOp) -> Self {
+    pub(crate) fn new(target: Target, op: SSAOp) -> Self {
         Self { target, op }
     }
 }
@@ -79,7 +79,7 @@ impl Debug for SSAStatement {
 }
 
 #[derive(Clone, PartialEq)]
-crate enum SSAOp {
+pub(crate) enum SSAOp {
     Unit,
     Int(BigInt),
     Str(Rc<String>),
@@ -128,7 +128,7 @@ impl Debug for SSAOp {
 }
 
 #[derive(Clone, Eq)]
-crate enum SSAIdName {
+pub(crate) enum SSAIdName {
     Tmp(usize),
     Label(usize),
     Binding {
@@ -169,8 +169,8 @@ impl Debug for SSAIdName {
 }
 
 #[derive(Clone)]
-crate struct SSAId {
-    crate name: SSAIdName,
+pub(crate) struct SSAId {
+    pub(crate) name: SSAIdName,
     unique_id: usize
 }
 

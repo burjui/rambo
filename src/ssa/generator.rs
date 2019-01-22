@@ -3,23 +3,23 @@ use std::mem::replace;
 use crate::ssa::SSAId;
 use crate::ssa::SSAIdName;
 
-crate struct SSAIdGenerator {
+pub(crate) struct SSAIdGenerator {
     next_id: usize,
 }
 
 impl SSAIdGenerator {
-    crate fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self { next_id: 0 }
     }
 
-    crate fn new_id(&mut self, name: SSAIdName) -> SSAId {
+    pub(crate) fn new_id(&mut self, name: SSAIdName) -> SSAId {
         SSAId {
             name,
             unique_id: self.unique_id()
         }
     }
 
-    crate fn next_version(&mut self, id: &SSAId) -> SSAId {
+    pub(crate) fn next_version(&mut self, id: &SSAId) -> SSAId {
         match &id.name {
             SSAIdName::Binding { binding, version } => SSAId {
                 name: SSAIdName::Binding {

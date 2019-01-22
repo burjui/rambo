@@ -14,9 +14,9 @@ use termcolor::ColorSpec;
 use termcolor::StandardStream;
 use termcolor::WriteColor;
 
+use crate::utils::stdout;
 use crate::vm::Instruction::*;
 use crate::vm::Register::*;
-use crate::utils::stdout;
 
 macro_rules! asm {
     ($code: expr, $($instructions: expr)*) => ({
@@ -306,7 +306,7 @@ struct Program {
 }
 
 #[derive(Copy, Clone, Debug)]
-crate struct Address(u32);
+pub(crate) struct Address(u32);
 
 impl Deref for Address {
     type Target = u32;
@@ -318,7 +318,7 @@ impl Deref for Address {
 
 #[derive(Copy, Clone, Debug)]
 #[allow(unused)] // TODO remove when codegen is ready
-crate enum Instruction {
+pub(crate) enum Instruction {
     Stop,
     Debug,
     LoadImmediate(u32, Register),
@@ -351,7 +351,7 @@ crate enum Instruction {
 
 #[repr(u8)]
 #[derive(Copy, Clone, Debug, PartialEq, EnumCount, EnumIter, AsRefStr)]
-crate enum Register {
+pub(crate) enum Register {
     R0 = 0,
     R1,
     R2,
@@ -420,7 +420,7 @@ impl fmt::Display for BrRelRangeError  {
 }
 
 #[test]
-crate fn vm() -> Result<(), Box<dyn Error>> {
+pub(crate) fn vm() -> Result<(), Box<dyn Error>> {
     let stdout = &mut stdout();
 
     let mut vm = VM::new();

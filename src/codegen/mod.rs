@@ -23,7 +23,7 @@ use crate::ssa::Target;
 #[cfg(test)]
 mod tests;
 
-crate fn generate_ssa(expr: &ExprRef) -> Vec<SSAStatement> {
+pub(crate) fn generate_ssa(expr: &ExprRef) -> Vec<SSAStatement> {
     Codegen::new().build(expr)
 }
 
@@ -66,7 +66,7 @@ impl Codegen {
         }
     }
 
-    crate fn build(mut self, expr: &ExprRef) -> Vec<SSAStatement> {
+    pub(crate) fn build(mut self, expr: &ExprRef) -> Vec<SSAStatement> {
         let result = self.process_expr(expr, None);
         if !self.lambda_cache.is_empty() {
             let result = if let Type::Unit = expr.type_() {

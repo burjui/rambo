@@ -11,20 +11,20 @@ use crate::source::Source;
 use crate::source::SourceFileRef;
 
 #[derive(Debug, PartialEq, Copy, Clone)]
-crate enum Token {
+pub(crate) enum Token {
     EOF, Id, Int, String, LParen, RParen, LBrace, RBrace,
     Eq, EqEq, Lt, LtEq, Gt, GtEq, Lambda, Minus, Arrow,
     Plus, Star, Slash, Colon, Comma
 }
 
 #[derive(Clone)]
-crate struct Lexeme {
-    crate token: Token,
-    crate source: Source
+pub(crate) struct Lexeme {
+    pub(crate) token: Token,
+    pub(crate) source: Source
 }
 
 impl Lexeme {
-    crate fn text(&self) -> &str {
+    pub(crate) fn text(&self) -> &str {
         self.source.text()
     }
 }
@@ -43,12 +43,12 @@ impl Display for Lexeme {
 }
 
 #[derive(Copy, Clone)]
-crate struct LexerStats {
-    crate lexeme_count: usize,
+pub(crate) struct LexerStats {
+    pub(crate) lexeme_count: usize,
 }
 
-crate struct Lexer {
-    crate eof_lexeme: Lexeme,
+pub(crate) struct Lexer {
+    pub(crate) eof_lexeme: Lexeme,
     eof_offset: usize,
     file: SourceFileRef,
     lexeme_offset: usize,
@@ -61,10 +61,10 @@ crate struct Lexer {
     stats: LexerStats
 }
 
-crate type LexerResult<T> = Result<T, Box<dyn Error>>;
+pub(crate) type LexerResult<T> = Result<T, Box<dyn Error>>;
 
 impl Lexer {
-    crate fn new(file: SourceFileRef) -> Lexer {
+    pub(crate) fn new(file: SourceFileRef) -> Lexer {
         let eof_offset = file.text().len();
         let eof_lexeme = Lexeme {
             token: Token::EOF,
@@ -90,7 +90,7 @@ impl Lexer {
     }
 
     /// Returns (Lexeme, line) pair
-    crate fn read(&mut self) -> LexerResult<(Lexeme, usize)> {
+    pub(crate) fn read(&mut self) -> LexerResult<(Lexeme, usize)> {
         self.skip_whitespace()?;
         self.lexeme_offset = self.current_offset;
         self.lexeme_line = self.current_line;
@@ -109,7 +109,7 @@ impl Lexer {
         }
     }
 
-    crate fn stats(&self) -> &LexerStats {
+    pub(crate) fn stats(&self) -> &LexerStats {
         &self.stats
     }
 

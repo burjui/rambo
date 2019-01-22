@@ -5,7 +5,7 @@ use crate::vm::Instruction;
 use crate::vm::Instruction::*;
 use crate::vm::Register::*;
 
-crate static MEMCPY: Lazy<Vec<Instruction>> = sync_lazy! {
+pub(crate) static MEMCPY: Lazy<Vec<Instruction>> = sync_lazy! {
     let (code, _) = asm!(vec![],
         Move(SP, R0) // frame pointer
         Push(R1)

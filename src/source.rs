@@ -6,7 +6,7 @@ use std::fmt::Formatter;
 use crate::unique_rc::UniqueRc;
 
 #[derive(Copy, Clone)]
-crate struct Position {
+pub(crate) struct Position {
     line: usize,
     column: usize
 }
@@ -18,38 +18,38 @@ impl Debug for Position {
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash)]
-crate struct Range {
+pub(crate) struct Range {
     start: usize,
     end: usize
 }
 
 impl Range {
-    crate fn new(start: usize, end: usize) -> Self {
+    pub(crate) fn new(start: usize, end: usize) -> Self {
         Self { start, end }
     }
 
-    crate fn start(&self) -> usize { self.start }
-    crate fn end(&self) -> usize { self.end }
+    pub(crate) fn start(&self) -> usize { self.start }
+    pub(crate) fn end(&self) -> usize { self.end }
 }
 
 #[derive(Clone, PartialEq, Eq, Hash)]
-crate struct Source {
+pub(crate) struct Source {
     file: SourceFileRef,
     range: Range
 }
 
 impl Source {
-    crate fn new(file: SourceFileRef, range: Range) -> Self { Self { file, range } }
-    crate fn file(&self) -> &SourceFileRef { &self.file }
-    crate fn range(&self) -> &Range { &self.range }
+    pub(crate) fn new(file: SourceFileRef, range: Range) -> Self { Self { file, range } }
+    pub(crate) fn file(&self) -> &SourceFileRef { &self.file }
+    pub(crate) fn range(&self) -> &Range { &self.range }
 }
 
 impl Source {
-    crate fn text(&self) -> &str {
+    pub(crate) fn text(&self) -> &str {
         &self.file.text[self.range.start .. self.range.end]
     }
 
-    crate fn extend(&self, until: &Source) -> Source {
+    pub(crate) fn extend(&self, until: &Source) -> Source {
         assert_eq!(self.file, until.file);
         let end = until.range.end;
         assert!(end >= self.range.end);
@@ -70,7 +70,7 @@ impl Debug for Source {
     }
 }
 
-crate struct SourceFile {
+pub(crate) struct SourceFile {
     name: String,
     text: String,
     lines: Vec<Range>,
@@ -78,7 +78,7 @@ crate struct SourceFile {
 }
 
 impl SourceFile {
-    crate fn load(path: &str) -> Result<SourceFileRef, Box<dyn Error>> {
+    pub(crate) fn load(path: &str) -> Result<SourceFileRef, Box<dyn Error>> {
         use std::fs::File;
         use std::io::Read;
         use std::io::BufReader;
@@ -93,15 +93,15 @@ impl SourceFile {
     }
 
     #[cfg(test)]
-    crate fn create(name: String, text: &str) -> SourceFileRef {
+    pub(crate) fn create(name: String, text: &str) -> SourceFileRef {
         let size = text.len();
         Self::from_text(name, text.to_owned(), size)
     }
 
-    crate fn name(&self) -> &str { &self.name }
-    crate fn text(&self) -> &str { &self.text }
-    crate fn lines(&self) -> &[Range] { &self.lines }
-    crate fn size(&self) -> usize { self.size }
+    pub(crate) fn name(&self) -> &str { &self.name }
+    pub(crate) fn text(&self) -> &str { &self.text }
+    pub(crate) fn lines(&self) -> &[Range] { &self.lines }
+    pub(crate) fn size(&self) -> usize { self.size }
 
     fn from_text(name: String, text: String, size: usize) -> SourceFileRef {
         let lines = Self::collect_lines(&text);
@@ -150,10 +150,10 @@ impl Debug for SourceFile {
     }
 }
 
-crate type SourceFileRef = UniqueRc<SourceFile>;
+pub(crate) type SourceFileRef = UniqueRc<SourceFile>;
 
 impl SourceFileRef {
-    crate fn position(&self, source: &Source) -> Position {
+    pub(crate) fn position(&self, source: &Source) -> Position {
         assert_eq!(&source.file, self);
         let offset = source.range.start;
         for (index, line) in self.lines.iter().enumerate() {

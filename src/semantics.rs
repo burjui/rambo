@@ -17,20 +17,20 @@ use crate::parser::Statement;
 use crate::source::Source;
 use crate::unique_rc::UniqueRc;
 
-crate struct SemanticsChecker {
+pub(crate) struct SemanticsChecker {
     env: Environment<Rc<String>, BindingRef>,
     expr_arena: Arena<TypedExpr>
 }
 
 impl SemanticsChecker {
-    crate fn new() -> Self {
+    pub(crate) fn new() -> Self {
         SemanticsChecker {
             env: Environment::new(),
             expr_arena: Arena::new()
         }
     }
 
-    crate fn check_module(mut self, code: &ASTBlock) -> CheckResult<ExprRef> {
+    pub(crate) fn check_module(mut self, code: &ASTBlock) -> CheckResult<ExprRef> {
         let mut statements = vec![];
         for statement in &code.statements {
             statements.push(self.check_statement(statement)?);
@@ -280,12 +280,12 @@ impl SemanticsChecker {
 }
 
 type CheckResult<T> = Result<T, Box<dyn Error>>;
-crate type FunctionTypeRef = Rc<FunctionType>;
+pub(crate) type FunctionTypeRef = Rc<FunctionType>;
 
 #[derive(Clone, PartialEq)]
-crate struct FunctionType {
-    crate parameters: Vec<BindingRef>,
-    crate result: Type
+pub(crate) struct FunctionType {
+    pub(crate) parameters: Vec<BindingRef>,
+    pub(crate) result: Type
 }
 
 impl Debug for FunctionType {
@@ -297,7 +297,7 @@ impl Debug for FunctionType {
 
 // TODO impl Debug with parenthesis
 #[derive(Clone, PartialEq)]
-crate enum Type {
+pub(crate) enum Type {
     Unit,
     Int,
     String,
@@ -315,7 +315,7 @@ impl Debug for Type {
     }
 }
 
-crate trait Expression {
+pub(crate) trait Expression {
     fn is_constant(&self) -> bool;
 }
 
@@ -333,7 +333,7 @@ impl Expression for ExprRef {
 }
 
 #[derive(Clone)]
-crate struct ExprRef(crate rc_arena::Rc<TypedExpr>);
+pub(crate) struct ExprRef(pub(crate) rc_arena::Rc<TypedExpr>);
 
 impl Deref for ExprRef {
     type Target = TypedExpr;
@@ -350,10 +350,10 @@ impl Debug for ExprRef {
 }
 
 #[derive(Clone)]
-crate struct Lambda {
-    crate type_: FunctionTypeRef,
-    crate parameters: Vec<BindingRef>,
-    crate body: ExprRef
+pub(crate) struct Lambda {
+    pub(crate) type_: FunctionTypeRef,
+    pub(crate) parameters: Vec<BindingRef>,
+    pub(crate) body: ExprRef
 }
 
 impl Debug for Lambda {
@@ -362,9 +362,9 @@ impl Debug for Lambda {
     }
 }
 
-crate struct Block {
-    crate statements: Vec<TypedStatement>,
-    crate source: Source
+pub(crate) struct Block {
+    pub(crate) statements: Vec<TypedStatement>,
+    pub(crate) source: Source
 }
 
 impl Debug for Block {
@@ -373,7 +373,7 @@ impl Debug for Block {
     }
 }
 
-crate enum TypedExpr {
+pub(crate) enum TypedExpr {
     ArgumentPlaceholder(Rc<String>, Type),
     Unit(Source),
     Int(BigInt, Source),
@@ -426,7 +426,7 @@ impl Debug for TypedExpr {
 }
 
 impl TypedExpr {
-    crate fn type_(&self) -> Type { // TODO return &Type
+    pub(crate) fn type_(&self) -> Type { // TODO return &Type
         match self {
             TypedExpr::ArgumentPlaceholder(_, type_) => type_.clone(),
             TypedExpr::Unit(_) => Type::Unit,
@@ -450,20 +450,20 @@ impl TypedExpr {
     }
 }
 
-crate type LambdaRef = UniqueRc<Lambda>;
-crate type BindingRef = UniqueRc<Binding>;
+pub(crate) type LambdaRef = UniqueRc<Lambda>;
+pub(crate) type BindingRef = UniqueRc<Binding>;
 
-crate enum BindingKind { Let, Arg(usize) }
+pub(crate) enum BindingKind { Let, Arg(usize) }
 
-crate struct Binding {
-    crate name: Rc<String>,
-    crate data: ExprRef,
-    crate source: Source,
-    crate kind: BindingKind
+pub(crate) struct Binding {
+    pub(crate) name: Rc<String>,
+    pub(crate) data: ExprRef,
+    pub(crate) source: Source,
+    pub(crate) kind: BindingKind
 }
 
 impl Binding {
-    crate fn new(name: Rc<String>, data: ExprRef, source: Source, kind: BindingKind) -> Binding {
+    pub(crate) fn new(name: Rc<String>, data: ExprRef, source: Source, kind: BindingKind) -> Binding {
         Binding { name, data, source, kind }
     }
 }
@@ -475,7 +475,7 @@ impl Debug for Binding {
 }
 
 #[derive(Clone)]
-crate enum TypedStatement {
+pub(crate) enum TypedStatement {
     Expr(ExprRef),
     Binding(BindingRef)
 }
@@ -490,7 +490,7 @@ impl Debug for TypedStatement {
 }
 
 impl TypedStatement {
-    crate fn type_(&self) -> Type {
+    pub(crate) fn type_(&self) -> Type {
         match self {
             TypedStatement::Binding(_) => Type::Unit,
             TypedStatement::Expr(expr) => expr.type_()

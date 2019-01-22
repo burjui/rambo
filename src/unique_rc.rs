@@ -4,7 +4,7 @@ use std::hash::Hasher;
 use std::ops::Deref;
 use std::rc::Rc;
 
-crate struct UniqueRc<T: ?Sized>(Rc<T>);
+pub(crate) struct UniqueRc<T: ?Sized>(Rc<T>);
 
 impl<T> From<T> for UniqueRc<T> {
     fn from(value: T) -> Self {

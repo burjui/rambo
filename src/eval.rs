@@ -10,16 +10,16 @@ use crate::semantics::LambdaRef;
 use crate::semantics::TypedExpr;
 use crate::semantics::TypedStatement;
 
-crate struct Evaluator {
+pub(crate) struct Evaluator {
     env: Environment<Rc<String>, Evalue>,
 }
 
 impl<'a> Evaluator {
-    crate fn new() -> Evaluator {
+    pub(crate) fn new() -> Evaluator {
         Evaluator { env: Environment::new() }
     }
 
-    crate fn eval(&mut self, expr: &TypedExpr) -> Result<Evalue, Box<dyn Error>> {
+    pub(crate) fn eval(&mut self, expr: &TypedExpr) -> Result<Evalue, Box<dyn Error>> {
         match expr {
             TypedExpr::ArgumentPlaceholder(_, _) => unreachable!("eval: {:?}", expr),
             TypedExpr::Unit(_) => Ok(Evalue::Unit),
@@ -124,7 +124,7 @@ impl<'a> Evaluator {
 }
 
 #[derive(Clone)]
-crate enum Evalue {
+pub(crate) enum Evalue {
     Unit,
     Int(BigInt),
     String(Rc<String>),

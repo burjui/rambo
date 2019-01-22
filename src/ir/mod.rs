@@ -26,7 +26,7 @@ use crate::utils::WHITESPACE_REGEX;
 // TODO peephole optimizations
 
 #[derive(Deref, DerefMut)]
-crate struct BasicBlock(Vec<Statement>);
+pub(crate) struct BasicBlock(Vec<Statement>);
 
 impl fmt::Debug for BasicBlock {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -36,10 +36,10 @@ impl fmt::Debug for BasicBlock {
 
 type BasicBlockGraph = DiGraph<BasicBlock, ()>;
 
-crate struct ControlFlowGraph {
-    crate graph: BasicBlockGraph,
-    crate entry_block: NodeIndex,
-    crate exit_block: NodeIndex,
+pub(crate) struct ControlFlowGraph {
+    pub(crate) graph: BasicBlockGraph,
+    pub(crate) entry_block: NodeIndex,
+    pub(crate) exit_block: NodeIndex,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -56,7 +56,7 @@ impl StatementLocation {
 
 type TrivialPhiMap = MultiMap<NodeIndex, usize>;
 
-crate struct FrontEnd {
+pub(crate) struct FrontEnd {
     graph: BasicBlockGraph,
     next_id: usize,
     variables: HashMap<BindingRef, HashMap<NodeIndex, Ident>>,
@@ -77,7 +77,7 @@ Compiler Construction. CC 2013.
 Lecture Notes in Computer Science, vol 7791. Springer, Berlin, Heidelberg
 */
 impl FrontEnd {
-    crate fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             graph:  DiGraph::new(),
             next_id: 0,
@@ -90,7 +90,7 @@ impl FrontEnd {
         }
     }
 
-    crate fn build(mut self, code: &ExprRef) -> ControlFlowGraph {
+    pub(crate) fn build(mut self, code: &ExprRef) -> ControlFlowGraph {
         let entry_block = self.new_block();
         self.seal_block(entry_block);
         let (exit_block, _) = self.process_expr(code, entry_block);
@@ -290,12 +290,17 @@ impl FrontEnd {
             same = Some(*operand);
         }
 
+        let location = self.phi_locations[&phi];
+        self.trivial_phis.insert(location.block, location.index);
+
         /* NOTE: this part from the original algorithm from the paper is not implemented:
         if same = None:
             same ← new Undef(); # The phi is unreachable or in the start block
         */
         if let Some(vec) = self.phi_users.get_vec_mut(&phi) {
-            vec.remove_item(&self.phi_locations[&phi]);
+            if let Some((index, _)) = vec.iter().find_position(|user| **user == location) {
+                vec.remove(index);
+            }
         }
 
         static EMPTY_USERS: sync::Lazy<Vec<StatementLocation>> = once_cell::sync_lazy!(vec![]);
@@ -320,9 +325,6 @@ impl FrontEnd {
         for phi in possible_trivial_phis {
             self.try_remove_trivial_phi(phi);
         }
-
-        let location = self.phi_locations[&phi];
-        self.trivial_phis.insert(location.block, location.index);
 
         same
     }
@@ -479,7 +481,7 @@ fn replace_phi(value: &mut Value, phi: Ident, replacement: Ident) {
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Hash)]
-crate struct Ident(usize);
+pub(crate) struct Ident(usize);
 
 impl fmt::Debug for Ident {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -487,7 +489,7 @@ impl fmt::Debug for Ident {
     }
 }
 
-crate enum Statement {
+pub(crate) enum Statement {
     Comment(String),
     Definition {
         ident: Ident,
@@ -510,7 +512,7 @@ impl fmt::Debug for Statement {
     }
 }
 
-crate enum Value {
+pub(crate) enum Value {
     Unit,
     Int(BigInt),
     Function {
@@ -571,21 +573,6 @@ fn gen_ir() -> TestResult {
     let f = \\ (u:num, v:num) -> u + v
     f x y
     f z r
-//    let s = {
-//        let a = (z x y)
-//        z a 3
-//    }
-//    let nn = 1
-//    let a1 = 0
-//    let a2 = a1
-//    let a3 = a1 + a2
-//    let c = \\ (a:num, b:num) -> 4
-//    c 1 2
-//    a1 = 10
-//    (0 - a1) * (0 - 1)
-//    (a1 + a1)
-//    (a1 - a1)
-//    s
     ")?;
     let cfg = FrontEnd::new().build(&code);
     let mut output = File::create("ir_cfg.dot")?;

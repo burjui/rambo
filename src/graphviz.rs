@@ -14,20 +14,20 @@ use crate::ssa::SSAOp;
 use crate::ssa::SSAStatement;
 use crate::utils::WHITESPACE_REGEX;
 
-crate struct Graphviz {
+pub(crate) struct Graphviz {
     include_comments: bool
 }
 
 impl Graphviz {
-    crate fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self { include_comments: false }
     }
 
-    crate fn include_comments(self, include_comments: bool) -> Self {
+    pub(crate) fn include_comments(self, include_comments: bool) -> Self {
         Self { include_comments }
     }
 
-    crate fn fmt(&self, sink: &mut impl io::Write, graph: &ControlFlowGraph<'_>) -> Result<(), Box<dyn Error>> {
+    pub(crate) fn fmt(&self, sink: &mut impl io::Write, graph: &ControlFlowGraph<'_>) -> Result<(), Box<dyn Error>> {
         let nodes = graph.node_indices()
             .map(|node| self.fmt_node(node, graph))
             .collect::<Result<Vec<_>, fmt::Error>>()?;
