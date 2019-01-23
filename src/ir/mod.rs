@@ -1,4 +1,5 @@
 use std::fmt;
+use std::iter::empty;
 use std::iter::once;
 use std::mem::replace;
 
@@ -22,8 +23,6 @@ use crate::semantics::TypedStatement;
 use crate::source::Source;
 #[cfg(test)] use crate::utils::TestResult;
 use crate::utils::WHITESPACE_REGEX;
-
-// TODO peephole optimizations
 
 #[derive(Deref, DerefMut)]
 pub(crate) struct BasicBlock(Vec<Statement>);
@@ -65,6 +64,9 @@ pub(crate) struct FrontEnd {
     phi_locations: HashMap<Ident, StatementLocation>,
     phi_users: MultiMap<Ident, StatementLocation>,
     trivial_phis: TrivialPhiMap,
+    entry_block: NodeIndex,
+    undefined: Ident,
+    undefined_users: Vec<StatementLocation>,
 }
 
 /*
@@ -78,8 +80,8 @@ Lecture Notes in Computer Science, vol 7791. Springer, Berlin, Heidelberg
 */
 impl FrontEnd {
     pub(crate) fn new() -> Self {
-        Self {
-            graph:  DiGraph::new(),
+        let mut instance = Self {
+            graph: DiGraph::new(),
             next_id: 0,
             variables: HashMap::new(),
             sealed_blocks: HashSet::new(),
@@ -87,18 +89,28 @@ impl FrontEnd {
             phi_locations: HashMap::new(),
             phi_users: MultiMap::new(),
             trivial_phis: TrivialPhiMap::new(),
-        }
+            entry_block: NodeIndex::new(0),
+            undefined: Ident(0),
+            undefined_users: Vec::new()
+        };
+        instance.entry_block = instance.new_block();
+        instance.seal_block(instance.entry_block);
+        instance.undefined = instance.define(instance.entry_block, Value::Undefined);
+        instance
     }
 
     pub(crate) fn build(mut self, code: &ExprRef) -> ControlFlowGraph {
-        let entry_block = self.new_block();
-        self.seal_block(entry_block);
-        let (exit_block, _) = self.process_expr(code, entry_block);
+        let (exit_block, _) = self.process_expr(code, self.entry_block);
+        assert!(self.undefined_users.is_empty(),
+                "found undefined usages:\n{:?}\n",
+                self.undefined_users.iter()
+                    .map(|user| &self.block(user.block)[user.index])
+                    .format("\n"));
         remove_trivial_phi_statements(&mut self.graph, self.trivial_phis);
 
         ControlFlowGraph {
             graph: self.graph,
-            entry_block,
+            entry_block: self.entry_block,
             exit_block,
         }
     }
@@ -142,8 +154,12 @@ impl FrontEnd {
                 let (block, condition) = self.process_expr(condition, block);
                 let positive_block = self.new_block();
                 let negative_block = self.new_block();
+
+                let statement_location = StatementLocation::new(block, self.block(block).len());
+                self.record_phi_and_undefined_usages(statement_location, once(condition));
                 block_mut(&mut self.graph, block).push(
                     Statement::CondJump(condition, positive_block, negative_block));
+
                 self.graph.add_edge(block, positive_block, ());
                 self.graph.add_edge(block, negative_block, ());
                 self.seal_block(positive_block);
@@ -293,10 +309,11 @@ impl FrontEnd {
         let location = self.phi_locations[&phi];
         self.trivial_phis.insert(location.block, location.index);
 
-        /* NOTE: this part from the original algorithm from the paper is not implemented:
-        if same = None:
-            same ← new Undef(); # The phi is unreachable or in the start block
-        */
+        let same = match same {
+            Some(ident) => ident,
+            None => self.undefined
+        };
+
         if let Some(vec) = self.phi_users.get_vec_mut(&phi) {
             if let Some((index, _)) = vec.iter().find_position(|user| **user == location) {
                 vec.remove(index);
@@ -307,11 +324,6 @@ impl FrontEnd {
         let users = self.phi_users
             .get_vec(&phi)
             .unwrap_or_else(|| &*EMPTY_USERS);
-        // TODO check why this doesn't work on x.rambo: let same = same.unwrap();
-        let same = match same {
-            Some(value) => value,
-            None => return phi,
-        };
         let mut possible_trivial_phis = vec![];
         for user in users {
             if let Statement::Definition { ident, value } = &mut block_mut(&mut self.graph, user.block)[user.index] {
@@ -346,21 +358,14 @@ impl FrontEnd {
     }
 
     fn define(&mut self, block: NodeIndex, value: Value) -> Ident {
-        let phi_usages = self.get_phis(&value);
+        let definition_location = StatementLocation::new(block, self.block(block).len());
+        self.record_phi_and_undefined_usages(definition_location, get_value_operands(&value));
+
         let ident = self.new_id();
-        let basic_block = block_mut(&mut self.graph, block);
-        basic_block.push(Statement::Definition {
+        block_mut(&mut self.graph, block).push(Statement::Definition {
             ident,
             value
         });
-
-        if !phi_usages.is_empty() {
-            let index = basic_block.len() - 1;
-            let this = StatementLocation::new(block, index);
-            for phi in phi_usages {
-                self.phi_users.insert(phi, this);
-            }
-        }
 
         ident
     }
@@ -372,28 +377,26 @@ impl FrontEnd {
         phi
     }
 
-    fn get_phis(&self, value: &Value) -> Vec<Ident> {
-        let operands: Vec<Ident> = match value {
-            Value::Unit |
-            Value::Int(_) |
-            Value::Function {..} |
-            Value::Arg(_) => vec![],
-            
-            Value::AddInt(left, right) |
-            Value::SubInt(left, right) |
-            Value::MulInt(left, right) |
-            Value::DivInt(left, right) => vec![*left, *right],
-            Value::Phi(operands) => operands.clone(),
+    fn record_phi_and_undefined_usages(&mut self, location: StatementLocation, idents: impl Iterator<Item = Ident>) {
+        let (is_using_undefined, phis_used) = idents
+            .fold((false, vec![]), |(mut is_using_undefined, mut phis_used), ident| {
+                if ident == self.undefined {
+                    is_using_undefined = true;
+                } else if self.is_a_phi(ident) {
+                    phis_used.push(ident);
+                }
+                (is_using_undefined, phis_used)
+            });
+        if is_using_undefined {
+            self.undefined_users.push(location);
+        }
+        for phi in phis_used {
+            self.phi_users.insert(phi, location);
+        }
+    }
 
-            Value::Call(function, arguments) => {
-                once(*function)
-                    .chain(arguments.iter().cloned())
-                    .collect()
-            }
-        };
-        operands.into_iter()
-            .filter(|operand| self.phi_locations.contains_key(operand))
-            .collect()
+    fn is_a_phi(&self, ident: Ident) -> bool {
+        ident != self.undefined && self.phi_locations.contains_key(&ident)
     }
 
     fn phi_operands(&self, phi: Ident) -> &[Ident] {
@@ -455,12 +458,31 @@ fn remove_trivial_phi_statements(graph: &mut BasicBlockGraph, trivial_phis: Triv
     }
 }
 
+fn get_value_operands<'a>(value: &'a Value) -> Box<dyn Iterator<Item = Ident> + 'a> {
+    match value {
+        Value::Undefined |
+        Value::Unit |
+        Value::Int(_) |
+        Value::Arg(_) => Box::new(empty()),
+
+        Value::AddInt(left, right) |
+        Value::SubInt(left, right) |
+        Value::MulInt(left, right) |
+        Value::DivInt(left, right) => Box::new(once(*left).chain(once(*right))),
+
+        Value::Function { result, .. } => Box::new(once(*result)),
+        Value::Phi(operands) => Box::new(operands.iter().cloned()),
+        Value::Call(function, arguments) => Box::new(once(*function).chain(arguments.iter().cloned())),
+    }
+}
+
 fn block_mut(graph: &mut BasicBlockGraph, block: NodeIndex) -> &mut BasicBlock {
     graph.node_weight_mut(block).unwrap()
 }
 
 fn replace_phi(value: &mut Value, phi: Ident, replacement: Ident) {
     let operands: Vec<&mut Ident> = match value {
+        Value::Undefined |
         Value::Unit |
         Value::Int(_) |
         Value::Function {..} |
@@ -513,6 +535,7 @@ impl fmt::Debug for Statement {
 }
 
 pub(crate) enum Value {
+    Undefined,
     Unit,
     Int(BigInt),
     Function {
@@ -532,6 +555,7 @@ pub(crate) enum Value {
 impl fmt::Debug for Value {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Value::Undefined => f.write_str("<undefined>"),
             Value::Unit => f.write_str("()"),
             Value::Int(n) => write!(f, "{}", n),
             Value::Function { entry_block, exit_block, result } =>
@@ -570,7 +594,7 @@ fn gen_ir() -> TestResult {
     z
     r + 1
 
-    let f = \\ (u:num, v:num) -> u + v
+    let f = \\ (u:num, v:num) -> if (u) u + v else u - v
     f x y
     f z r
     ")?;

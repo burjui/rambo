@@ -1,28 +1,10 @@
-﻿let x = "abc"
-let y = "efg"
-let z = \ (a:str, b:str) -> {
-    if 1 {
-        a + "--"
-    } else {
-        "?"
-    } + b
-}
-let s = if 0 {
-    "false"
-    y = "x"
-    x = "z"
+﻿let x = 0
+let y = 999
+if x {
+    x = 1
 } else {
-    let a = (z x y)
-    z a "/test"
+    x = 2
 }
-let nn = 1
-let a1 = 0
-let a2 = a1
-let a3 = a1 + a2
-let c = \ (a:num, b:num) -> 4
-c 1 2
-a1 = 10
-(0 - a1) * (0 - 1)
-(a1 + a1)
-(a1 - a1)
-s
+if y {
+    x = 3
+}
