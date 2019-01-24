@@ -16,4 +16,7 @@ case "$1" in
 		;;
 esac
 cargo build $MODE
-for i in x.rambo y.rambo z.rambo str.rambo; do /usr/bin/time -v ./target/$TARGET/rambo test-data/$i -w 2>&1 | grep Elapsed | perl -pe 's/.*: (.*)/\1/g'; done
+for i in x.rambo y.rambo z.rambo str.rambo; do
+	echo -n "$i: "
+	/usr/bin/time -f "%E" ./target/$TARGET/rambo test-data/$i -w > /dev/null | perl -pe 's/.\w+: (.*)/\1/g'
+done
