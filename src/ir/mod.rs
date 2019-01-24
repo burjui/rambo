@@ -2,6 +2,7 @@ use std::fmt;
 use std::iter::empty;
 use std::iter::once;
 use std::mem::replace;
+use std::rc::Rc;
 
 use hashbrown::HashMap;
 use hashbrown::HashSet;
@@ -139,10 +140,16 @@ impl FrontEnd {
                 (block, self.define(block, Value::Int(value.clone())))
             }
 
+            TypedExpr::String(value, source) => {
+                self.comment(block, source.text());
+                (block, self.define(block, Value::String(value.clone())))
+            }
+
             TypedExpr::AddInt(left, right, source) => self.process_binary(block, left, right, source, Value::AddInt),
             TypedExpr::SubInt(left, right, source) => self.process_binary(block, left, right, source, Value::SubInt),
             TypedExpr::MulInt(left, right, source) => self.process_binary(block, left, right, source, Value::MulInt),
             TypedExpr::DivInt(left, right, source) => self.process_binary(block, left, right, source, Value::DivInt),
+            TypedExpr::AddStr(left, right, source) => self.process_binary(block, left, right, source, Value::AddString),
 
             TypedExpr::Reference(binding, source) => {
                 self.comment(block, source.text());
@@ -463,12 +470,14 @@ fn get_value_operands<'a>(value: &'a Value) -> Box<dyn Iterator<Item = Ident> + 
         Value::Undefined |
         Value::Unit |
         Value::Int(_) |
+        Value::String(_) |
         Value::Arg(_) => Box::new(empty()),
 
         Value::AddInt(left, right) |
         Value::SubInt(left, right) |
         Value::MulInt(left, right) |
-        Value::DivInt(left, right) => Box::new(once(*left).chain(once(*right))),
+        Value::DivInt(left, right) |
+        Value::AddString(left, right) => Box::new(once(*left).chain(once(*right))),
 
         Value::Function { result, .. } => Box::new(once(*result)),
         Value::Phi(operands) => Box::new(operands.iter().cloned()),
@@ -485,13 +494,15 @@ fn replace_phi(value: &mut Value, phi: Ident, replacement: Ident) {
         Value::Undefined |
         Value::Unit |
         Value::Int(_) |
+        Value::String(_) |
         Value::Function {..} |
         Value::Arg(_) => vec![],
 
         Value::AddInt(left, right) |
         Value::SubInt(left, right) |
         Value::MulInt(left, right) |
-        Value::DivInt(left, right) => vec![left, right],
+        Value::DivInt(left, right) |
+        Value::AddString(left, right) => vec![left, right],
         Value::Phi(operands) => operands.iter_mut().collect(),
         Value::Call(function, arguments) => once(function).chain(arguments.iter_mut()).collect(),
     };
@@ -538,6 +549,7 @@ pub(crate) enum Value {
     Undefined,
     Unit,
     Int(BigInt),
+    String(Rc<String>),
     Function {
         entry_block: NodeIndex,
         exit_block: NodeIndex,
@@ -547,6 +559,7 @@ pub(crate) enum Value {
     SubInt(Ident, Ident),
     MulInt(Ident, Ident),
     DivInt(Ident, Ident),
+    AddString(Ident, Ident),
     Phi(Vec<Ident>),
     Call(Ident, Vec<Ident>),
     Arg(usize),
@@ -558,12 +571,14 @@ impl fmt::Debug for Value {
             Value::Undefined => f.write_str("<undefined>"),
             Value::Unit => f.write_str("()"),
             Value::Int(n) => write!(f, "{}", n),
+            Value::String(s) => write!(f, "\"{}\"", s),
             Value::Function { entry_block, exit_block, result } =>
                 write!(f, "λ({}..{}, {:?}) ", entry_block.index(), exit_block.index(), result),
             Value::AddInt(left, right) => write!(f, "{:?} + {:?}", left, right),
             Value::SubInt(left, right) => write!(f, "{:?} - {:?}", left, right),
             Value::MulInt(left, right) => write!(f, "{:?} * {:?}", left, right),
             Value::DivInt(left, right) => write!(f, "{:?} / {:?}", left, right),
+            Value::AddString(left, right) => write!(f, "{:?} + {:?}", left, right),
             Value::Phi(operands) => write!(f, "ϕ({:?})", operands.iter().format(", ")),
             Value::Call(function, arguments) => write!(f, "call {:?}({:?})", function, arguments.iter().format(", ")),
             Value::Arg(index) => write!(f, "arg[{}]", index),
@@ -594,9 +609,9 @@ fn gen_ir() -> TestResult {
     z
     r + 1
 
-    let f = \\ (u:num, v:num) -> if (u) u + v else u - v
-    f x y
-    f z r
+    let f = λ (g: λ (u:str, v:str) -> str, u:str, v:str) -> g u v
+    f (λ (u:str, v:str) -> \"(\" + u + \", \" + v + \")\") \"hello\" \"world\"
+    f (λ (u:str, v:str) -> \"<\" + u + \"; \" + v + \">\") \"bye\" \"seeya\"
     ")?;
     let cfg = FrontEnd::new().build(&code);
     let mut output = File::create("ir_cfg.dot")?;

@@ -153,8 +153,8 @@ impl SemanticsChecker {
                         let argument_checked = self.check_expr(argument)?;
                         let argument_type = argument_checked.type_();
                         if argument_type != parameter.type_ {
-                            return error!("argument type mismatch for {}: expected `{:?}', found `{:?}'\n  {:?}",
-                                          parameter.name, parameter.type_, argument_type, argument);
+                            return error!("argument type mismatch for parameter `{}': expected a `{:?}', found `{:?}` of type `{:?}'",
+                                          parameter.name.text(), parameter.type_, argument, argument_type);
                         }
                         arguments_checked.push(argument_checked);
                     }
@@ -290,7 +290,7 @@ impl Debug for FunctionType {
         let parameter_list = self.parameters.iter()
             .map(|parameter| format!("{}: {:?}", parameter.name.text(), parameter.type_))
             .format(", ");
-        write!(formatter, "λ ({}) -> {:?})", parameter_list, self.result)
+        write!(formatter, "λ ({}) -> {:?}", parameter_list, self.result)
     }
 }
 
