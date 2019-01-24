@@ -144,18 +144,17 @@ impl SemanticsChecker {
                     let parameter_count = function_parameters.len();
                     let argument_count = arguments.len();
                     if argument_count != parameter_count {
-                        return error!("invalid number of arguments: expected {}, found {}:\n  {:?}",
-                                      parameter_count, argument_count, expr);
+                        return error!("{}: invalid number of arguments: expected {}, found {}:\n  {:?}",
+                                      source, parameter_count, argument_count, expr);
                     }
 
                     let mut arguments_checked = vec![];
                     for (parameter, argument) in function_parameters.iter().zip(arguments.iter()) {
                         let argument_checked = self.check_expr(argument)?;
                         let argument_type = argument_checked.type_();
-                        let parameter_type = parameter.data.type_();
-                        if argument_type != parameter_type {
+                        if argument_type != parameter.type_ {
                             return error!("argument type mismatch for {}: expected `{:?}', found `{:?}'\n  {:?}",
-                                          parameter.name, parameter_type, argument_type, argument);
+                                          parameter.name, parameter.type_, argument_type, argument);
                         }
                         arguments_checked.push(argument_checked);
                     }
@@ -239,28 +238,25 @@ impl SemanticsChecker {
     }
 
     fn check_function(&mut self, parameters: &[Parameter], body: &Expr) -> CheckResult<Lambda> {
-        let parameters = parameters.iter()
-            .enumerate()
-            .map(|(index, parameter)| {
-                let name = Rc::new(parameter.name.text().to_owned());
-                let value = ExprRef(self.expr_arena.alloc(TypedExpr::ArgumentPlaceholder(name.clone(), parameter.type_.clone())));
-                BindingRef::from(Binding::new(name, value, parameter.source.clone(), BindingKind::Arg(index)))
-            })
-            .collect::<Vec<_>>();
         let outer_env = replace(&mut self.env, Environment::new());
-        for parameter in &parameters {
-            self.env.bind(parameter.name.clone(), parameter.clone());
+        let mut parameter_bindings = vec![];
+        for (index, parameter) in parameters.iter().enumerate() {
+            let name = Rc::new(parameter.name.text().to_owned());
+            let value = ExprRef(self.expr_arena.alloc(TypedExpr::ArgumentPlaceholder(name.clone(), parameter.type_.clone())));
+            let binding = BindingRef::from(Binding::new(name.clone(), value, parameter.source.clone(), BindingKind::Arg(index)));
+            self.env.bind(name.clone(), binding.clone());
+            parameter_bindings.push(binding);
         }
         let body = self.check_expr(body)?;
         self.env = outer_env;
 
         let function_type = Rc::new(FunctionType {
-            parameters: parameters.clone(),
+            parameters: parameters.to_vec(),
             result: body.type_()
         });
-        Ok(Lambda{
+        Ok(Lambda {
             type_: function_type,
-            parameters,
+            parameters: parameter_bindings,
             body
         })
     }
@@ -285,14 +281,16 @@ pub(crate) type FunctionTypeRef = Rc<FunctionType>;
 
 #[derive(Clone, PartialEq)]
 pub(crate) struct FunctionType {
-    pub(crate) parameters: Vec<BindingRef>,
+    pub(crate) parameters: Vec<Parameter>,
     pub(crate) result: Type
 }
 
 impl Debug for FunctionType {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        let parameter_list = self.parameters.iter().map(|parameter| format!("({:#?}: {:?})", &parameter.name, parameter.data.type_())).format(" ");
-        write!(formatter, "({} -> {:?})", parameter_list, self.result)
+        let parameter_list = self.parameters.iter()
+            .map(|parameter| format!("{}: {:?}", parameter.name.text(), parameter.type_))
+            .format(", ");
+        write!(formatter, "λ ({}) -> {:?})", parameter_list, self.result)
     }
 }
 

@@ -9,6 +9,8 @@ use crate::lexer::Lexeme;
 use crate::lexer::Lexer;
 use crate::lexer::LexerStats;
 use crate::lexer::Token;
+use crate::semantics::FunctionType;
+use crate::semantics::FunctionTypeRef;
 use crate::semantics::Type;
 use crate::source::Source;
 
@@ -357,6 +359,17 @@ impl Parser {
     }
 
     fn parse_lambda(&mut self, start: &Source) -> ParseResult<Expr> {
+        let parameters = self.parse_parameters()?;
+        self.expect(Token::Arrow, "arrow")?;
+        let body = self.parse_block_or_expr()?;
+        Ok(Expr::Lambda {
+            source: start.extend(&self.previous_lexeme_source),
+            parameters,
+            body: Box::new(body)
+        })
+    }
+
+    fn parse_parameters(&mut self) -> ParseResult<Vec<Parameter>> {
         let mut parameters = vec![];
         let lparen = self.expect(Token::LParen, "`('")?;
         if self.lexeme.token == Token::RParen {
@@ -392,13 +405,7 @@ impl Parser {
         if parameters.is_empty() {
             error!(self, &format!("expected an argument list, found: {}", self.lexeme), &self.lexeme.source)
         } else {
-            self.expect(Token::Arrow, "arrow")?;
-            let body = self.parse_block_or_expr()?;
-            Ok(Expr::Lambda {
-                source: start.extend(&self.previous_lexeme_source),
-                parameters,
-                body: Box::new(body)
-            })
+            Ok(parameters)
         }
     }
 
@@ -414,14 +421,24 @@ impl Parser {
     }
 
     fn parse_type(&mut self) -> ParseResult<Type> {
-        Ok(self.lexeme.clone())
-            .and_then(|type_name| match (type_name.token, type_name.text()) {
-                (Token::Id, "num") => Ok(Type::Int),
-                (Token::Id, "str") => Ok(Type::String),
-                _ => Err(type_name)
-            })
-            .or_else(|type_name| error!(self, &format!("expected a type, found: {}", type_name), &type_name.source))
-            .and_then(|type_| self.read_lexeme().and(Ok(type_)))
+        let (token, source) = (self.lexeme.token, self.lexeme.source.clone());
+        self.read_lexeme()?;
+        match (token, source.text()) {
+            (Token::Id, "num") => Ok(Type::Int),
+            (Token::Id, "str") => Ok(Type::String),
+            (Token::Lambda, _) => self.parse_function_type(),
+            _ => return error!(self, &format!("expected a type, found: {}", source.text()), &source)
+        }
+    }
+
+    fn parse_function_type(&mut self) -> ParseResult<Type> {
+        let parameters = self.parse_parameters()?;
+        self.expect(Token::Arrow, "arrow")?;
+        let result = self.parse_type()?;
+        Ok(Type::Function(FunctionTypeRef::new(FunctionType {
+            parameters,
+            result
+        })))
     }
 
     fn expect(&mut self, token: Token, name: &str) -> ParseResult<Lexeme> {
