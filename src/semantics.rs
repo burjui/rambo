@@ -1,6 +1,7 @@
 use std::error::Error;
 use std::fmt::Debug;
 use std::fmt::Formatter;
+use std::mem::replace;
 use std::ops::Deref;
 use std::rc::Rc;
 
@@ -246,12 +247,12 @@ impl SemanticsChecker {
                 BindingRef::from(Binding::new(name, value, parameter.source.clone(), BindingKind::Arg(index)))
             })
             .collect::<Vec<_>>();
-        self.env.push();
+        let outer_env = replace(&mut self.env, Environment::new());
         for parameter in &parameters {
             self.env.bind(parameter.name.clone(), parameter.clone());
         }
         let body = self.check_expr(body)?;
-        self.env.pop();
+        self.env = outer_env;
 
         let function_type = Rc::new(FunctionType {
             parameters: parameters.clone(),
