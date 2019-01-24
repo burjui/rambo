@@ -3,9 +3,6 @@
 /*.iml
 /ssa.txt
 /cfg.dot
-/test-data/x.rambo
-/test-data/y.rambo
-/test-data/z.rambo
-/test-data/str.rambo
+/test-data/
 /TODO.md
 /ir_cfg.dot
