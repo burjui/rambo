@@ -32,14 +32,8 @@ impl SemanticsChecker {
     }
 
     pub(crate) fn check_module(mut self, code: &ASTBlock) -> CheckResult<ExprRef> {
-        let mut statements = vec![];
-        for statement in &code.statements {
-            statements.push(self.check_statement(statement)?);
-        }
-        Ok(ExprRef(self.expr_arena.alloc(TypedExpr::Block(Block {
-            statements,
-            source: code.source.clone()
-        }))))
+        let block = self.check_block(code.statements.iter(), code.source.clone())?;
+        Ok(ExprRef(self.expr_arena.alloc(block)))
     }
 
     fn check_statement(&mut self, statement: &Statement) -> CheckResult<TypedStatement> {
@@ -265,14 +259,25 @@ impl SemanticsChecker {
         where BlockIterator: Iterator<Item = &'a Statement>
     {
         self.env.push();
-        let statements = block
+        let mut statements: Vec<_> = block
             .map(|statement| self.check_statement(statement))
             .collect::<Result<_, _>>()?;
         self.env.pop();
-        Ok(TypedExpr::Block(Block {
-            statements,
-            source
-        }))
+
+        let expr = if statements.is_empty() {
+            TypedExpr::Unit(source.clone())
+        }
+        else {
+            if let TypedStatement::Binding(_) = statements.last().unwrap() {
+                statements.push(TypedStatement::Expr(ExprRef(self.expr_arena.alloc( // TODO way too verbose, refactor
+                    TypedExpr::Unit(source.clone())))));
+            }
+            TypedExpr::Block(Block {
+                statements,
+                source
+            })
+        };
+        Ok(expr)
     }
 }
 

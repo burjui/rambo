@@ -25,6 +25,8 @@ use crate::source::Source;
 #[cfg(test)] use crate::utils::TestResult;
 use crate::utils::WHITESPACE_REGEX;
 
+pub(crate) mod eval;
+
 #[derive(Deref, DerefMut)]
 pub(crate) struct BasicBlock(Vec<Statement>);
 
@@ -34,12 +36,28 @@ impl fmt::Debug for BasicBlock {
     }
 }
 
-type BasicBlockGraph = DiGraph<BasicBlock, ()>;
+#[derive(Deref, DerefMut)]
+pub(crate) struct BasicBlockGraph(DiGraph<BasicBlock, ()>);
+
+impl BasicBlockGraph {
+    pub(crate) fn new() -> Self {
+        Self(DiGraph::new())
+    }
+
+    pub(crate) fn block(&self, block: NodeIndex) -> &BasicBlock {
+        self.node_weight(block).unwrap()
+    }
+
+    pub(crate) fn block_mut(&mut self, block: NodeIndex) -> &mut BasicBlock {
+        self.node_weight_mut(block).unwrap()
+    }
+}
 
 pub(crate) struct ControlFlowGraph {
     pub(crate) graph: BasicBlockGraph,
     pub(crate) entry_block: NodeIndex,
     pub(crate) exit_block: NodeIndex,
+    pub(crate) undefined: Ident,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -82,7 +100,7 @@ Lecture Notes in Computer Science, vol 7791. Springer, Berlin, Heidelberg
 impl FrontEnd {
     pub(crate) fn new() -> Self {
         let mut instance = Self {
-            graph: DiGraph::new(),
+            graph: BasicBlockGraph::new(),
             next_id: 0,
             variables: HashMap::new(),
             sealed_blocks: HashSet::new(),
@@ -105,7 +123,7 @@ impl FrontEnd {
         assert!(self.undefined_users.is_empty(),
                 "found undefined usages:\n{:?}\n",
                 self.undefined_users.iter()
-                    .map(|user| &self.block(user.block)[user.index])
+                    .map(|user| &self.graph.block(user.block)[user.index])
                     .format("\n"));
         remove_trivial_phi_statements(&mut self.graph, self.trivial_phis);
 
@@ -113,6 +131,7 @@ impl FrontEnd {
             graph: self.graph,
             entry_block: self.entry_block,
             exit_block,
+            undefined: self.undefined,
         }
     }
 
@@ -162,9 +181,9 @@ impl FrontEnd {
                 let positive_block = self.new_block();
                 let negative_block = self.new_block();
 
-                let statement_location = StatementLocation::new(block, self.block(block).len());
+                let statement_location = StatementLocation::new(block, self.graph.block(block).len());
                 self.record_phi_and_undefined_usages(statement_location, once(condition));
-                block_mut(&mut self.graph, block).push(
+                self.graph.block_mut(block).push(
                     Statement::CondJump(condition, positive_block, negative_block));
 
                 self.graph.add_edge(block, positive_block, ());
@@ -203,8 +222,8 @@ impl FrontEnd {
                     let declaration = self.define(entry_block, Value::Arg(index));
                     self.write_variable(parameter, entry_block, declaration);
                 }
-                let (exit_block, result) = self.process_expr(&lambda.body, entry_block);
-                (block, self.define(block, Value::Function { entry_block, exit_block, result }))
+                let _ = self.process_expr(&lambda.body, entry_block);
+                (block, self.define(block, Value::Function(entry_block)))
             }
 
             TypedExpr::Application { function, arguments, source, .. } => {
@@ -333,7 +352,7 @@ impl FrontEnd {
             .unwrap_or_else(|| &*EMPTY_USERS);
         let mut possible_trivial_phis = vec![];
         for user in users {
-            if let Statement::Definition { ident, value } = &mut block_mut(&mut self.graph, user.block)[user.index] {
+            if let Statement::Definition { ident, value } = &mut self.graph.block_mut(user.block)[user.index] {
                 replace_phi(value, phi, same);
                 if let Value::Phi(_) = value {
                     possible_trivial_phis.push(*ident);
@@ -365,11 +384,11 @@ impl FrontEnd {
     }
 
     fn define(&mut self, block: NodeIndex, value: Value) -> Ident {
-        let definition_location = StatementLocation::new(block, self.block(block).len());
+        let definition_location = StatementLocation::new(block, self.graph.block(block).len());
         self.record_phi_and_undefined_usages(definition_location, get_value_operands(&value));
 
         let ident = self.new_id();
-        block_mut(&mut self.graph, block).push(Statement::Definition {
+        self.graph.block_mut(block).push(Statement::Definition {
             ident,
             value
         });
@@ -379,7 +398,7 @@ impl FrontEnd {
 
     fn define_phi(&mut self, block: NodeIndex, operands: &[Ident]) -> Ident {
         let phi = self.define(block, Value::Phi(operands.to_vec()));
-        let index = self.block(block).len() - 1;
+        let index = self.graph.block(block).len() - 1;
         self.phi_locations.insert(phi, StatementLocation::new(block, index));
         phi
     }
@@ -408,7 +427,7 @@ impl FrontEnd {
 
     fn phi_operands(&self, phi: Ident) -> &[Ident] {
         let location = self.phi_locations[&phi];
-        match &self.block(location.block)[location.index] {
+        match &self.graph.block(location.block)[location.index] {
             Statement::Definition { value: Value::Phi(operands), .. } => &operands,
             _ => unreachable!()
         }
@@ -416,14 +435,14 @@ impl FrontEnd {
 
     fn phi_operands_mut(&mut self, phi: Ident) -> &mut Vec<Ident> {
         let location = self.phi_locations[&phi];
-        match &mut block_mut(&mut self.graph, location.block)[location.index] {
+        match &mut self.graph.block_mut(location.block)[location.index] {
             Statement::Definition { value: Value::Phi(operands), .. } => operands,
             _ => unreachable!()
         }
     }
 
     fn comment(&mut self, block: NodeIndex, comment: &str) {
-        block_mut(&mut self.graph, block).push(Statement::Comment(comment.to_owned()))
+        self.graph.block_mut(block).push(Statement::Comment(comment.to_owned()))
     }
 
     fn new_id(&mut self) -> Ident {
@@ -436,17 +455,13 @@ impl FrontEnd {
         self.comment(block, &format!("--- BLOCK {} ---", block.index()));
         block
     }
-
-    fn block(&self, block: NodeIndex) -> &BasicBlock {
-        self.graph.node_weight(block).unwrap()
-    }
 }
 
 fn remove_trivial_phi_statements(graph: &mut BasicBlockGraph, trivial_phis: TrivialPhiMap) {
     for (block, mut phi_indices) in trivial_phis.into_iter() {
         phi_indices.sort_unstable();
         let mut phi_indices = phi_indices.into_iter().peekable();
-        let basic_block = block_mut(graph, block);
+        let basic_block = graph.block_mut(block);
         let pruned = replace(basic_block, BasicBlock(vec![]))
             .0
             .into_iter()
@@ -471,6 +486,7 @@ fn get_value_operands<'a>(value: &'a Value) -> Box<dyn Iterator<Item = Ident> + 
         Value::Unit |
         Value::Int(_) |
         Value::String(_) |
+        Value::Function {..} |
         Value::Arg(_) => Box::new(empty()),
 
         Value::AddInt(left, right) |
@@ -479,14 +495,9 @@ fn get_value_operands<'a>(value: &'a Value) -> Box<dyn Iterator<Item = Ident> + 
         Value::DivInt(left, right) |
         Value::AddString(left, right) => Box::new(once(*left).chain(once(*right))),
 
-        Value::Function { result, .. } => Box::new(once(*result)),
         Value::Phi(operands) => Box::new(operands.iter().cloned()),
         Value::Call(function, arguments) => Box::new(once(*function).chain(arguments.iter().cloned())),
     }
-}
-
-fn block_mut(graph: &mut BasicBlockGraph, block: NodeIndex) -> &mut BasicBlock {
-    graph.node_weight_mut(block).unwrap()
 }
 
 fn replace_phi(value: &mut Value, phi: Ident, replacement: Ident) {
@@ -545,16 +556,13 @@ impl fmt::Debug for Statement {
     }
 }
 
+#[derive(Clone, PartialEq)]
 pub(crate) enum Value {
     Undefined,
     Unit,
     Int(BigInt),
     String(Rc<String>),
-    Function {
-        entry_block: NodeIndex,
-        exit_block: NodeIndex,
-        result: Ident
-    },
+    Function(NodeIndex),
     AddInt(Ident, Ident),
     SubInt(Ident, Ident),
     MulInt(Ident, Ident),
@@ -572,8 +580,7 @@ impl fmt::Debug for Value {
             Value::Unit => f.write_str("()"),
             Value::Int(n) => write!(f, "{}", n),
             Value::String(s) => write!(f, "\"{}\"", s),
-            Value::Function { entry_block, exit_block, result } =>
-                write!(f, "λ({}..{}, {:?}) ", entry_block.index(), exit_block.index(), result),
+            Value::Function(entry_block) => write!(f, "λ{} ", entry_block.index()),
             Value::AddInt(left, right) => write!(f, "{:?} + {:?}", left, right),
             Value::SubInt(left, right) => write!(f, "{:?} - {:?}", left, right),
             Value::MulInt(left, right) => write!(f, "{:?} * {:?}", left, right),
@@ -613,8 +620,13 @@ fn gen_ir() -> TestResult {
     f (λ (u:str, v:str) -> \"(\" + u + \", \" + v + \")\") \"hello\" \"world\"
     f (λ (u:str, v:str) -> \"<\" + u + \"; \" + v + \">\") \"bye\" \"seeya\"
     ")?;
+
     let cfg = FrontEnd::new().build(&code);
     let mut output = File::create("ir_cfg.dot")?;
-    write!(output, "{:?}", Dot::with_config(&cfg.graph, &[EdgeNoLabel]))?;
+    write!(output, "{:?}", Dot::with_config(&*cfg.graph, &[EdgeNoLabel]))?;
+
+    let value = eval::EvalContext::new(&cfg).eval();
+    assert_eq!(value, Value::String(Rc::new("<bye; seeya>".to_owned())));
+
     Ok(())
 }

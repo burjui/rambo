@@ -16,6 +16,7 @@ use crate::eval::Evaluator;
 use crate::eval::Evalue;
 use crate::graphviz::Graphviz;
 use crate::ir;
+use crate::ir::eval::EvalContext;
 use crate::lexer::Lexer;
 use crate::parser::Block as ASTBlock;
 use crate::parser::Parser;
@@ -107,7 +108,8 @@ compiler_passes! {
     Parse,
     VerifySemantics,
     ReportRedundantBindings,
-    NewIR,
+    IR,
+    EvaluateIR,
     SSA,
     BuildControlFlowGraph,
     EvaluateSSA,
@@ -188,7 +190,7 @@ impl CompilerPass<ExprRef, ExprRef> for ReportRedundantBindings {
     }
 }
 
-impl CompilerPass<ExprRef, (ExprRef, ir::ControlFlowGraph)> for NewIR {
+impl CompilerPass<ExprRef, (ExprRef, ir::ControlFlowGraph)> for IR {
     const NAME: &'static str = "ir";
     const TITLE: &'static str = "Generating IR";
 
@@ -197,17 +199,28 @@ impl CompilerPass<ExprRef, (ExprRef, ir::ControlFlowGraph)> for NewIR {
         let cfg = frontend.build(&hir);
         if options.dump_cfg {
             let mut output = File::create("ir_cfg.dot")?;
-            write!(output, "{:?}", Dot::with_config(&cfg.graph, &[EdgeNoLabel]))?;
+            write!(output, "{:?}", Dot::with_config(&*cfg.graph, &[EdgeNoLabel]))?;
         }
         Ok((hir, cfg))
     }
 }
 
-impl CompilerPass<(ExprRef, ir::ControlFlowGraph), (ExprRef, Vec<SSAStatement>)> for SSA {
+impl CompilerPass<(ExprRef, ir::ControlFlowGraph), ExprRef> for EvaluateIR {
+    const NAME: &'static str = "eval_ir";
+    const TITLE: &'static str = "Evaluating IR";
+
+    fn apply(input: (ExprRef, ir::ControlFlowGraph), _: &PipelineOptions) -> Result<ExprRef, Box<dyn Error>> {
+        let value = EvalContext::new(&input.1).eval();
+        writeln!(&mut stdout(), "{:?}", value)?;
+        Ok(input.0)
+    }
+}
+
+impl CompilerPass<ExprRef, (ExprRef, Vec<SSAStatement>)> for SSA {
     const NAME: &'static str = "ssa";
     const TITLE: &'static str = "Generating SSA";
 
-    fn apply((hir, _): (ExprRef, ir::ControlFlowGraph), options: &PipelineOptions) -> Result<(ExprRef, Vec<SSAStatement>), Box<dyn Error>> {
+    fn apply(hir: ExprRef, options: &PipelineOptions) -> Result<(ExprRef, Vec<SSAStatement>), Box<dyn Error>> {
         let ssa = generate_ssa(&hir);
         if options.dump_intermediate {
             writeln!(&mut stdout(), "{:?}", ssa.iter().format("\n"))?;
@@ -250,7 +263,7 @@ impl CompilerPass<(ExprRef, Vec<SSAStatement>), ExprRef> for EvaluateSSA {
 
 impl CompilerPass<ExprRef, Evalue> for Evaluate {
     const NAME: &'static str = "eval";
-    const TITLE: &'static str = "Evaluating";
+    const TITLE: &'static str = "Evaluating HIR";
 
     fn apply(hir: ExprRef, _: &PipelineOptions) -> Result<Evalue, Box<dyn Error>> {
         let mut evaluator = Evaluator::new();
