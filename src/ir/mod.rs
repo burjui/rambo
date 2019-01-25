@@ -58,6 +58,7 @@ pub(crate) struct ControlFlowGraph {
     pub(crate) entry_block: NodeIndex,
     pub(crate) exit_block: NodeIndex,
     pub(crate) undefined: Ident,
+    pub(crate) id_count: usize,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -132,6 +133,7 @@ impl FrontEnd {
             entry_block: self.entry_block,
             exit_block,
             undefined: self.undefined,
+            id_count: self.next_id
         }
     }
 

@@ -1,7 +1,8 @@
 use std::mem::replace;
+use std::ops::Index;
+use std::ops::IndexMut;
 use std::rc::Rc;
 
-use hashbrown::HashMap;
 use itertools::Itertools;
 use num_bigint::BigInt;
 use num_traits::identities::Zero;
@@ -9,38 +10,15 @@ use petgraph::graph::NodeIndex;
 use petgraph::prelude::Direction::Outgoing;
 use petgraph::visit::EdgeRef;
 
+use crate::ir::BasicBlock;
 use crate::ir::ControlFlowGraph;
 use crate::ir::Ident;
 use crate::ir::Statement;
 use crate::ir::Value;
 
-#[derive(Debug)]
-struct RuntimeValue {
-    value: Value,
-    timestamp: usize,
-}
-
-impl From<&RuntimeValue> for BigInt {
-    fn from(value: &RuntimeValue) -> Self {
-        match &value.value {
-            Value::Int(n) => n.clone(),
-            _ => unreachable!("BigInt::from(): {:?}", value),
-        }
-    }
-}
-
-impl From<&RuntimeValue> for Rc<String> {
-    fn from(value: &RuntimeValue) -> Self {
-        match &value.value {
-            Value::String(s) => s.clone(),
-            _ => unreachable!("BigInt::from(): {:?}", value),
-        }
-    }
-}
-
 pub(crate) struct EvalContext<'a> {
     cfg: &'a ControlFlowGraph,
-    env: HashMap<Ident, RuntimeValue>,
+    env: EvalEnv,
     stack: Vec<Ident>,
     timestamp: usize,
 }
@@ -49,7 +27,7 @@ impl<'a> EvalContext<'a> {
     pub(crate) fn new(cfg: &'a ControlFlowGraph) -> Self {
         Self {
             cfg,
-            env: HashMap::new(),
+            env: EvalEnv::new(cfg.id_count, RuntimeValue::undefined()),
             stack: Vec::new(),
             timestamp: 0,
         }
@@ -60,38 +38,33 @@ impl<'a> EvalContext<'a> {
     }
 
     fn eval_impl(&mut self, block: NodeIndex) -> Value {
-        let mut result = self.cfg.undefined;
-        let (mut block, mut index) = (block, 0);
+        let mut result = &self.cfg.undefined;
+        let mut state = self.new_state(block);
         loop {
-            let basic_block = self.cfg.graph.block(block);
-            if index >= basic_block.len() {
-                let outgoing_edges = self.cfg.graph.0
-                    .edges_directed(block, Outgoing)
-                    .collect_vec();
-                debug_assert!(outgoing_edges.len() <= 1, "detected branching without branching instruction");
-                if outgoing_edges.is_empty() {
-                    break;
-                } else {
-                    block = outgoing_edges[0].target();
-                    index = 0;
-                }
+            if state.statement_index >= state.basic_block.len() {
+                let mut outgoing_edges = self.cfg.graph.edges_directed(state.block, Outgoing);
+                match outgoing_edges.next() {
+                    Some(edge) => state = self.new_state(edge.target()),
+                    None => break,
+                };
+                debug_assert_eq!(outgoing_edges.next(), None, "detected branching without branching instruction");
             }
 
-            match &basic_block[index] {
+            match &state.basic_block[state.statement_index] {
                 Statement::Comment(_) => (),
 
                 Statement::Definition { ident, value } => {
                     let value = self.eval_value(value);
-                    result = *ident;
-                    self.define(result, value);
+                    self.define(ident, value);
+                    result = ident;
                 }
 
                 Statement::CondJump(var, then_block, else_block) => {
                     let value = &self.env[var].value;
                     match value {
                         Value::Int(n) => {
-                            block = if n.is_zero() { *else_block } else { *then_block };
-                            index = 0;
+                            let block = if n.is_zero() { else_block } else { then_block };
+                            state = self.new_state(*block);
                             continue;
                         }
 
@@ -99,9 +72,17 @@ impl<'a> EvalContext<'a> {
                     }
                 }
             }
-            index += 1;
+            state.statement_index += 1;
         }
-        self.env.remove(&result).unwrap().value
+        replace(&mut self.env[result], RuntimeValue::undefined()).value
+    }
+
+    fn new_state(&self, block: NodeIndex) -> LocalEvalState<'a> {
+        LocalEvalState {
+            block,
+            basic_block: self.cfg.graph.block(block),
+            statement_index: 0
+        }
     }
 
     fn eval_value(&mut self, value: &Value) -> Value {
@@ -121,7 +102,7 @@ impl<'a> EvalContext<'a> {
                 (*self.string(left)).clone() + &self.string(right))),
 
             Value::Phi(operands) => operands.iter()
-                .filter_map(|operand| self.env.get(operand))
+                .filter_map(|operand| self.env.get(*operand))
                 .minmax_by(|value1, value2| value1.timestamp.cmp(&value2.timestamp))
                 .into_option()
                 .unwrap()
@@ -150,12 +131,13 @@ impl<'a> EvalContext<'a> {
         }
     }
 
-    fn define(&mut self, ident: Ident, value: Value) {
+    #[allow(clippy::trivially_copy_pass_by_ref)]
+    fn define(&mut self, ident: &Ident, value: Value) {
         let next_timestamp = self.timestamp + 1;
-        self.env.insert(ident, RuntimeValue {
+        self.env[ident] = RuntimeValue {
             value,
             timestamp: replace(&mut self.timestamp, next_timestamp),
-        });
+        };
     }
 
     #[allow(clippy::trivially_copy_pass_by_ref)]
@@ -170,5 +152,87 @@ impl<'a> EvalContext<'a> {
 
     fn runtime_value(&self, ident: &Ident) -> &RuntimeValue {
         &self.env[ident]
+    }
+}
+
+#[derive(Deref, DerefMut)]
+struct EvalEnv(Vec<RuntimeValue>);
+
+impl EvalEnv {
+    fn new(length: usize, default_value: RuntimeValue) -> Self {
+        let mut vec = Vec::with_capacity(length);
+        vec.resize(length, default_value);
+        Self(vec)
+    }
+
+    fn get(&self, ident: Ident) -> Option<&RuntimeValue> {
+        self.0.get(ident.0)
+    }
+}
+
+impl Index<&Ident> for EvalEnv {
+    type Output = RuntimeValue;
+
+    fn index(&self, ident: &Ident) -> &Self::Output {
+        self.index(*ident)
+    }
+}
+
+impl Index<Ident> for EvalEnv {
+    type Output = RuntimeValue;
+
+    fn index(&self, ident: Ident) -> &Self::Output {
+        &self.0[ident.0]
+    }
+}
+
+impl IndexMut<&Ident> for EvalEnv {
+    fn index_mut(&mut self, ident: &Ident) -> &mut Self::Output {
+        self.index_mut(*ident)
+    }
+}
+
+impl IndexMut<Ident> for EvalEnv {
+    fn index_mut(&mut self, ident: Ident) -> &mut Self::Output {
+        &mut self.0[ident.0]
+    }
+}
+
+struct LocalEvalState<'a> {
+    block: NodeIndex,
+    basic_block: &'a BasicBlock,
+    statement_index: usize,
+}
+
+#[derive(Debug, Clone)]
+struct RuntimeValue {
+    value: Value,
+    timestamp: usize,
+}
+
+impl RuntimeValue {
+    fn undefined() -> Self {
+        Self {
+            value: Value::Undefined,
+            timestamp: 0,
+        }
+    }
+}
+
+impl From<&RuntimeValue> for BigInt {
+    fn from(value: &RuntimeValue) -> Self {
+        match &value.value {
+            Value::Int(n) => n.clone(),
+            _ => unreachable!("BigInt::from(): {:?}", value),
+        }
+    }
+}
+
+impl From<&RuntimeValue> for Rc<String> {
+    fn from(value: &RuntimeValue) -> Self {
+        match &value.value {
+            Value::String(s) => s.clone(),
+            _ => unreachable!("BigInt::from(): {:?}", value),
+        }
     }
 }
