@@ -57,26 +57,5 @@ pub(crate) fn stdout() -> StandardStream {
     StandardStream::stdout(color_choice)
 }
 
-#[cfg(feature = "dump_ssa_in_tests")]
-pub(crate) mod ssa {
-    use std::error::Error;
-
-    use crate::ssa::SSAStatement;
-
-    pub(crate) fn dump(code: &str, ssa: &[SSAStatement]) -> Result<(), Box<dyn Error>> {
-        use std::fs::File;
-        use std::io::Write;
-        use std::sync::Mutex;
-        use itertools::Itertools;
-        use once_cell::sync::Lazy;
-        use once_cell::sync_lazy;
-
-        static SSA_TXT: Lazy<Mutex<File>> = sync_lazy!(Mutex::new(File::create("ssa.txt").unwrap()));
-        let mut file = SSA_TXT.lock().unwrap();
-        writeln!(file, "-------------\nCODE:\n{}\n\nSSA:\n{:#?}", code, ssa.iter().format("\n"))?;
-        Ok(())
-    }
-}
-
 #[cfg(test)]
 pub(crate) type TestResult = Result<(), Box<dyn Error>>;
