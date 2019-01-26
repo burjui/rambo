@@ -1,3 +1,9 @@
+use std::fmt;
+use std::iter::empty;
+use std::iter::once;
+use std::mem::replace;
+use std::rc::Rc;
+
 use hashbrown::HashMap;
 use hashbrown::HashSet;
 use itertools::Itertools;
@@ -9,11 +15,6 @@ use petgraph::graph::DiGraph;
 use petgraph::graph::NodeIndex;
 use petgraph::prelude::Direction::Incoming;
 use petgraph::visit::EdgeRef;
-use std::fmt;
-use std::iter::empty;
-use std::iter::once;
-use std::mem::replace;
-use std::rc::Rc;
 
 use crate::semantics::BindingKind;
 use crate::semantics::BindingRef;
@@ -26,58 +27,14 @@ use crate::utils::WHITESPACE_REGEX;
 
 pub(crate) mod eval;
 
-#[derive(Deref, DerefMut)]
-pub(crate) struct BasicBlock(Vec<Statement>);
-
-impl fmt::Debug for BasicBlock {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        writeln!(f, "{:?}", self.iter().format("\n"))
-    }
-}
-
-#[derive(Deref, DerefMut)]
-pub(crate) struct BasicBlockGraph(DiGraph<BasicBlock, ()>);
-
-impl BasicBlockGraph {
-    pub(crate) fn new() -> Self {
-        Self(DiGraph::new())
-    }
-
-    pub(crate) fn block(&self, block: NodeIndex) -> &BasicBlock {
-        self.node_weight(block).unwrap()
-    }
-
-    pub(crate) fn block_mut(&mut self, block: NodeIndex) -> &mut BasicBlock {
-        self.node_weight_mut(block).unwrap()
-    }
-}
-
-pub(crate) struct ControlFlowGraph {
-    pub(crate) graph: BasicBlockGraph,
-    pub(crate) entry_block: NodeIndex,
-    pub(crate) exit_block: NodeIndex,
-    pub(crate) undefined: Ident,
-    pub(crate) id_count: usize,
-}
-
-#[derive(Copy, Clone, Debug, PartialEq)]
-struct StatementLocation {
-    block: NodeIndex,
-    index: usize
-}
-
-impl StatementLocation {
-    fn new(block: NodeIndex, index: usize) -> Self {
-        Self { block, index }
-    }
-}
-
-type TrivialPhiMap = MultiMap<NodeIndex, usize>;
+pub(crate) struct EnableWarnings(pub(crate) bool);
 
 pub(crate) struct FrontEnd {
+    enable_warnings: bool,
     graph: BasicBlockGraph,
     next_id: usize,
     variables: HashMap<BindingRef, HashMap<NodeIndex, Ident>>,
+    variables_read: HashSet<BindingRef>,
     sealed_blocks: HashSet<NodeIndex>,
     incomplete_phis: HashMap<NodeIndex, HashMap<BindingRef, Ident>>,
     phi_locations: HashMap<Ident, StatementLocation>,
@@ -98,11 +55,13 @@ Compiler Construction. CC 2013.
 Lecture Notes in Computer Science, vol 7791. Springer, Berlin, Heidelberg
 */
 impl FrontEnd {
-    pub(crate) fn new() -> Self {
+    pub(crate) fn new(EnableWarnings(enable_warnings): EnableWarnings) -> Self {
         let mut instance = Self {
+            enable_warnings,
             graph: BasicBlockGraph::new(),
             next_id: 0,
             variables: HashMap::new(),
+            variables_read: HashSet::new(),
             sealed_blocks: HashSet::new(),
             incomplete_phis: HashMap::new(),
             phi_locations: HashMap::new(),
@@ -120,11 +79,10 @@ impl FrontEnd {
 
     pub(crate) fn build(mut self, code: &ExprRef) -> ControlFlowGraph {
         let (exit_block, _) = self.process_expr(code, self.entry_block);
-        assert!(self.undefined_users.is_empty(),
-                "found undefined usages:\n{:?}\n",
-                self.undefined_users.iter()
-                    .map(|user| &self.graph.block(user.block)[user.index])
-                    .format("\n"));
+        self.assert_no_undefined_variables();
+        if self.enable_warnings {
+            self.warn_about_redundant_bindings();
+        }
         remove_trivial_phi_statements(&mut self.graph, self.trivial_phis);
 
         ControlFlowGraph {
@@ -133,6 +91,26 @@ impl FrontEnd {
             exit_block,
             undefined: self.undefined,
             id_count: self.next_id
+        }
+    }
+
+    fn assert_no_undefined_variables(&self) {
+        assert!(self.undefined_users.is_empty(), "found undefined usages:\n{:?}\n",
+                self.undefined_users.iter()
+                    .map(|user| &self.graph.block(user.block)[user.index])
+                    .format("\n"));
+    }
+
+    fn warn_about_redundant_bindings(&self) {
+        let redundant_bindings = self.variables
+            .keys()
+            .cloned()
+            .collect::<HashSet<BindingRef>>()
+            .difference(&self.variables_read)
+            .cloned()
+            .sorted_by(|a, b| a.source.range().start().cmp(&b.source.range().start()));
+        for binding in redundant_bindings {
+            warning_at!(binding.source, "unused definition: {}", binding.source.text());
         }
     }
 
@@ -275,6 +253,9 @@ impl FrontEnd {
     }
 
     fn read_variable(&mut self, variable: &BindingRef, block: NodeIndex) -> Ident {
+        if !self.variables_read.contains(variable) {
+            self.variables_read.insert(variable.clone());
+        }
         self.variables
             .get(variable)
             .and_then(|map| map.get(&block))
@@ -525,6 +506,56 @@ fn replace_phi(value: &mut Value, phi: Ident, replacement: Ident) {
     }
 }
 
+
+
+#[derive(Deref, DerefMut)]
+pub(crate) struct BasicBlock(Vec<Statement>);
+
+impl fmt::Debug for BasicBlock {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(f, "{:?}", self.iter().format("\n"))
+    }
+}
+
+#[derive(Deref, DerefMut)]
+pub(crate) struct BasicBlockGraph(DiGraph<BasicBlock, ()>);
+
+impl BasicBlockGraph {
+    pub(crate) fn new() -> Self {
+        Self(DiGraph::new())
+    }
+
+    pub(crate) fn block(&self, block: NodeIndex) -> &BasicBlock {
+        self.node_weight(block).unwrap()
+    }
+
+    pub(crate) fn block_mut(&mut self, block: NodeIndex) -> &mut BasicBlock {
+        self.node_weight_mut(block).unwrap()
+    }
+}
+
+pub(crate) struct ControlFlowGraph {
+    pub(crate) graph: BasicBlockGraph,
+    pub(crate) entry_block: NodeIndex,
+    pub(crate) exit_block: NodeIndex,
+    pub(crate) undefined: Ident,
+    pub(crate) id_count: usize,
+}
+
+#[derive(Copy, Clone, Debug, PartialEq)]
+struct StatementLocation {
+    block: NodeIndex,
+    index: usize
+}
+
+impl StatementLocation {
+    fn new(block: NodeIndex, index: usize) -> Self {
+        Self { block, index }
+    }
+}
+
+type TrivialPhiMap = MultiMap<NodeIndex, usize>;
+
 #[derive(Copy, Clone, Eq, PartialEq, Hash)]
 pub(crate) struct Ident(usize);
 
@@ -622,7 +653,7 @@ fn gen_ir() -> TestResult {
     f (λ (u:str, v:str) -> \"<\" + u + \"; \" + v + \">\") \"bye\" \"seeya\"
     ")?;
 
-    let cfg = FrontEnd::new().build(&code);
+    let cfg = FrontEnd::new(EnableWarnings(false)).build(&code);
     let mut output = File::create("ir_cfg.dot")?;
     write!(output, "{:?}", Dot::with_config(&*cfg.graph, &[EdgeNoLabel]))?;
 

@@ -20,7 +20,6 @@ use crate::pipeline::Load;
 use crate::pipeline::Parse;
 use crate::pipeline::Pipeline;
 use crate::pipeline::PipelineOptions;
-use crate::pipeline::ReportRedundantBindings;
 use crate::pipeline::StandardStreamUtils;
 use crate::pipeline::VerifySemantics;
 use crate::utils::stdout;
@@ -42,7 +41,6 @@ mod eval;
 mod semantics;
 mod env;
 mod pipeline;
-mod redundant_bindings;
 mod unique_rc;
 mod graphviz;
 mod ir;
@@ -105,7 +103,7 @@ fn parse_command_line() -> Result<CommandLine, Box<dyn Error>> {
         std::process::exit(0);
     }
     let pipeline_options = PipelineOptions {
-        warnings: !matches.opt_present(WARNINGS_OPTION),
+        enable_warnings: !matches.opt_present(WARNINGS_OPTION),
         dump_intermediate: matches.opt_present(DUMP_OPTION),
         dump_cfg: matches.opt_present(DUMP_CFG_OPTION),
         cfg_include_comments: matches.opt_count(DUMP_CFG_OPTION) > 1,
@@ -132,7 +130,6 @@ fn process(path: String, options: &PipelineOptions) -> Result<(), Box<dyn Error>
         .map(Load)?
         .map(Parse)?
         .map(VerifySemantics)?
-        .map(ReportRedundantBindings)?
         .map(IR)?
         .map(EvaluateIR)?
         .map(Evaluate)

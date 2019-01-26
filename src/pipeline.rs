@@ -16,8 +16,6 @@ use crate::ir::eval::EvalContext;
 use crate::lexer::Lexer;
 use crate::parser::Block as ASTBlock;
 use crate::parser::Parser;
-use crate::redundant_bindings::report_redundant_bindings;
-use crate::redundant_bindings::Warnings;
 use crate::semantics::ExprRef;
 use crate::semantics::SemanticsChecker;
 use crate::source::SourceFile;
@@ -26,7 +24,7 @@ use crate::utils::stdout;
 
 #[derive(Clone)]
 pub(crate) struct PipelineOptions {
-    pub(crate) warnings: bool,
+    pub(crate) enable_warnings: bool,
     pub(crate) dump_intermediate: bool,
     pub(crate) dump_cfg: bool,
     pub(crate) cfg_include_comments: bool,
@@ -100,7 +98,6 @@ compiler_passes! {
     Load,
     Parse,
     VerifySemantics,
-    ReportRedundantBindings,
     IR,
     EvaluateIR,
     Evaluate
@@ -169,23 +166,12 @@ impl CompilerPass<ASTBlock, ExprRef> for VerifySemantics {
     }
 }
 
-impl CompilerPass<ExprRef, ExprRef> for ReportRedundantBindings {
-    const NAME: &'static str = "rb";
-    const TITLE: &'static str = "Detecting redundant bindings";
-
-    fn apply(hir: ExprRef, options: &PipelineOptions) -> Result<ExprRef, Box<dyn Error>> {
-        // TODO pass stdout to report_redundant_bindings()
-        report_redundant_bindings(&hir, Warnings(options.warnings));
-        Ok(hir)
-    }
-}
-
 impl CompilerPass<ExprRef, (ExprRef, ir::ControlFlowGraph)> for IR {
     const NAME: &'static str = "ir";
     const TITLE: &'static str = "Generating IR";
 
     fn apply(hir: ExprRef, options: &PipelineOptions) -> Result<(ExprRef, ir::ControlFlowGraph), Box<dyn Error>> {
-        let frontend = ir::FrontEnd::new();
+        let frontend = ir::FrontEnd::new(ir::EnableWarnings(options.enable_warnings));
         let cfg = frontend.build(&hir);
         if options.dump_cfg {
             let mut file = File::create("ir_cfg.dot")?;
