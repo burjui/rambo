@@ -1,9 +1,3 @@
-use std::fmt;
-use std::iter::empty;
-use std::iter::once;
-use std::mem::replace;
-use std::rc::Rc;
-
 use hashbrown::HashMap;
 use hashbrown::HashSet;
 use itertools::Itertools;
@@ -15,6 +9,11 @@ use petgraph::graph::DiGraph;
 use petgraph::graph::NodeIndex;
 use petgraph::prelude::Direction::Incoming;
 use petgraph::visit::EdgeRef;
+use std::fmt;
+use std::iter::empty;
+use std::iter::once;
+use std::mem::replace;
+use std::rc::Rc;
 
 use crate::semantics::BindingKind;
 use crate::semantics::BindingRef;
