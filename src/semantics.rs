@@ -33,7 +33,7 @@ impl SemanticsChecker {
 
     pub(crate) fn check_module(mut self, code: &ASTBlock) -> CheckResult<ExprRef> {
         let block = self.check_block(code.statements.iter(), code.source.clone())?;
-        Ok(ExprRef(self.expr_arena.alloc(block)))
+        Ok(self.new_expr(block))
     }
 
     fn check_statement(&mut self, statement: &Statement) -> CheckResult<TypedStatement> {
@@ -54,19 +54,19 @@ impl SemanticsChecker {
 
     fn check_expr(&mut self, expr: &Expr) -> CheckResult<ExprRef> {
         match expr {
-            Expr::Unit(source) => Ok(ExprRef(self.expr_arena.alloc(TypedExpr::Unit(source.clone())))),
+            Expr::Unit(source) => Ok(self.new_expr(TypedExpr::Unit(source.clone()))),
             Expr::Int(source) => {
                 let value = source.text().parse::<BigInt>()?;
-                Ok(ExprRef(self.expr_arena.alloc(TypedExpr::Int(value, source.clone()))))
+                Ok(self.new_expr(TypedExpr::Int(value, source.clone())))
             },
             Expr::String(source) => {
                 let text = source.text();
                 let value = Rc::new(text[1..text.len() - 1].to_owned());
-                Ok(ExprRef(self.expr_arena.alloc(TypedExpr::String(value, source.clone()))))
+                Ok(self.new_expr(TypedExpr::String(value, source.clone())))
             },
             Expr::Id(name) => {
                 let binding = self.env.resolve(&Rc::new(name.text().to_owned()))?;
-                Ok(ExprRef(self.expr_arena.alloc(TypedExpr::Reference(binding.clone(), name.clone()))))
+                Ok(self.new_expr(TypedExpr::Reference(binding.clone(), name.clone())))
             },
             Expr::Binary { operation, left, right, .. } => {
                 match operation {
@@ -77,7 +77,7 @@ impl SemanticsChecker {
                             let binding_type = binding.data.type_();
                             let value_type = value.type_();
                             if binding.data.type_() == value.type_() {
-                                Ok(ExprRef(self.expr_arena.alloc(TypedExpr::Assign(binding, value, expr.source().clone()))))
+                                Ok(self.new_expr(TypedExpr::Assign(binding, value, expr.source().clone())))
                             } else {
                                 error!("assigning a value of type `{:?}' to the variable of type `{:?}': {:?}", value_type, binding_type, &expr)
                             }
@@ -97,8 +97,8 @@ impl SemanticsChecker {
 
                         match operation {
                             BinaryOperation::Add => match left_type {
-                                Type::Int => Ok(ExprRef(self.expr_arena.alloc(TypedExpr::AddInt(left_checked, right_checked, expr.source().clone())))),
-                                Type::String => Ok(ExprRef(self.expr_arena.alloc(TypedExpr::AddStr(left_checked, right_checked, expr.source().clone())))),
+                                Type::Int => Ok(self.new_expr(TypedExpr::AddInt(left_checked, right_checked, expr.source().clone()))),
+                                Type::String => Ok(self.new_expr(TypedExpr::AddStr(left_checked, right_checked, expr.source().clone()))),
                                 _ => error!("operation `{:?}' is not implemented for type `{:?}'", operation, left_type)
                             },
                             operation => {
@@ -110,7 +110,7 @@ impl SemanticsChecker {
                                             BinaryOperation::Divide => TypedExpr::DivInt,
                                             _ => unreachable!()
                                         };
-                                    Ok(ExprRef(self.expr_arena.alloc(constructor(left_checked, right_checked, expr.source().clone()))))
+                                    Ok(self.new_expr(constructor(left_checked, right_checked, expr.source().clone())))
                                 } else {
                                     error!("operation `{:?}' is not implemented for type `{:?}'", operation, left_type)
                                 }
@@ -121,8 +121,7 @@ impl SemanticsChecker {
             },
             Expr::Lambda { source, parameters, body } => {
                 let function = self.check_function(parameters.as_slice(), &body)?;
-                Ok(ExprRef(self.expr_arena.alloc(
-                    TypedExpr::Lambda(LambdaRef::from(function), source.clone()))))
+                Ok(self.new_expr(TypedExpr::Lambda(LambdaRef::from(function), source.clone())))
             },
             Expr::Application { source, function, arguments } => {
                 let function = self.check_expr(&function)?;
@@ -156,12 +155,12 @@ impl SemanticsChecker {
                     arguments_checked
                 };
 
-                Ok(ExprRef(self.expr_arena.alloc(TypedExpr::Application {
+                Ok(self.new_expr(TypedExpr::Application {
                     type_: function_type.result.clone(),
                     function,
                     arguments: arguments_checked,
                     source: source.clone()
-                })))
+                }))
             },
             Expr::Conditional { source, condition, positive, negative } => {
                 let condition_typed = self.check_expr(condition)?;
@@ -211,22 +210,22 @@ impl SemanticsChecker {
                                   positive_type, negative_type);
                 }
 
-                Ok(ExprRef(self.expr_arena.alloc(TypedExpr::Conditional {
+                Ok(self.new_expr(TypedExpr::Conditional {
                     condition: condition_typed,
-                    positive: ExprRef(self.expr_arena.alloc(positive)),
-                    negative: ExprRef(self.expr_arena.alloc(negative)),
+                    positive: self.new_expr(positive),
+                    negative: self.new_expr(negative),
                     type_: positive_type,
                     source: source.clone()
-                })))
+                }))
             },
             Expr::Block(ASTBlock { source, statements }) => {
                 let statements = statements.iter()
                     .map(|statement| self.check_statement(statement))
                     .collect::<CheckResult<Vec<_>>>()?;
-                Ok(ExprRef(self.expr_arena.alloc(TypedExpr::Block(Block {
+                Ok(self.new_expr(TypedExpr::Block(Block {
                     statements,
                     source: source.clone()
-                }))))
+                })))
             }
         }
     }
@@ -236,7 +235,7 @@ impl SemanticsChecker {
         let mut parameter_bindings = vec![];
         for (index, parameter) in parameters.iter().enumerate() {
             let name = Rc::new(parameter.name.text().to_owned());
-            let value = ExprRef(self.expr_arena.alloc(TypedExpr::ArgumentPlaceholder(name.clone(), parameter.type_.clone())));
+            let value = self.new_expr(TypedExpr::ArgumentPlaceholder(name.clone(), parameter.type_.clone()));
             let binding = BindingRef::from(Binding::new(name.clone(), value, parameter.source.clone(), BindingKind::Arg(index)));
             self.env.bind(name.clone(), binding.clone());
             parameter_bindings.push(binding);
@@ -269,8 +268,7 @@ impl SemanticsChecker {
         }
         else {
             if let TypedStatement::Binding(_) = statements.last().unwrap() {
-                statements.push(TypedStatement::Expr(ExprRef(self.expr_arena.alloc( // TODO way too verbose, refactor
-                    TypedExpr::Unit(source.clone())))));
+                statements.push(TypedStatement::Expr(self.new_expr(TypedExpr::Unit(source.clone()))));
             }
             TypedExpr::Block(Block {
                 statements,
@@ -278,6 +276,10 @@ impl SemanticsChecker {
             })
         };
         Ok(expr)
+    }
+
+    fn new_expr(&self, expr: TypedExpr) -> ExprRef {
+        ExprRef(self.expr_arena.alloc(expr))
     }
 }
 
