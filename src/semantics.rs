@@ -27,7 +27,7 @@ impl SemanticsChecker {
     pub(crate) fn new() -> Self {
         SemanticsChecker {
             env: Environment::new(),
-            expr_arena: Arena::new()
+            expr_arena: Arena::new(),
         }
     }
 
@@ -429,7 +429,7 @@ impl Debug for TypedExpr {
 }
 
 impl TypedExpr {
-    pub(crate) fn type_(&self) -> Type { // TODO return &Type
+    pub(crate) fn type_(&self) -> Type {
         match self {
             TypedExpr::ArgumentPlaceholder(_, type_) => type_.clone(),
             TypedExpr::Unit(_) => Type::Unit,

@@ -178,7 +178,7 @@ struct Executor<'vm, 'program, 'stdout> {
 impl<'vm, 'program, 'stdout> Executor<'vm, 'program, 'stdout> {
     fn run(mut self) -> Result<(), Box<dyn Error>> {
         self.vm.rodata = self.program.rodata.clone();
-        let program_length = self.program.code.len() as u32; // FIXME is it needed?
+        let program_length = self.program.code.len() as u32;
         *self.vm.reg_mut(PC) = 0;
         if self.debug_print {
             self.dump_code()?;
