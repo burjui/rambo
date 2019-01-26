@@ -28,8 +28,6 @@ where Key: Eq + Debug + Hash + Clone, Value: Debug {
         Err(From::from(format!("`{:?}' is undefined", key)))
     }
 
-    // TODO automatic pop() at the end of a block
-
     pub(crate) fn push(&mut self) {
         self.scopes.push(HashMap::new());
     }

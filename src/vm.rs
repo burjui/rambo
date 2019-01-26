@@ -317,7 +317,7 @@ impl Deref for Address {
 }
 
 #[derive(Copy, Clone, Debug)]
-#[allow(unused)] // TODO remove when codegen is ready
+#[allow(unused)]
 pub(crate) enum Instruction {
     Stop,
     Debug,

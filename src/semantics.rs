@@ -299,7 +299,6 @@ impl Debug for FunctionType {
     }
 }
 
-// TODO impl Debug with parenthesis
 #[derive(Clone, PartialEq)]
 pub(crate) enum Type {
     Unit,
