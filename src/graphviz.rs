@@ -60,12 +60,8 @@ impl Graphviz {
                 _ => false,
             };
             if !is_a_comment || self.include_comments {
-//                write!(sink, "<tr><td fixedsize=\"true\" width=\"30\">")?;
                 self.fmt_statement(sink, statement)?;
-//                write!(sink, "</td></tr>")?;
-                if i < block.len() - 1 {
-                    writeln!(sink, "<br align=\"left\"/>")?;
-                }
+                writeln!(sink, "<br align=\"left\"/>")?;
             }
         }
         writeln!(sink, "</td></tr></table>")?;
@@ -76,8 +72,8 @@ impl Graphviz {
         match statement {
             Statement::Comment(comment) => {
                 if self.include_comments {
-                    let escaped = escape(&WHITESPACE_REGEX.replace_all(comment, " ")).to_string();
-                    write!(sink, "// {}", colorize!(comment &escaped))?;
+                    write!(sink, "{}", colorize!(comment &format!("// {}",
+                        escape(&WHITESPACE_REGEX.replace_all(comment, " ")).to_string())))?;
                 }
             }
 
@@ -99,7 +95,7 @@ impl Graphviz {
             Value::Undefined => write!(sink, "&lt;{}&gt;", colorize!(undefined "undefined")),
             Value::Unit => write!(sink, "{}", colorize!(constant "()")),
             Value::Int(n) => write!(sink, "{}", colorize!(constant n.to_string())),
-            Value::String(s) => write!(sink, "{}", escape(&format!("\"{}\"", colorize!(constant &s)))),
+            Value::String(s) => write!(sink, "{}", colorize!(constant escape(&format!("\"{}\"", s)))),
             Value::Function(entry_block) => write!(sink, "{}", colorize!(keyword format!("λ{}", entry_block.index()))),
             Value::AddInt(left, right) => write!(sink, "{} + {}", left, right),
             Value::SubInt(left, right) => write!(sink, "{} - {}", left, right),
