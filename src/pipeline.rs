@@ -3,15 +3,11 @@ use std::fs::File;
 use std::io::Write;
 
 use itertools::Itertools;
-use petgraph::dot::Config::EdgeNoLabel;
-use petgraph::dot::Dot;
 use termcolor::Color;
 use termcolor::ColorSpec;
 use termcolor::StandardStream;
 use termcolor::WriteColor;
 
-use crate::codegen::generate_ssa;
-use crate::control_flow::build_control_flow_graph;
 use crate::eval::Evaluator;
 use crate::eval::Evalue;
 use crate::graphviz::Graphviz;
@@ -26,9 +22,6 @@ use crate::semantics::ExprRef;
 use crate::semantics::SemanticsChecker;
 use crate::source::SourceFile;
 use crate::source::SourceFileRef;
-use crate::ssa::SSAStatement;
-use crate::ssa_eval::SSAEvaluator;
-use crate::ssa_eval::Value;
 use crate::utils::stdout;
 
 #[derive(Clone)]
@@ -110,9 +103,6 @@ compiler_passes! {
     ReportRedundantBindings,
     IR,
     EvaluateIR,
-    SSA,
-    BuildControlFlowGraph,
-    EvaluateSSA,
     Evaluate
 }
 
@@ -198,8 +188,10 @@ impl CompilerPass<ExprRef, (ExprRef, ir::ControlFlowGraph)> for IR {
         let frontend = ir::FrontEnd::new();
         let cfg = frontend.build(&hir);
         if options.dump_cfg {
-            let mut output = File::create("ir_cfg.dot")?;
-            write!(output, "{:?}", Dot::with_config(&*cfg.graph, &[EdgeNoLabel]))?;
+            let mut file = File::create("ir_cfg.dot")?;
+            Graphviz::new()
+                .include_comments(options.cfg_include_comments)
+                .fmt(&mut file, &cfg.graph)?;
         }
         Ok((hir, cfg))
     }
@@ -212,51 +204,6 @@ impl CompilerPass<(ExprRef, ir::ControlFlowGraph), ExprRef> for EvaluateIR {
     fn apply(input: (ExprRef, ir::ControlFlowGraph), _: &PipelineOptions) -> Result<ExprRef, Box<dyn Error>> {
         let value = EvalContext::new(&input.1).eval();
         writeln!(&mut stdout(), "{:?}", value)?;
-        Ok(input.0)
-    }
-}
-
-impl CompilerPass<ExprRef, (ExprRef, Vec<SSAStatement>)> for SSA {
-    const NAME: &'static str = "ssa";
-    const TITLE: &'static str = "Generating SSA";
-
-    fn apply(hir: ExprRef, options: &PipelineOptions) -> Result<(ExprRef, Vec<SSAStatement>), Box<dyn Error>> {
-        let ssa = generate_ssa(&hir);
-        if options.dump_intermediate {
-            writeln!(&mut stdout(), "{:?}", ssa.iter().format("\n"))?;
-        }
-        Ok((hir, ssa))
-    }
-}
-
-impl CompilerPass<(ExprRef, Vec<SSAStatement>), (ExprRef, Vec<SSAStatement>)> for BuildControlFlowGraph {
-    const NAME: &'static str = "cfg";
-    const TITLE: &'static str = "Building control flow graph";
-
-    fn apply(input: (ExprRef, Vec<SSAStatement>), options: &PipelineOptions) -> Result<(ExprRef, Vec<SSAStatement>), Box<dyn Error>> {
-        if options.dump_cfg {
-            let graph = build_control_flow_graph(&input.1);
-            Graphviz::new()
-                .include_comments(options.cfg_include_comments)
-                .fmt(&mut File::create("cfg.dot")?, &graph)?;
-        }
-        Ok(input)
-    }
-}
-
-impl CompilerPass<(ExprRef, Vec<SSAStatement>), ExprRef> for EvaluateSSA {
-    const NAME: &'static str = "eval_ssa";
-    const TITLE: &'static str = "Evaluating SSA";
-
-    fn apply(input: (ExprRef, Vec<SSAStatement>), _: &PipelineOptions) -> Result<ExprRef, Box<dyn Error>> {
-        let result = SSAEvaluator::new().eval(&input.1);
-        let stdout = &mut stdout();
-        match result.value {
-            Value::Unit => writeln!(stdout, "()")?,
-            Value::Int(value) => writeln!(stdout, "{}", value)?,
-            Value::Str(address, offset) => writeln!(stdout, "\"{}\"", SSAEvaluator::str(&result.ram, address, offset))?,
-            _ => unreachable!("{:?}", result.value)
-        }
         Ok(input.0)
     }
 }

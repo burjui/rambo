@@ -529,9 +529,9 @@ fn replace_phi(value: &mut Value, phi: Ident, replacement: Ident) {
 #[derive(Copy, Clone, Eq, PartialEq, Hash)]
 pub(crate) struct Ident(usize);
 
-impl fmt::Debug for Ident {
+impl fmt::Display for Ident {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "v{:?}", self.0)
+        write!(f, "v{}", self.0)
     }
 }
 
@@ -551,9 +551,9 @@ impl fmt::Debug for Statement {
                 let comment = comment.replace("\n", ";");
                 write!(f, "// {}", WHITESPACE_REGEX.replace_all(&comment, " "))
             },
-            Statement::Definition { ident, value } => write!(f, "{:?} ← {:?}", ident, value),
+            Statement::Definition { ident, value } => write!(f, "{} ← {:?}", ident, value),
             Statement::CondJump(ident, positive, negative) =>
-                write!(f, "condjump {:?}, {}, {}", ident, positive.index(), negative.index()),
+                write!(f, "condjump {}, {}, {}", ident, positive.index(), negative.index()),
         }
     }
 }
@@ -583,13 +583,13 @@ impl fmt::Debug for Value {
             Value::Int(n) => write!(f, "{}", n),
             Value::String(s) => write!(f, "\"{}\"", s),
             Value::Function(entry_block) => write!(f, "λ{} ", entry_block.index()),
-            Value::AddInt(left, right) => write!(f, "{:?} + {:?}", left, right),
-            Value::SubInt(left, right) => write!(f, "{:?} - {:?}", left, right),
-            Value::MulInt(left, right) => write!(f, "{:?} * {:?}", left, right),
-            Value::DivInt(left, right) => write!(f, "{:?} / {:?}", left, right),
-            Value::AddString(left, right) => write!(f, "{:?} + {:?}", left, right),
-            Value::Phi(operands) => write!(f, "ϕ({:?})", operands.iter().format(", ")),
-            Value::Call(function, arguments) => write!(f, "call {:?}({:?})", function, arguments.iter().format(", ")),
+            Value::AddInt(left, right) => write!(f, "{} + {}", left, right),
+            Value::SubInt(left, right) => write!(f, "{} - {}", left, right),
+            Value::MulInt(left, right) => write!(f, "{} * {}", left, right),
+            Value::DivInt(left, right) => write!(f, "{} / {}", left, right),
+            Value::AddString(left, right) => write!(f, "{} + {}", left, right),
+            Value::Phi(operands) => write!(f, "ϕ({})", operands.iter().format(", ")),
+            Value::Call(function, arguments) => write!(f, "call {}({})", function, arguments.iter().format(", ")),
             Value::Arg(index) => write!(f, "arg[{}]", index),
         }
     }

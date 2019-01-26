@@ -12,18 +12,15 @@ use termcolor::Color;
 use termcolor::ColorSpec;
 use termcolor::WriteColor;
 
-use crate::pipeline::BuildControlFlowGraph;
 use crate::pipeline::COMPILER_PASS_NAMES;
 use crate::pipeline::Evaluate;
 use crate::pipeline::EvaluateIR;
-use crate::pipeline::EvaluateSSA;
 use crate::pipeline::IR;
 use crate::pipeline::Load;
 use crate::pipeline::Parse;
 use crate::pipeline::Pipeline;
 use crate::pipeline::PipelineOptions;
 use crate::pipeline::ReportRedundantBindings;
-use crate::pipeline::SSA;
 use crate::pipeline::StandardStreamUtils;
 use crate::pipeline::VerifySemantics;
 use crate::utils::stdout;
@@ -47,11 +44,7 @@ mod env;
 mod pipeline;
 mod redundant_bindings;
 mod unique_rc;
-mod codegen;
-mod ssa_eval;
-mod control_flow;
 mod graphviz;
-mod ssa;
 mod ir;
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -142,9 +135,6 @@ fn process(path: String, options: &PipelineOptions) -> Result<(), Box<dyn Error>
         .map(ReportRedundantBindings)?
         .map(IR)?
         .map(EvaluateIR)?
-        .map(SSA)?
-        .map(BuildControlFlowGraph)?
-        .map(EvaluateSSA)?
         .map(Evaluate)
         .map(|_| ())
 }

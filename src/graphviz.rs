@@ -1,21 +1,25 @@
-use core::fmt::Write;
-use std::error::Error;
-use std::fmt;
-use std::fmt::Display;
 use std::io;
 
 use askama_escape::escape;
 use itertools::Itertools;
+use petgraph::graph::Edge;
 use petgraph::graph::NodeIndex;
 
-use crate::control_flow::CFGNode;
-use crate::control_flow::ControlFlowGraph;
-use crate::ssa::SSAOp;
-use crate::ssa::SSAStatement;
+use crate::ir::BasicBlockGraph;
+use crate::ir::Statement;
+use crate::ir::Value;
 use crate::utils::WHITESPACE_REGEX;
 
 pub(crate) struct Graphviz {
     include_comments: bool
+}
+
+macro_rules! colorize {
+    ($text: expr, $color: literal) => (format_args!("<font color=\"{}\">{}</font>", $color, $text));
+    (comment $text: expr) => (colorize!($text, "grey"));
+    (constant $text: expr) => (colorize!($text, "darkorange"));
+    (keyword $text: expr) => (colorize!($text, "navy"));
+    (undefined $text: expr) => (colorize!($text, "red"));
 }
 
 impl Graphviz {
@@ -27,91 +31,84 @@ impl Graphviz {
         Self { include_comments }
     }
 
-    pub(crate) fn fmt(&self, sink: &mut impl io::Write, graph: &ControlFlowGraph<'_>) -> Result<(), Box<dyn Error>> {
-        let nodes = graph.node_indices()
-            .map(|node| self.fmt_node(node, graph))
-            .collect::<Result<Vec<_>, fmt::Error>>()?;
-        let edges = graph.raw_edges().iter()
-            .map(|edge| format!("  {:?} -> {:?}", edge.source().index(), edge.target().index()));
-        let fontspec = "  node [ fontname = \"Fira Code\"  ]";
-        writeln!(sink, "digraph {{\n{}\n{}\n{}\n}}", fontspec, nodes.iter().format("\n"), edges.format("\n"))?;
+    pub(crate) fn fmt(&self, sink: &mut impl io::Write, graph: &BasicBlockGraph) -> Result<(), io::Error> {
+        writeln!(sink, "digraph {{\nnode [ fontname = \"Fira Code\" ]")?;
+        for node in graph.node_indices() {
+            self.fmt_node(sink, node, graph)?;
+        }
+        for edge in graph.raw_edges().iter() {
+            self.fmt_edge(sink, edge)?;
+        }
+        writeln!(sink, "}}")
+    }
+
+    fn fmt_node(&self, sink: &mut impl io::Write, block: NodeIndex, graph: &BasicBlockGraph) -> Result<(), io::Error> {
+        write!(sink, "{} [ shape=box label=<", block.index())?;
+        self.fmt_block(sink, &**graph.block(block))?;
+        writeln!(sink, ">]\n")
+    }
+
+    fn fmt_edge(&self, sink: &mut impl io::Write, edge: &Edge<()>) -> Result<(), io::Error> {
+        writeln!(sink, "{} -> {}", edge.source().index(), edge.target().index())
+    }
+
+    fn fmt_block(&self, sink: &mut impl io::Write, block: &[Statement]) -> Result<(), io::Error> {
+        writeln!(sink, "<table border=\"0\" cellspacing=\"0\" cellpadding=\"0\"><tr><td>")?;
+        for (i, statement) in block.iter().enumerate() {
+            let is_a_comment = match statement {
+                Statement::Comment(_) => true,
+                _ => false,
+            };
+            if !is_a_comment || self.include_comments {
+//                write!(sink, "<tr><td fixedsize=\"true\" width=\"30\">")?;
+                self.fmt_statement(sink, statement)?;
+//                write!(sink, "</td></tr>")?;
+                if i < block.len() - 1 {
+                    writeln!(sink, "<br align=\"left\"/>")?;
+                }
+            }
+        }
+        writeln!(sink, "</td></tr></table>")?;
         Ok(())
     }
 
-    fn fmt_node(&self, node: NodeIndex, graph: &ControlFlowGraph<'_>) -> Result<String, fmt::Error> {
-        let (label, shape) = match graph.node_weight(node).unwrap() {
-            CFGNode::Entry => ("entry".to_owned(), "ellipse"),
-            CFGNode::Exit => ("exit".to_owned(), "ellipse"),
-            CFGNode::BasicBlock(block) => (self.fmt_block(block)?, "box")
-        };
-        Ok(format!("  {} [ shape={} label=<{}> ]", node.index(), shape, label))
-    }
+    fn fmt_statement(&self, sink: &mut impl io::Write, statement: &Statement) -> Result<(), io::Error> {
+        match statement {
+            Statement::Comment(comment) => {
+                if self.include_comments {
+                    let escaped = escape(&WHITESPACE_REGEX.replace_all(comment, " ")).to_string();
+                    write!(sink, "// {}", colorize!(comment &escaped))?;
+                }
+            }
 
-    fn fmt_block(&self, block: &[SSAStatement]) -> Result<String, fmt::Error> {
-        let code = block.iter().map(|s| fmt_statement(s) + "<br align=\"left\"/>").join("");
-        let mut s = format!("<table border=\"0\" cellspacing=\"0\" cellpadding=\"0\"><tr><td>{}</td>", code);
-        if self.include_comments {
-            let comments = format!("{}", block.iter()
-                .map(|statement| &statement.target.comment)
-                .map(|comment| WHITESPACE_REGEX.replace_all(comment, " "))
-                .map(|comment| escape(&comment).to_string())
-                .map(|comment| if comment.is_empty() { "".to_owned() } else { colorize_comment(&format!("// {}<br align=\"left\"/>", comment)) })
-                .format(""));
-            s.write_fmt(format_args!("<td fixedsize=\"true\" width=\"30\"></td><td>{}</td>", comments))?;
+            Statement::Definition { ident, value } => {
+                write!(sink, "{} ← ", ident)?;
+                self.fmt_value(sink, value)?;
+            }
+
+            Statement::CondJump(var, then_block, else_block) => {
+                write!(sink, "{} {}, {}, {}", colorize!(keyword "condjump"),
+                       var, then_block.index(), else_block.index())?;
+            }
         }
-        s.write_str("</tr></table>")?;
-        Ok(s)
+        Ok(())
     }
-}
 
-fn fmt_statement(statement: &SSAStatement) -> String {
-    if let SSAOp::Label = &statement.op {
-        format!("{:?}:", &statement.target.id)
-    } else {
-        let op = fmt_op(&statement.op);
-        format!("    {}", match &statement.op {
-            SSAOp::Br(_) | SSAOp::Cbz(_, _) | SSAOp::Return(_) | SSAOp::Copy(_, _, _) => op,
-            _ => format!("<font color=\"gray\"><b>{:?} ←</b></font> {}", &statement.target.id, &op)
-        })
+    fn fmt_value(&self, sink: &mut impl io::Write, value: &Value) -> Result<(), io::Error> {
+        match value {
+            Value::Undefined => write!(sink, "&lt;{}&gt;", colorize!(undefined "undefined")),
+            Value::Unit => write!(sink, "{}", colorize!(constant "()")),
+            Value::Int(n) => write!(sink, "{}", colorize!(constant n.to_string())),
+            Value::String(s) => write!(sink, "{}", escape(&format!("\"{}\"", colorize!(constant &s)))),
+            Value::Function(entry_block) => write!(sink, "{}", colorize!(keyword format!("λ{}", entry_block.index()))),
+            Value::AddInt(left, right) => write!(sink, "{} + {}", left, right),
+            Value::SubInt(left, right) => write!(sink, "{} - {}", left, right),
+            Value::MulInt(left, right) => write!(sink, "{} * {}", left, right),
+            Value::DivInt(left, right) => write!(sink, "{} - {}", left, right),
+            Value::AddString(left, right) => write!(sink, "{} ++ {}", left, right),
+            Value::Phi(operands) => write!(sink, "{}({})", colorize!(keyword "ϕ"), operands.iter().format(", ")),
+            Value::Call(function, arguments) => write!(sink, "{} {}({})", colorize!(keyword "ϕ"), function, arguments.iter().format(", ")),
+            Value::Arg(index) => write!(sink, "{}[{}]", colorize!(keyword "arg"), index),
+        }
     }
-}
-
-fn fmt_op(op: &SSAOp) -> String {
-    match op {
-        SSAOp::Unit => "()".to_owned(),
-        SSAOp::Int(value) => colorize_constant(&value),
-        SSAOp::Str(value) => colorize_constant(&format!("\"{}\"", value)),
-        SSAOp::AddInt(left, right) => format!("{:?} + {:?}", left, right),
-        SSAOp::SubInt(left, right) => format!("{:?} - {:?}", left, right),
-        SSAOp::MulInt(left, right) => format!("{:?} * {:?}", left, right),
-        SSAOp::DivInt(left, right) => format!("{:?} / {:?}", left, right),
-        SSAOp::Offset(left, right) => format!("&amp;[{:?} + {:?}]", left, right),
-        SSAOp::Label => unreachable!(),
-        SSAOp::Br(label) => format!("{} {:?}", colorize_keyword("br"), label),
-        SSAOp::Cbz(condition, label) => format!("{} {:?}, {:?}", colorize_keyword("cbz"), condition, label),
-        SSAOp::Arg(index) => format!("{}[{}] ", colorize_keyword("arg"), colorize_constant(&index)),
-        SSAOp::Return(id) => format!("{} {:?}", colorize_keyword("ret"), id),
-        SSAOp::Call(id, args) => format!("{} {:?}, {:?}", colorize_keyword("call"), id, args.iter().format(", ")),
-        SSAOp::Alloc(size) => format!("{} {:?}", colorize_keyword("alloc"), size),
-        SSAOp::Copy(src, dst, size) => format!("{} {:?}, {:?}, {:?}", colorize_keyword("copy"), src, dst, size),
-        SSAOp::Length(str) => format!("{} {:?}", colorize_keyword("length"), str),
-        SSAOp::Phi(left, right) => format!("{}({:?}, {:?})", colorize_keyword("ϕ"), left, right),
-        SSAOp::End(value) => format!("{} {:?}", colorize_keyword("end"), value)
-    }
-}
-
-fn colorize_comment(s: &str) -> String {
-    colorize(s, "grey")
-}
-
-fn colorize_constant(n: &impl Display) -> String {
-    colorize(&format!("{}", n), "darkorange")
-}
-
-fn colorize_keyword(s: &str) -> String {
-    colorize(s, "navy")
-}
-
-fn colorize(s: &str, color: &str) -> String {
-    format!("<font color=\"{}\">{}</font>", color, s)
 }

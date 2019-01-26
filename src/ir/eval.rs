@@ -68,7 +68,7 @@ impl<'a> EvalContext<'a> {
                             continue;
                         }
 
-                        _ => unreachable!("var `{:?}' is not a number: {:?}", var, value),
+                        _ => unreachable!("var `{}' is not a number: {:?}", var, value),
                     }
                 }
             }
@@ -114,7 +114,7 @@ impl<'a> EvalContext<'a> {
                 let value = &self.runtime_value(function).value;
                 let entry_block = match value {
                     Value::Function(entry_block) => *entry_block,
-                    _ => unreachable!("`{:?}' is not a function: {:?}", function, value),
+                    _ => unreachable!("`{}' is not a function: {:?}", function, value),
                 };
                 let stack_size = self.stack.len();
                 for argument in arguments.iter().rev() {
