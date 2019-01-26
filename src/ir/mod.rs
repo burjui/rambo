@@ -118,14 +118,14 @@ impl FrontEnd {
         match &**expr {
             TypedExpr::Block(block_data) => {
                 let mut current_block = block;
-                let mut current_value = None;
+                let mut current_ident = None;
                 for statement in &block_data.statements {
                     let (block, ident) = self.process_statement(statement, current_block);
                     current_block = block;
-                    current_value = Some(ident);
+                    current_ident = Some(ident);
                 }
-                let value = current_value.unwrap_or_else(|| self.define(block, Value::Unit));
-                (current_block, value)
+                let ident = current_ident.unwrap_or_else(|| self.define(block, Value::Unit));
+                (current_block, ident)
             }
 
             TypedExpr::Unit(source) => {
@@ -182,9 +182,9 @@ impl FrontEnd {
 
             TypedExpr::Assign(binding, value, source) => {
                 self.comment(block, source.text());
-                let (block, value) = self.process_expr(value, block);
-                self.write_variable(binding, block, value);
-                (block, value)
+                let (block, ident) = self.process_expr(value, block);
+                self.write_variable(binding, block, ident);
+                (block, ident)
             }
 
             TypedExpr::Lambda(lambda, source) => {
@@ -209,13 +209,13 @@ impl FrontEnd {
                 self.comment(block, source.text());
                 let (block, function_ident) = self.process_expr(function, block);
                 let mut current_block = block;
-                let mut argument_values = vec![];
+                let mut argument_idents = vec![];
                 for argument in arguments {
                     let (block, ident) = self.process_expr(argument, current_block);
-                    argument_values.push(ident);
+                    argument_idents.push(ident);
                     current_block = block;
                 }
-                (block, self.define(current_block, Value::Call(function_ident, argument_values)))
+                (block, self.define(current_block, Value::Call(function_ident, argument_idents)))
             }
 
             _ => unimplemented!("process_expr: {:?}", expr)
@@ -225,10 +225,10 @@ impl FrontEnd {
     fn process_binary(&mut self, block: NodeIndex, left: &ExprRef, right: &ExprRef, source: &Source,
                       value_constructor: impl Fn(Ident, Ident) -> Value) -> (NodeIndex, Ident)
     {
-        let (block, left_value) = self.process_expr(left, block);
-        let (block, right_value) = self.process_expr(right, block);
+        let (block, left_ident) = self.process_expr(left, block);
+        let (block, right_ident) = self.process_expr(right, block);
         self.comment(block, source.text());
-        (block, self.define(block, value_constructor(left_value, right_value)))
+        (block, self.define(block, value_constructor(left_ident, right_ident)))
     }
 
     fn process_statement(&mut self, statement: &TypedStatement, block: NodeIndex) -> (NodeIndex, Ident) {
@@ -245,11 +245,11 @@ impl FrontEnd {
         }
     }
 
-    fn write_variable(&mut self, variable: &BindingRef, block: NodeIndex, value: Ident) {
+    fn write_variable(&mut self, variable: &BindingRef, block: NodeIndex, ident: Ident) {
         self.variables
             .entry(variable.clone())
             .or_insert_with(HashMap::new)
-            .insert(block, value);
+            .insert(block, ident);
     }
 
     fn read_variable(&mut self, variable: &BindingRef, block: NodeIndex) -> Ident {
@@ -267,7 +267,7 @@ impl FrontEnd {
         let predecessors = unsync::Lazy::new(|| self.graph
             .edges_directed(block, Incoming)
             .collect::<Vec<_>>());
-        let value = if !self.sealed_blocks.contains(&block) {
+        let ident = if !self.sealed_blocks.contains(&block) {
             // Incomplete CFG
             let phi = self.define_phi(block, &[]);
             self.incomplete_phis
@@ -284,8 +284,8 @@ impl FrontEnd {
             self.write_variable(variable, block, phi);
             self.add_phi_operands(variable, phi)
         };
-        self.write_variable(variable, block, value);
-        value
+        self.write_variable(variable, block, ident);
+        ident
     }
 
     fn add_phi_operands(&mut self, variable: &BindingRef, phi: Ident) -> Ident {
