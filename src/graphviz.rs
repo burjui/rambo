@@ -54,7 +54,7 @@ impl Graphviz {
 
     fn fmt_block(&self, sink: &mut impl io::Write, block: &[Statement]) -> Result<(), io::Error> {
         writeln!(sink, "<table border=\"0\" cellspacing=\"0\" cellpadding=\"0\"><tr><td>")?;
-        for (i, statement) in block.iter().enumerate() {
+        for statement in block {
             let is_a_comment = match statement {
                 Statement::Comment(_) => true,
                 _ => false,
