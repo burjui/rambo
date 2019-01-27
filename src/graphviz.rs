@@ -92,7 +92,7 @@ impl Graphviz {
 
     fn fmt_value(&self, sink: &mut impl io::Write, value: &Value) -> Result<(), io::Error> {
         match value {
-            Value::Undefined => write!(sink, "&lt;{}&gt;", colorize!(undefined "undefined")),
+            Value::Undefined => write!(sink, "{}", colorize!(undefined "&lt;undefined&gt;")),
             Value::Unit => write!(sink, "{}", colorize!(constant "()")),
             Value::Int(n) => write!(sink, "{}", colorize!(constant n.to_string())),
             Value::String(s) => write!(sink, "{}", colorize!(constant escape(&format!("\"{}\"", s)))),
