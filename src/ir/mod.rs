@@ -11,6 +11,8 @@ use multimap::MultiMap;
 use num_bigint::BigInt;
 use once_cell::sync;
 use once_cell::unsync;
+use petgraph::algo::DfsSpace;
+use petgraph::algo::has_path_connecting;
 use petgraph::graph::DiGraph;
 use petgraph::graph::NodeIndex;
 use petgraph::prelude::Direction::Incoming;
@@ -35,6 +37,7 @@ pub(crate) struct FrontEnd {
     next_id: usize,
     variables: HashMap<BindingRef, HashMap<NodeIndex, Ident>>,
     variables_read: HashSet<BindingRef>,
+    values: MultiMap<Value, (NodeIndex, Ident)>,
     sealed_blocks: HashSet<NodeIndex>,
     incomplete_phis: HashMap<NodeIndex, HashMap<BindingRef, Ident>>,
     phi_locations: HashMap<Ident, StatementLocation>,
@@ -62,6 +65,7 @@ impl FrontEnd {
             next_id: 0,
             variables: HashMap::new(),
             variables_read: HashSet::new(),
+            values: MultiMap::new(),
             sealed_blocks: HashSet::new(),
             incomplete_phis: HashMap::new(),
             phi_locations: HashMap::new(),
@@ -69,7 +73,7 @@ impl FrontEnd {
             trivial_phis: TrivialPhiMap::new(),
             entry_block: NodeIndex::new(0),
             undefined: Ident(0),
-            undefined_users: Vec::new()
+            undefined_users: Vec::new(),
         };
         instance.entry_block = instance.new_block();
         instance.seal_block(instance.entry_block);
@@ -177,7 +181,7 @@ impl FrontEnd {
                 self.graph.add_edge(negative_exit_block, exit, ());
                 self.seal_block(exit);
                 let result_phi = self.define_phi(exit, &[positive, negative]);
-                (exit, result_phi)
+                (exit, self.try_remove_trivial_phi(result_phi))
             }
 
             TypedExpr::Assign(binding, value, source) => {
@@ -366,16 +370,50 @@ impl FrontEnd {
     }
 
     fn define(&mut self, block: NodeIndex, value: Value) -> Ident {
+        if let Some(ident) = self.closest_value_instance(block, &value) {
+            return ident;
+        }
+
         let definition_location = StatementLocation::new(block, self.graph.block(block).len());
         self.record_phi_and_undefined_usages(definition_location, get_value_operands(&value));
 
         let ident = self.new_id();
+        self.values.insert(value.clone(), (block, ident));
         self.graph.block_mut(block).push(Statement::Definition {
             ident,
             value
         });
-
         ident
+    }
+
+    // Global value numbering
+    fn closest_value_instance(&self, block: NodeIndex, value: &Value) -> Option<Ident> {
+        match value {
+            Value::Arg(_) => None,
+
+            _ => {
+                let predecessors = self.graph
+                    .edges_directed(block, Incoming)
+                    .map(|edge| edge.source());
+                let empty_vec = Vec::new();
+                for (source, ident) in self.values.get_vec(value).unwrap_or(&empty_vec).iter().rev() {
+                    if *source == block || self.has_path_to_all(*source, predecessors.clone()) {
+                        return Some(*ident);
+                    }
+                }
+                None
+            }
+        }
+    }
+
+    fn has_path_to_all(&self, src: NodeIndex, dst: impl Iterator<Item = NodeIndex> + Clone) -> bool {
+        let mut dst_copy = dst.clone();
+        dst.clone().next().is_some() && dst_copy.all(|dst| self.has_path(src, dst))
+    }
+
+    fn has_path(&self, src: NodeIndex, dst: NodeIndex) -> bool {
+        let mut dfs = DfsSpace::new(&*self.graph);
+        has_path_connecting(&*self.graph, src, dst, Some(&mut dfs))
     }
 
     fn define_phi(&mut self, block: NodeIndex, operands: &[Ident]) -> Ident {
@@ -565,6 +603,12 @@ impl fmt::Display for Ident {
     }
 }
 
+impl fmt::Debug for Ident {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Display::fmt(self, f)
+    }
+}
+
 pub(crate) enum Statement {
     Comment(String),
     Definition {
@@ -588,7 +632,7 @@ impl fmt::Debug for Statement {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub(crate) enum Value {
     Undefined,
     Unit,
@@ -627,38 +671,39 @@ impl fmt::Debug for Value {
 
 #[test]
 fn gen_ir() -> TestResult {
-    use std::fs::File;
-    use petgraph::dot::Config::EdgeNoLabel;
-    use petgraph::dot::Dot;
-    use std::io::Write;
-
     let code = typecheck!("
     let x = 47
     let y = 29
     let z = y
+    1
     let r = if 0 {
         let a = z
         let b = a
         z = 22
         x + b + y
+        1
     } else {
         z = 33
-        999
+        1
     }
     z
     r + 1
+    z + 1
 
     let f = λ (g: λ (u:str, v:str) -> str, u:str, v:str) -> g u v
-    f (λ (u:str, v:str) -> \"(\" + u + \", \" + v + \")\") \"hello\" \"world\"
-    f (λ (u:str, v:str) -> \"<\" + u + \"; \" + v + \">\") \"bye\" \"seeya\"
+    let s1 = f (λ (u:str, v:str) -> \"(\" + u + \", \" + v + \")\") \"hello\" \"world\"
+    let s2 = f (λ (u:str, v:str) -> \"<\" + u + \"; \" + v + \">\") (\"bye, \" + \"world\") \"seeya\"
+    s1 + s2
     ")?;
 
     let cfg = FrontEnd::new(EnableWarnings(false)).build(&code);
-    let mut output = File::create("ir_cfg.dot")?;
-    write!(output, "{:?}", Dot::with_config(&*cfg.graph, &[EdgeNoLabel]))?;
+    let mut output = std::fs::File::create("ir_cfg.dot")?;
+    crate::graphviz::Graphviz::new()
+        .include_comments(true)
+        .fmt(&mut output, &cfg.graph)?;
 
     let value = eval::EvalContext::new(&cfg).eval();
-    assert_eq!(value, Value::String(Rc::new("<bye; seeya>".to_owned())));
+    assert_eq!(value, Value::String(Rc::new("(hello, world)<bye, world; seeya>".to_owned())));
 
     Ok(())
 }
