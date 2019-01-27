@@ -11,13 +11,13 @@ use multimap::MultiMap;
 use num_bigint::BigInt;
 use once_cell::sync;
 use once_cell::unsync;
-use petgraph::algo::DfsSpace;
-use petgraph::algo::has_path_connecting;
 use petgraph::graph::DiGraph;
 use petgraph::graph::NodeIndex;
 use petgraph::prelude::Direction::Incoming;
 use petgraph::visit::EdgeRef;
 
+use crate::ir::gvn::GVN;
+use crate::ir::idgen::IdentGenerator;
 use crate::semantics::BindingKind;
 use crate::semantics::BindingRef;
 use crate::semantics::ExprRef;
@@ -28,16 +28,18 @@ use crate::source::Source;
 use crate::utils::WHITESPACE_REGEX;
 
 pub(crate) mod eval;
+mod idgen;
+mod gvn;
 
 pub(crate) struct EnableWarnings(pub(crate) bool);
 
 pub(crate) struct FrontEnd {
     enable_warnings: bool,
     graph: BasicBlockGraph,
-    next_id: usize,
+    idgen: IdentGenerator,
     variables: HashMap<BindingRef, HashMap<NodeIndex, Ident>>,
     variables_read: HashSet<BindingRef>,
-    values: MultiMap<Value, (NodeIndex, Ident)>,
+    gvn: GVN,
     sealed_blocks: HashSet<NodeIndex>,
     incomplete_phis: HashMap<NodeIndex, HashMap<BindingRef, Ident>>,
     phi_locations: HashMap<Ident, StatementLocation>,
@@ -62,10 +64,10 @@ impl FrontEnd {
         let mut instance = Self {
             enable_warnings,
             graph: BasicBlockGraph::new(),
-            next_id: 0,
+            idgen: IdentGenerator::new(),
             variables: HashMap::new(),
             variables_read: HashSet::new(),
-            values: MultiMap::new(),
+            gvn: GVN::new(),
             sealed_blocks: HashSet::new(),
             incomplete_phis: HashMap::new(),
             phi_locations: HashMap::new(),
@@ -94,7 +96,7 @@ impl FrontEnd {
             entry_block: self.entry_block,
             exit_block,
             undefined: self.undefined,
-            id_count: self.next_id
+            id_count: self.idgen.id_count()
         }
     }
 
@@ -370,54 +372,16 @@ impl FrontEnd {
     }
 
     fn define(&mut self, block: NodeIndex, value: Value) -> Ident {
-        let (ident, Reused(reused)) = self.gvn(block, &value);
-        if !reused {
+        let (ident, reused) = self.gvn.gvn(&self.graph, block, &value, &mut self.idgen);
+        if !*reused {
+            let definition_location = StatementLocation::new(block, self.graph.block(block).len());
+            self.record_phi_and_undefined_usages(definition_location, get_value_operands(&value));
             self.graph.block_mut(block).push(Statement::Definition {
                 ident,
                 value
             });
         }
         ident
-    }
-
-    // Global value numbering
-    fn gvn(&mut self, block: NodeIndex, value: &Value) -> (Ident, Reused) {
-        if let Value::Arg(_) = value {
-            (self.new_id(), Reused(false))
-        } else {
-            let predecessors = self.graph
-                .edges_directed(block, Incoming)
-                .map(|edge| edge.source());
-            let empty_vec = Vec::new();
-            let instances = self.values.get_vec(value).unwrap_or(&empty_vec);
-            let mut instance = None;
-            for (source, ident) in instances.iter().rev() {
-                if *source == block || self.has_path_to_all(*source, predecessors.clone()) {
-                    instance = Some(*ident);
-                    break;
-                }
-            }
-            instance
-                .map(|ident| (ident, Reused(true)))
-                .unwrap_or_else(|| {
-                    let definition_location = StatementLocation::new(block, self.graph.block(block).len());
-                    self.record_phi_and_undefined_usages(definition_location, get_value_operands(&value));
-
-                    let ident = self.new_id();
-                    self.values.insert(value.clone(), (block, ident));
-                    (ident, Reused(false))
-                })
-        }
-    }
-
-    fn has_path_to_all(&self, src: NodeIndex, dst: impl Iterator<Item = NodeIndex> + Clone) -> bool {
-        let mut dst_copy = dst.clone();
-        dst.clone().next().is_some() && dst_copy.all(|dst| self.has_path(src, dst))
-    }
-
-    fn has_path(&self, src: NodeIndex, dst: NodeIndex) -> bool {
-        let mut dfs = DfsSpace::new(&*self.graph);
-        has_path_connecting(&*self.graph, src, dst, Some(&mut dfs))
     }
 
     fn define_phi(&mut self, block: NodeIndex, operands: &[Ident]) -> Ident {
@@ -469,19 +433,12 @@ impl FrontEnd {
         self.graph.block_mut(block).push(Statement::Comment(comment.to_owned()))
     }
 
-    fn new_id(&mut self) -> Ident {
-        let next_id = self.next_id + 1;
-        Ident(replace(&mut self.next_id, next_id))
-    }
-
     fn new_block(&mut self) -> NodeIndex {
         let block = self.graph.add_node(BasicBlock(vec![]));
         self.comment(block, &format!("--- BLOCK {} ---", block.index()));
         block
     }
 }
-
-struct Reused(bool);
 
 fn remove_trivial_phi_statements(graph: &mut BasicBlockGraph, trivial_phis: TrivialPhiMap) {
     for (block, mut phi_indices) in trivial_phis.into_iter() {
