@@ -103,7 +103,7 @@ impl Graphviz {
             Value::DivInt(left, right) => write!(sink, "{} - {}", left, right),
             Value::AddString(left, right) => write!(sink, "{} ++ {}", left, right),
             Value::Phi(operands) => write!(sink, "{}({})", colorize!(keyword "ϕ"), operands.iter().format(", ")),
-            Value::Call(function, arguments) => write!(sink, "{} {}({})", colorize!(keyword "ϕ"), function, arguments.iter().format(", ")),
+            Value::Call(function, arguments) => write!(sink, "{} {}({})", colorize!(keyword "call"), function, arguments.iter().format(", ")),
             Value::Arg(index) => write!(sink, "{}[{}]", colorize!(keyword "arg"), index),
         }
     }
