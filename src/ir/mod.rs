@@ -370,39 +370,43 @@ impl FrontEnd {
     }
 
     fn define(&mut self, block: NodeIndex, value: Value) -> Ident {
-        if let Some(ident) = self.closest_value_instance(block, &value) {
-            return ident;
+        let (ident, Reused(reused)) = self.gvn(block, &value);
+        if !reused {
+            self.graph.block_mut(block).push(Statement::Definition {
+                ident,
+                value
+            });
         }
-
-        let definition_location = StatementLocation::new(block, self.graph.block(block).len());
-        self.record_phi_and_undefined_usages(definition_location, get_value_operands(&value));
-
-        let ident = self.new_id();
-        self.values.insert(value.clone(), (block, ident));
-        self.graph.block_mut(block).push(Statement::Definition {
-            ident,
-            value
-        });
         ident
     }
 
     // Global value numbering
-    fn closest_value_instance(&self, block: NodeIndex, value: &Value) -> Option<Ident> {
-        match value {
-            Value::Arg(_) => None,
-
-            _ => {
-                let predecessors = self.graph
-                    .edges_directed(block, Incoming)
-                    .map(|edge| edge.source());
-                let empty_vec = Vec::new();
-                for (source, ident) in self.values.get_vec(value).unwrap_or(&empty_vec).iter().rev() {
-                    if *source == block || self.has_path_to_all(*source, predecessors.clone()) {
-                        return Some(*ident);
-                    }
+    fn gvn(&mut self, block: NodeIndex, value: &Value) -> (Ident, Reused) {
+        if let Value::Arg(_) = value {
+            (self.new_id(), Reused(false))
+        } else {
+            let predecessors = self.graph
+                .edges_directed(block, Incoming)
+                .map(|edge| edge.source());
+            let empty_vec = Vec::new();
+            let instances = self.values.get_vec(value).unwrap_or(&empty_vec);
+            let mut instance = None;
+            for (source, ident) in instances.iter().rev() {
+                if *source == block || self.has_path_to_all(*source, predecessors.clone()) {
+                    instance = Some(*ident);
+                    break;
                 }
-                None
             }
+            instance
+                .map(|ident| (ident, Reused(true)))
+                .unwrap_or_else(|| {
+                    let definition_location = StatementLocation::new(block, self.graph.block(block).len());
+                    self.record_phi_and_undefined_usages(definition_location, get_value_operands(&value));
+
+                    let ident = self.new_id();
+                    self.values.insert(value.clone(), (block, ident));
+                    (ident, Reused(false))
+                })
         }
     }
 
@@ -476,6 +480,8 @@ impl FrontEnd {
         block
     }
 }
+
+struct Reused(bool);
 
 fn remove_trivial_phi_statements(graph: &mut BasicBlockGraph, trivial_phis: TrivialPhiMap) {
     for (block, mut phi_indices) in trivial_phis.into_iter() {
