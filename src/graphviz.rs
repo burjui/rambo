@@ -43,7 +43,7 @@ impl Graphviz {
     }
 
     fn fmt_node(&self, sink: &mut impl io::Write, block: NodeIndex, graph: &BasicBlockGraph) -> Result<(), io::Error> {
-        write!(sink, "{} [ shape=box label=<", block.index())?;
+        write!(sink, "{} [ shape=box xlabel=\"{}\" label=<", block.index(), block.index())?;
         self.fmt_block(sink, &**graph.block(block))?;
         writeln!(sink, ">]\n")
     }
