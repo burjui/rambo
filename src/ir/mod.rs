@@ -44,7 +44,7 @@ pub(crate) struct FrontEnd {
     incomplete_phis: HashMap<NodeIndex, HashMap<BindingRef, Ident>>,
     phi_locations: HashMap<Ident, StatementLocation>,
     phi_users: MultiMap<Ident, StatementLocation>,
-    trivial_phis: TrivialPhiMap,
+    trivial_phis: HashSet<StatementLocation>,
     entry_block: NodeIndex,
     undefined: Ident,
     undefined_users: Vec<StatementLocation>,
@@ -72,7 +72,7 @@ impl FrontEnd {
             incomplete_phis: HashMap::new(),
             phi_locations: HashMap::new(),
             phi_users: MultiMap::new(),
-            trivial_phis: TrivialPhiMap::new(),
+            trivial_phis: HashSet::new(),
             entry_block: NodeIndex::new(0),
             undefined: Ident(0),
             undefined_users: Vec::new(),
@@ -89,7 +89,7 @@ impl FrontEnd {
         if self.enable_warnings {
             self.warn_about_redundant_bindings();
         }
-        remove_trivial_phi_statements(&mut self.graph, self.trivial_phis);
+        remove_statements(&mut self.graph, self.trivial_phis.into_iter());
 
         ControlFlowGraph {
             graph: self.graph,
@@ -324,7 +324,7 @@ impl FrontEnd {
         }
 
         let location = self.phi_locations[&phi];
-        self.trivial_phis.insert(location.block, location.index);
+        self.trivial_phis.insert(location);
 
         let same = match same {
             Some(ident) => ident,
@@ -443,19 +443,26 @@ impl FrontEnd {
     }
 }
 
-fn remove_trivial_phi_statements(graph: &mut BasicBlockGraph, trivial_phis: TrivialPhiMap) {
-    for (block, mut phi_indices) in trivial_phis.into_iter() {
-        phi_indices.sort_unstable();
-        let mut phi_indices = phi_indices.into_iter().peekable();
+fn remove_statements(graph: &mut BasicBlockGraph, locations: impl Iterator<Item = StatementLocation>) {
+    let locations_sorted = locations
+        .sorted_by(|a, b| a.block.cmp(&b.block).then_with(|| a.index.cmp(&b.index)));
+    let indices_by_block = locations_sorted
+        .into_iter()
+        .group_by(|location| location.block);
+    for (block, indices) in &indices_by_block {
+        let mut indices = indices
+            .into_iter()
+            .map(|location| location.index)
+            .peekable();
         let basic_block = graph.block_mut(block);
         let pruned = replace(basic_block, BasicBlock(vec![]))
             .0
             .into_iter()
             .enumerate()
             .filter_map(|(index, statement)| {
-                if let Some(phi_index) = phi_indices.peek() {
-                    if *phi_index == index {
-                        let _ = phi_indices.next();
+                if let Some(current_index) = indices.peek() {
+                    if *current_index == index {
+                        let _ = indices.next();
                         return None;
                     }
                 }
@@ -510,8 +517,6 @@ fn replace_phi(value: &mut Value, phi: Ident, replacement: Ident) {
     }
 }
 
-
-
 #[derive(Deref, DerefMut)]
 pub(crate) struct BasicBlock(Vec<Statement>);
 
@@ -546,7 +551,7 @@ pub(crate) struct ControlFlowGraph {
     pub(crate) id_count: usize,
 }
 
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
 struct StatementLocation {
     block: NodeIndex,
     index: usize
@@ -557,8 +562,6 @@ impl StatementLocation {
         Self { block, index }
     }
 }
-
-type TrivialPhiMap = MultiMap<NodeIndex, usize>;
 
 #[derive(Copy, Clone, Eq, PartialEq, Hash)]
 pub(crate) struct Ident(usize);
