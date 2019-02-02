@@ -188,7 +188,10 @@ impl FrontEnd {
 
             TypedExpr::Assign(binding, value, source) => {
                 self.comment(block, source.text());
-                let (block, ident) = self.process_expr(value, block);
+                let old_value = self.read_variable(binding, block);
+                let (block, new_value) = self.process_expr(value, block);
+                let phi = self.define_phi(block, &[old_value, new_value]);
+                let ident = self.try_remove_trivial_phi(phi);
                 self.write_variable(binding, block, ident);
                 (block, ident)
             }
@@ -652,6 +655,11 @@ fn gen_ir() -> TestResult {
     z
     r + 1
     z + 1
+
+    z = 6
+    z + 7
+    z = 8
+    z + 9
 
     let f = λ (g: λ (u:str, v:str) -> str, u:str, v:str) -> g u v
     let s1 = f (λ (u:str, v:str) -> \"(\" + u + \", \" + v + \")\") \"hello\" \"world\"
