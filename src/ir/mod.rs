@@ -10,7 +10,6 @@ use itertools::Itertools;
 use multimap::MultiMap;
 use num_bigint::BigInt;
 use once_cell::sync;
-use once_cell::unsync;
 use petgraph::graph::DiGraph;
 use petgraph::graph::NodeIndex;
 use petgraph::prelude::Direction::Incoming;
@@ -87,7 +86,7 @@ impl FrontEnd {
         let (exit_block, _) = self.process_expr(code, self.entry_block);
         self.assert_no_undefined_variables();
         if self.enable_warnings {
-            self.warn_about_redundant_bindings();
+            warn_about_redundant_bindings(self.variables, self.variables_read);
         }
         remove_statements(&mut self.graph, self.trivial_phis.into_iter());
 
@@ -105,19 +104,6 @@ impl FrontEnd {
                 self.undefined_users.iter()
                     .map(|user| &self.graph.block(user.block)[user.index])
                     .format("\n"));
-    }
-
-    fn warn_about_redundant_bindings(&self) {
-        let redundant_bindings = self.variables
-            .keys()
-            .cloned()
-            .collect::<HashSet<BindingRef>>()
-            .difference(&self.variables_read)
-            .cloned()
-            .sorted_by(|a, b| a.source.range().start().cmp(&b.source.range().start()));
-        for binding in redundant_bindings {
-            warning_at!(binding.source, "unused definition: {}", binding.source.text());
-        }
     }
 
     fn process_expr(&mut self, expr: &ExprRef, block: NodeIndex) -> (NodeIndex, Ident) {
@@ -273,9 +259,6 @@ impl FrontEnd {
     }
 
     fn read_variable_recursive(&mut self, variable: &BindingRef, block: NodeIndex) -> Ident {
-        let predecessors = unsync::Lazy::new(|| self.graph
-            .edges_directed(block, Incoming)
-            .collect::<Vec<_>>());
         let ident = if !self.sealed_blocks.contains(&block) {
             // Incomplete CFG
             let phi = self.define_phi(block, &[]);
@@ -284,14 +267,21 @@ impl FrontEnd {
                 .or_insert_with(HashMap::new)
                 .insert(variable.clone(), phi);
             phi
-        } else if predecessors.len() == 1 {
-            // Optimize the common case of one predecessor: no phi needed
-            self.read_variable(variable, predecessors[0].source())
         } else {
-            // Break potential cycles with operandless phi
-            let phi = self.define_phi(block, &[]);
-            self.write_variable(variable, block, phi);
-            self.add_phi_operands(variable, phi)
+            let mut predecessors = self.graph
+                .edges_directed(block, Incoming)
+                .map(|edge| edge.source());
+            let first_predecessor = predecessors.next();
+            let second_predecessor = predecessors.next();
+            if let (Some(predecessor), None) = (first_predecessor, second_predecessor) {
+                // Optimize the common case of one predecessor: no phi needed
+                self.read_variable(variable, predecessor)
+            } else {
+                // Break potential cycles with operandless phi
+                let phi = self.define_phi(block, &[]);
+                self.write_variable(variable, block, phi);
+                self.add_phi_operands(variable, phi)
+            }
         };
         self.write_variable(variable, block, ident);
         ident
@@ -301,7 +291,7 @@ impl FrontEnd {
         let predecessors = self.graph
             .edges_directed(self.phi_locations[&phi].block, Incoming)
             .map(|edge| edge.source())
-            .collect::<Vec<_>>();
+            .collect_vec();
         for predecessor in predecessors {
             let operand = self.read_variable(variable, predecessor);
             self.phi_operands_mut(phi).push(operand);
@@ -364,8 +354,7 @@ impl FrontEnd {
             .map(|incomplete_phis| incomplete_phis
                 .keys()
                 .cloned()
-                .collect::<Vec<_>>()
-            );
+                .collect_vec());
         if let Some(variables) = variables {
             for variable in &variables {
                 self.add_phi_operands(variable, self.incomplete_phis[&block][variable]);
@@ -452,17 +441,17 @@ fn remove_statements(graph: &mut BasicBlockGraph, locations: impl Iterator<Item 
     for (block, indices) in &indices_by_block {
         let mut indices = indices
             .into_iter()
-            .map(|location| location.index)
-            .peekable();
+            .map(|location| location.index);
+        let mut index_to_be_removed = indices.next();
         let basic_block = graph.block_mut(block);
         let pruned = replace(basic_block, BasicBlock(vec![]))
             .0
             .into_iter()
             .enumerate()
-            .filter_map(|(index, statement)| {
-                if let Some(current_index) = indices.peek() {
-                    if *current_index == index {
-                        let _ = indices.next();
+            .filter_map(|(statement_index, statement)| {
+                if let Some(to_be_removed) = index_to_be_removed {
+                    if statement_index == to_be_removed {
+                        index_to_be_removed = indices.next();
                         return None;
                     }
                 }
@@ -493,22 +482,35 @@ fn get_value_operands<'a>(value: &'a Value) -> Box<dyn Iterator<Item = Ident> + 
     }
 }
 
+fn warn_about_redundant_bindings(variables: HashMap<BindingRef, HashMap<NodeIndex, Ident>>, variables_read: HashSet<BindingRef>) {
+    let variables = variables
+        .into_iter()
+        .map(|(variable, _)| variable)
+        .collect::<HashSet<_>>();
+    let redundant_bindings = variables
+        .difference(&variables_read)
+        .sorted_by(|a, b| a.source.range().start().cmp(&b.source.range().start()));
+    for binding in redundant_bindings {
+        warning_at!(binding.source, "unused definition: {}", binding.source.text());
+    }
+}
+
 fn replace_phi(value: &mut Value, phi: Ident, replacement: Ident) {
-    let operands: Vec<&mut Ident> = match value {
+    let operands: Box<dyn Iterator<Item = &mut Ident>> = match value {
         Value::Undefined |
         Value::Unit |
         Value::Int(_) |
         Value::String(_) |
         Value::Function {..} |
-        Value::Arg(_) => vec![],
+        Value::Arg(_) => Box::new(empty()),
 
         Value::AddInt(left, right) |
         Value::SubInt(left, right) |
         Value::MulInt(left, right) |
         Value::DivInt(left, right) |
-        Value::AddString(left, right) => vec![left, right],
-        Value::Phi(operands) => operands.iter_mut().collect(),
-        Value::Call(function, arguments) => once(function).chain(arguments.iter_mut()).collect(),
+        Value::AddString(left, right) => Box::new(once(left).chain(once(right))),
+        Value::Phi(operands) => Box::new(operands.iter_mut()),
+        Value::Call(function, arguments) => Box::new(once(function).chain(arguments.iter_mut())),
     };
     for operand in operands {
         if *operand == phi {
