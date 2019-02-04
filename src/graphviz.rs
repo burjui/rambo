@@ -105,6 +105,7 @@ impl Graphviz {
             Value::Phi(operands) => write!(sink, "{}({})", colorize!(keyword "ϕ"), operands.iter().format(", ")),
             Value::Call(function, arguments) => write!(sink, "{} {}({})", colorize!(keyword "call"), function, arguments.iter().format(", ")),
             Value::Arg(index) => write!(sink, "{}[{}]", colorize!(keyword "arg"), index),
+            Value::Return(result) => write!(sink, "{} {}", colorize!(keyword "return"), result),
         }
     }
 }

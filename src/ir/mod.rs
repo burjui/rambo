@@ -1,7 +1,6 @@
 use std::fmt;
 use std::iter::empty;
 use std::iter::once;
-use std::mem::replace;
 use std::rc::Rc;
 
 use hashbrown::HashMap;
@@ -46,7 +45,7 @@ pub(crate) struct FrontEnd {
     incomplete_phis: HashMap<NodeIndex, HashMap<Variable, Ident>>,
     phi_locations: HashMap<Ident, StatementLocation>,
     phi_users: MultiMap<Ident, StatementLocation>,
-    trivial_phis: HashSet<StatementLocation>,
+    trivial_phis: Vec<StatementLocation>,
     entry_block: NodeIndex,
     undefined: Ident,
     undefined_users: Vec<StatementLocation>,
@@ -73,7 +72,7 @@ impl FrontEnd {
             incomplete_phis: HashMap::new(),
             phi_locations: HashMap::new(),
             phi_users: MultiMap::new(),
-            trivial_phis: HashSet::new(),
+            trivial_phis: Vec::new(),
             entry_block: NodeIndex::new(0),
             undefined: Ident(0),
             undefined_users: Vec::new(),
@@ -85,12 +84,14 @@ impl FrontEnd {
     }
 
     pub(crate) fn build(mut self, code: &ExprRef) -> ControlFlowGraph {
-        let (exit_block, _) = self.process_expr(code, self.entry_block);
+        let (exit_block, result) = self.process_expr(code, self.entry_block);
+        self.define(exit_block, Value::Return(result));
+
         self.assert_no_undefined_variables();
         if self.enable_warnings {
             warn_about_redundant_bindings(self.variables, self.variables_read);
         }
-        remove_statements(&mut self.graph, self.trivial_phis.into_iter());
+        remove_statements(&mut self.graph, self.trivial_phis);
 
         ControlFlowGraph {
             graph: self.graph,
@@ -196,7 +197,8 @@ impl FrontEnd {
                     let declaration = self.define(entry_block, Value::Arg(index));
                     self.write_variable(&Variable::Binding(parameter.clone()), entry_block, declaration);
                 }
-                let _ = self.process_expr(&lambda.body, entry_block);
+                let (body_block, result) = self.process_expr(&lambda.body, entry_block);
+                self.define(body_block, Value::Return(result));
                 (block, self.define(block, Value::Function(entry_block)))
             }
 
@@ -319,7 +321,7 @@ impl FrontEnd {
         }
 
         let location = self.phi_locations[&phi];
-        self.trivial_phis.insert(location);
+        self.trivial_phis.push(location);
 
         let same = match same {
             Some(ident) => ident,
@@ -394,15 +396,15 @@ impl FrontEnd {
                 value
             });
             self.write_variable(&variable, block, ident);
+            if let Variable::Value(Value::Phi(_)) = &variable {
+                self.phi_locations.insert(ident, definition_location);
+            }
             ident
         }
     }
 
     fn define_phi(&mut self, block: NodeIndex, operands: &[Ident]) -> Ident {
-        let phi = self.define(block, Value::Phi(operands.to_vec()));
-        let index = self.graph.block(block).len() - 1;
-        self.phi_locations.insert(phi, StatementLocation::new(block, index));
-        phi
+        self.define(block, Value::Phi(operands.to_vec()))
     }
 
     fn record_phi_and_undefined_usages(&mut self, location: StatementLocation, idents: impl Iterator<Item = Ident>) {
@@ -454,31 +456,74 @@ impl FrontEnd {
     }
 }
 
-fn remove_statements(graph: &mut BasicBlockGraph, locations: impl Iterator<Item = StatementLocation>) {
-    let locations_sorted = locations
-        .sorted_by(|a, b| a.block.cmp(&b.block).then_with(|| a.index.cmp(&b.index)));
-    let indices_by_block = locations_sorted
-        .into_iter()
-        .group_by(|location| location.block);
-    for (block, locations) in &indices_by_block {
-        let mut indices = locations.map(|location| location.index);
-        let mut index_to_be_removed = indices.next();
-        let basic_block = graph.block_mut(block);
-        let pruned = replace(basic_block, BasicBlock(vec![]))
-            .0
-            .into_iter()
-            .enumerate()
-            .filter_map(|(statement_index, statement)| {
-                if let Some(to_be_removed) = index_to_be_removed {
-                    if statement_index == to_be_removed {
-                        index_to_be_removed = indices.next();
-                        return None;
-                    }
-                }
-                Some(statement)
-            })
-            .collect_vec();
-        *basic_block = BasicBlock(pruned);
+#[derive(Debug)]
+struct RemoveStatementsState<'a> {
+    block: NodeIndex,
+    basic_block: &'a mut BasicBlock,
+    hole_start: usize,
+    hole_end: usize,
+    total_length: usize,
+    has_removed_any: bool,
+}
+
+impl<'a> RemoveStatementsState<'a> {
+    fn new(block: NodeIndex, graph: &'a mut BasicBlockGraph) -> Self {
+        Self {
+            block,
+            basic_block: graph.block_mut(block),
+            hole_start: 0,
+            hole_end: 0,
+            total_length: 0,
+            has_removed_any: false,
+        }
+    }
+
+    fn remove_at(&mut self, index: usize) {
+        if index > self.hole_end {
+            self.total_length += index - self.hole_end;
+            while self.hole_end < index {
+                self.basic_block.swap(self.hole_start, self.hole_end);
+                self.hole_start += 1;
+                self.hole_end += 1;
+            }
+        }
+        self.hole_end += 1;
+        self.has_removed_any = true;
+    }
+
+    fn finish(mut self) {
+        if self.has_removed_any {
+            self.remove_at(self.basic_block.len());
+            unsafe { self.basic_block.set_len(self.total_length); }
+            self.basic_block.shrink_to_fit();
+        }
+    }
+}
+
+fn remove_statements(graph: &mut BasicBlockGraph, mut locations: Vec<StatementLocation>) {
+    let locations = {
+        locations.sort_unstable_by(|a, b| a.block.cmp(&b.block).then_with(|| a.index.cmp(&b.index)));
+        locations.dedup();
+        locations
+    };
+    let mut current_state: Option<RemoveStatementsState<'_>> = None;
+    for location in locations {
+        let need_new_state = match &current_state {
+            Some(state) => location.block != state.block,
+            None => true,
+        };
+        if need_new_state {
+            if let Some(previous_state) = current_state.take() {
+                previous_state.finish();
+            }
+            current_state = Some(RemoveStatementsState::new(location.block, graph));
+        }
+        if let Some(state) = current_state.as_mut() {
+            state.remove_at(location.index);
+        }
+    }
+    if let Some(state) = current_state {
+        state.finish();
     }
 }
 
@@ -499,6 +544,7 @@ fn get_value_operands<'a>(value: &'a Value) -> Box<dyn Iterator<Item = Ident> + 
 
         Value::Phi(operands) => Box::new(operands.iter().cloned()),
         Value::Call(function, arguments) => Box::new(once(*function).chain(arguments.iter().cloned())),
+        Value::Return(result) => Box::new(once(*result)),
     }
 }
 
@@ -535,6 +581,7 @@ fn replace_phi(value: &mut Value, phi: Ident, replacement: Ident) {
         Value::AddString(left, right) => Box::new(once(left).chain(once(right))),
         Value::Phi(operands) => Box::new(operands.iter_mut()),
         Value::Call(function, arguments) => Box::new(once(function).chain(arguments.iter_mut())),
+        Value::Return(result) => Box::new(once(result)),
     };
     for operand in operands {
         if *operand == phi {
@@ -604,6 +651,7 @@ impl fmt::Debug for Ident {
     }
 }
 
+#[derive(Clone)]
 pub(crate) enum Statement {
     Comment(String),
     Definition {
@@ -642,6 +690,7 @@ pub(crate) enum Value {
     Phi(Vec<Ident>),
     Call(Ident, Vec<Ident>),
     Arg(usize),
+    Return(Ident),
 }
 
 impl fmt::Debug for Value {
@@ -660,6 +709,7 @@ impl fmt::Debug for Value {
             Value::Phi(operands) => write!(f, "ϕ({})", operands.iter().format(", ")),
             Value::Call(function, arguments) => write!(f, "call {}({})", function, arguments.iter().format(", ")),
             Value::Arg(index) => write!(f, "arg[{}]", index),
+            Value::Return(result) => write!(f, "return {}", result),
         }
     }
 }

@@ -91,7 +91,7 @@ impl<'a> EvalContext<'a> {
             Value::Unit |
             Value::Int(_) |
             Value::String(_) |
-            Value::Function {..} => value.clone(),
+            Value::Function { .. } => value.clone(),
 
             Value::AddInt(left, right) => Value::Int(self.int(left) + self.int(right)),
             Value::SubInt(left, right) => Value::Int(self.int(left) - self.int(right)),
@@ -128,6 +128,8 @@ impl<'a> EvalContext<'a> {
             Value::Arg(index) => self.runtime_value(&self.stack[self.stack.len() - 1 - index])
                 .value
                 .clone(),
+
+            Value::Return(result) => self.runtime_value(result).value.clone(),
         }
     }
 
