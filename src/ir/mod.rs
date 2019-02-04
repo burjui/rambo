@@ -15,7 +15,6 @@ use petgraph::graph::NodeIndex;
 use petgraph::prelude::Direction::Incoming;
 use petgraph::visit::EdgeRef;
 
-use crate::ir::gvn::GVN;
 use crate::ir::idgen::IdentGenerator;
 use crate::semantics::BindingKind;
 use crate::semantics::BindingRef;
@@ -28,19 +27,23 @@ use crate::utils::WHITESPACE_REGEX;
 
 pub(crate) mod eval;
 mod idgen;
-mod gvn;
 
 pub(crate) struct EnableWarnings(pub(crate) bool);
+
+#[derive(Debug, Eq, PartialEq, Hash, Clone)]
+pub(crate) enum Variable {
+    Value(Value),
+    Binding(BindingRef),
+}
 
 pub(crate) struct FrontEnd {
     enable_warnings: bool,
     graph: BasicBlockGraph,
     idgen: IdentGenerator,
-    variables: HashMap<BindingRef, HashMap<NodeIndex, Ident>>,
-    variables_read: HashSet<BindingRef>,
-    gvn: GVN,
+    variables: HashMap<Variable, HashMap<NodeIndex, Ident>>,
+    variables_read: HashSet<Variable>,
     sealed_blocks: HashSet<NodeIndex>,
-    incomplete_phis: HashMap<NodeIndex, HashMap<BindingRef, Ident>>,
+    incomplete_phis: HashMap<NodeIndex, HashMap<Variable, Ident>>,
     phi_locations: HashMap<Ident, StatementLocation>,
     phi_users: MultiMap<Ident, StatementLocation>,
     trivial_phis: HashSet<StatementLocation>,
@@ -66,7 +69,6 @@ impl FrontEnd {
             idgen: IdentGenerator::new(),
             variables: HashMap::new(),
             variables_read: HashSet::new(),
-            gvn: GVN::new(),
             sealed_blocks: HashSet::new(),
             incomplete_phis: HashMap::new(),
             phi_locations: HashMap::new(),
@@ -143,7 +145,7 @@ impl FrontEnd {
 
             TypedExpr::Reference(binding, source) => {
                 self.comment(block, source.text());
-                (block, self.read_variable(binding, block))
+                (block, self.read_variable(&Variable::Binding(binding.clone()), block))
             }
 
             TypedExpr::Conditional { condition, positive, negative, source, .. } => {
@@ -161,9 +163,9 @@ impl FrontEnd {
                 self.graph.add_edge(block, negative_block, ());
                 self.seal_block(positive_block);
                 self.seal_block(negative_block);
-
                 let (positive_exit_block, positive) = self.process_expr(positive, positive_block);
                 let (negative_exit_block, negative) = self.process_expr(negative, negative_block);
+
                 let exit = self.new_block();
                 self.graph.add_edge(positive_exit_block, exit, ());
                 self.graph.add_edge(negative_exit_block, exit, ());
@@ -174,11 +176,9 @@ impl FrontEnd {
 
             TypedExpr::Assign(binding, value, source) => {
                 self.comment(block, source.text());
-                let old_value = self.read_variable(binding, block);
-                let (block, new_value) = self.process_expr(value, block);
-                let phi = self.define_phi(block, &[old_value, new_value]);
-                let ident = self.try_remove_trivial_phi(phi);
-                self.write_variable(binding, block, ident);
+                let variable = Variable::Binding(binding.clone());
+                let (block, ident) = self.process_expr(value, block);
+                self.write_variable(&variable, block, ident);
                 (block, ident)
             }
 
@@ -194,7 +194,7 @@ impl FrontEnd {
                         unreachable!()
                     };
                     let declaration = self.define(entry_block, Value::Arg(index));
-                    self.write_variable(parameter, entry_block, declaration);
+                    self.write_variable(&Variable::Binding(parameter.clone()), entry_block, declaration);
                 }
                 let _ = self.process_expr(&lambda.body, entry_block);
                 (block, self.define(block, Value::Function(entry_block)))
@@ -231,7 +231,7 @@ impl FrontEnd {
             TypedStatement::Binding(binding) => {
                 self.comment(block, binding.source.text());
                 let (block, ident) = self.process_expr(&binding.data, block);
-                self.write_variable(binding, block, ident);
+                self.write_variable(&Variable::Binding(binding.clone()), block, ident);
                 (block, ident)
             },
             TypedStatement::Expr(expr) => {
@@ -240,17 +240,18 @@ impl FrontEnd {
         }
     }
 
-    fn write_variable(&mut self, variable: &BindingRef, block: NodeIndex, ident: Ident) {
+    fn write_variable(&mut self, variable: &Variable, block: NodeIndex, ident: Ident) {
         self.variables
             .entry(variable.clone())
             .or_insert_with(HashMap::new)
             .insert(block, ident);
     }
 
-    fn read_variable(&mut self, variable: &BindingRef, block: NodeIndex) -> Ident {
+    fn read_variable(&mut self, variable: &Variable, block: NodeIndex) -> Ident {
         if !self.variables_read.contains(variable) {
             self.variables_read.insert(variable.clone());
         }
+
         self.variables
             .get(variable)
             .and_then(|map| map.get(&block))
@@ -258,7 +259,7 @@ impl FrontEnd {
             .unwrap_or_else(|| self.read_variable_recursive(variable, block))
     }
 
-    fn read_variable_recursive(&mut self, variable: &BindingRef, block: NodeIndex) -> Ident {
+    fn read_variable_recursive(&mut self, variable: &Variable, block: NodeIndex) -> Ident {
         let ident = if !self.sealed_blocks.contains(&block) {
             // Incomplete CFG
             let phi = self.define_phi(block, &[]);
@@ -287,7 +288,7 @@ impl FrontEnd {
         ident
     }
 
-    fn add_phi_operands(&mut self, variable: &BindingRef, phi: Ident) -> Ident {
+    fn add_phi_operands(&mut self, variable: &Variable, phi: Ident) -> Ident {
         let predecessors = self.graph
             .edges_directed(self.phi_locations[&phi].block, Incoming)
             .map(|edge| edge.source())
@@ -301,8 +302,12 @@ impl FrontEnd {
 
     fn try_remove_trivial_phi(&mut self, phi: Ident) -> Ident {
         let mut same = None;
-        for operand in self.phi_operands(phi) {
-            if Some(*operand) == same || *operand == phi {
+        for &operand in self.phi_operands(phi) {
+            if operand == self.undefined {
+                same = Some(self.undefined);
+                break;
+            }
+            if Some(operand) == same || operand == phi {
                 // Unique value or self−reference
                 continue;
             }
@@ -310,7 +315,7 @@ impl FrontEnd {
                 // The phi merges at least two values: not trivial
                 return phi;
             }
-            same = Some(*operand);
+            same = Some(operand);
         }
 
         let location = self.phi_locations[&phi];
@@ -364,16 +369,33 @@ impl FrontEnd {
     }
 
     fn define(&mut self, block: NodeIndex, value: Value) -> Ident {
-        let (ident, reused) = self.gvn.gvn(&self.graph, block, &value, &mut self.idgen);
-        if !*reused {
+        let variable = Variable::Value(value.clone());
+        let value_ident = (|| {
+            if let Variable::Value(value) = &variable {
+                if let Value::Arg(_) = value {
+                    return self.undefined;
+                } else if let Value::Phi(operands) = value {
+                    if operands.is_empty() {
+                        return self.undefined;
+                    }
+                }
+            }
+            self.read_variable(&variable, block)
+        })();
+
+        if value_ident != self.undefined {
+            value_ident
+        } else {
             let definition_location = StatementLocation::new(block, self.graph.block(block).len());
             self.record_phi_and_undefined_usages(definition_location, get_value_operands(&value));
+            let ident = self.idgen.new_id();
             self.graph.block_mut(block).push(Statement::Definition {
                 ident,
                 value
             });
+            self.write_variable(&variable, block, ident);
+            ident
         }
-        ident
     }
 
     fn define_phi(&mut self, block: NodeIndex, operands: &[Ident]) -> Ident {
@@ -438,10 +460,8 @@ fn remove_statements(graph: &mut BasicBlockGraph, locations: impl Iterator<Item 
     let indices_by_block = locations_sorted
         .into_iter()
         .group_by(|location| location.block);
-    for (block, indices) in &indices_by_block {
-        let mut indices = indices
-            .into_iter()
-            .map(|location| location.index);
+    for (block, locations) in &indices_by_block {
+        let mut indices = locations.map(|location| location.index);
         let mut index_to_be_removed = indices.next();
         let basic_block = graph.block_mut(block);
         let pruned = replace(basic_block, BasicBlock(vec![]))
@@ -482,13 +502,17 @@ fn get_value_operands<'a>(value: &'a Value) -> Box<dyn Iterator<Item = Ident> + 
     }
 }
 
-fn warn_about_redundant_bindings(variables: HashMap<BindingRef, HashMap<NodeIndex, Ident>>, variables_read: HashSet<BindingRef>) {
+fn warn_about_redundant_bindings(variables: HashMap<Variable, HashMap<NodeIndex, Ident>>, variables_read: HashSet<Variable>) {
     let variables = variables
         .into_iter()
         .map(|(variable, _)| variable)
         .collect::<HashSet<_>>();
     let redundant_bindings = variables
         .difference(&variables_read)
+        .filter_map(|variable| match variable {
+            Variable::Binding(binding) => Some(binding.clone()),
+            Variable::Value(_) => None,
+        })
         .sorted_by(|a, b| a.source.range().start().cmp(&b.source.range().start()));
     for binding in redundant_bindings {
         warning_at!(binding.source, "unused definition: {}", binding.source.text());
