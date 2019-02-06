@@ -53,8 +53,8 @@ impl<'a> EvalContext<'a> {
             match &state.basic_block[state.statement_index] {
                 Statement::Comment(_) => (),
 
-                Statement::Definition { ident, value } => {
-                    let value = self.eval_value(value);
+                Statement::Definition { ident, value_index } => {
+                    let value = self.eval_value(&self.cfg.values[*value_index]);
                     self.define(ident, value);
                     result = ident;
                 }

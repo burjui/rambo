@@ -175,9 +175,9 @@ impl CompilerPass<ExprRef, (ExprRef, ir::ControlFlowGraph)> for IR {
         let cfg = frontend.build(&hir);
         if options.dump_cfg {
             let mut file = File::create("ir_cfg.dot")?;
-            Graphviz::new()
+            Graphviz::new(&cfg)
                 .include_comments(options.cfg_include_comments)
-                .fmt(&mut file, &cfg.graph)?;
+                .fmt(&mut file)?;
         }
         Ok((hir, cfg))
     }

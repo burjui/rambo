@@ -6,12 +6,17 @@ use petgraph::graph::Edge;
 use petgraph::graph::NodeIndex;
 
 use crate::ir::BasicBlockGraph;
+use crate::ir::ControlFlowGraph;
+use crate::ir::Phi;
 use crate::ir::Statement;
 use crate::ir::Value;
+use crate::ir::value_storage::ValueStorage;
 use crate::utils::WHITESPACE_REGEX;
 
-pub(crate) struct Graphviz {
-    include_comments: bool
+pub(crate) struct Graphviz<'a> {
+    graph: &'a BasicBlockGraph,
+    values: &'a ValueStorage,
+    include_comments: bool,
 }
 
 macro_rules! colorize {
@@ -22,29 +27,34 @@ macro_rules! colorize {
     (undefined $text: expr) => (colorize!($text, "red"));
 }
 
-impl Graphviz {
-    pub(crate) fn new() -> Self {
-        Self { include_comments: false }
-    }
-
-    pub(crate) fn include_comments(self, include_comments: bool) -> Self {
-        Self { include_comments }
-    }
-
-    pub(crate) fn fmt(&self, sink: &mut impl io::Write, graph: &BasicBlockGraph) -> Result<(), io::Error> {
-        writeln!(sink, "digraph {{\nnode [ fontname = \"Fira Code\" ]")?;
-        for node in graph.node_indices() {
-            self.fmt_node(sink, node, graph)?;
+impl<'a> Graphviz<'a> {
+    pub(crate) fn new(cfg: &'a ControlFlowGraph) -> Self {
+        Self {
+            graph: &cfg.graph,
+            values: &cfg.values,
+            include_comments: false,
         }
-        for edge in graph.raw_edges().iter() {
+    }
+
+    pub(crate) fn include_comments(mut self, include_comments: bool) -> Self {
+        self.include_comments = include_comments;
+        self
+    }
+
+    pub(crate) fn fmt(&self, sink: &mut impl io::Write) -> Result<(), io::Error> {
+        writeln!(sink, "digraph {{\nnode [ fontname = \"Fira Code\" ]")?;
+        for node in self.graph.node_indices() {
+            self.fmt_node(sink, node)?;
+        }
+        for edge in self.graph.raw_edges().iter() {
             self.fmt_edge(sink, edge)?;
         }
         writeln!(sink, "}}")
     }
 
-    fn fmt_node(&self, sink: &mut impl io::Write, block: NodeIndex, graph: &BasicBlockGraph) -> Result<(), io::Error> {
+    fn fmt_node(&self, sink: &mut impl io::Write, block: NodeIndex) -> Result<(), io::Error> {
         write!(sink, "{} [ shape=box xlabel=\"{}\" label=<", block.index(), block.index())?;
-        self.fmt_block(sink, &**graph.block(block))?;
+        self.fmt_block(sink, &**self.graph.block(block))?;
         writeln!(sink, ">]\n")
     }
 
@@ -77,9 +87,9 @@ impl Graphviz {
                 }
             }
 
-            Statement::Definition { ident, value } => {
+            Statement::Definition { ident, value_index } => {
                 write!(sink, "{} ← ", ident)?;
-                self.fmt_value(sink, value)?;
+                self.fmt_value(sink, &self.values[*value_index])?;
             }
 
             Statement::CondJump(var, then_block, else_block) => {
@@ -102,7 +112,7 @@ impl Graphviz {
             Value::MulInt(left, right) => write!(sink, "{} * {}", left, right),
             Value::DivInt(left, right) => write!(sink, "{} - {}", left, right),
             Value::AddString(left, right) => write!(sink, "{} ++ {}", left, right),
-            Value::Phi(operands) => write!(sink, "{}({})", colorize!(keyword "ϕ"), operands.iter().format(", ")),
+            Value::Phi(Phi(operands)) => write!(sink, "{}({})", colorize!(keyword "ϕ"), operands.iter().format(", ")),
             Value::Call(function, arguments) => write!(sink, "{} {}({})", colorize!(keyword "call"), function, arguments.iter().format(", ")),
             Value::Arg(index) => write!(sink, "{}[{}]", colorize!(keyword "arg"), index),
             Value::Return(result) => write!(sink, "{} {}", colorize!(keyword "return"), result),

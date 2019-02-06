@@ -1,20 +1,22 @@
 use std::fmt;
+use std::hash::Hash;
+use std::hash::Hasher;
 use std::iter::empty;
 use std::iter::once;
+use std::mem::replace;
 use std::rc::Rc;
 
 use hashbrown::HashMap;
 use hashbrown::HashSet;
 use itertools::Itertools;
-use multimap::MultiMap;
 use num_bigint::BigInt;
-use once_cell::sync;
 use petgraph::graph::DiGraph;
 use petgraph::graph::NodeIndex;
 use petgraph::prelude::Direction::Incoming;
 use petgraph::visit::EdgeRef;
 
-use crate::ir::idgen::IdentGenerator;
+use crate::ir::value_storage::ValueIndex;
+use crate::ir::value_storage::ValueStorage;
 use crate::semantics::BindingKind;
 use crate::semantics::BindingRef;
 use crate::semantics::ExprRef;
@@ -25,26 +27,28 @@ use crate::source::Source;
 use crate::utils::WHITESPACE_REGEX;
 
 pub(crate) mod eval;
-mod idgen;
+pub(crate) mod value_storage;
 
 pub(crate) struct EnableWarnings(pub(crate) bool);
 
 #[derive(Debug, Eq, PartialEq, Hash, Clone)]
 pub(crate) enum Variable {
-    Value(Value),
+    Value(ValueIndex),
     Binding(BindingRef),
 }
 
 pub(crate) struct FrontEnd {
     enable_warnings: bool,
     graph: BasicBlockGraph,
-    idgen: IdentGenerator,
+    next_id: usize,
     variables: HashMap<Variable, HashMap<NodeIndex, Ident>>,
     variables_read: HashSet<Variable>,
+    values: ValueStorage,
+    ident_values: HashMap<Ident, ValueIndex>,
     sealed_blocks: HashSet<NodeIndex>,
     incomplete_phis: HashMap<NodeIndex, HashMap<Variable, Ident>>,
     phi_locations: HashMap<Ident, StatementLocation>,
-    phi_users: MultiMap<Ident, StatementLocation>,
+    phi_users: HashMap<Ident, HashSet<Ident>>,
     trivial_phis: Vec<StatementLocation>,
     entry_block: NodeIndex,
     undefined: Ident,
@@ -56,8 +60,7 @@ The algorithm used here to produce IR in minimal SSA form is from the following 
 
 Braun M., Buchwald S., Hack S., Leißa R., Mallon C., Zwinkau A.
 (2013) Simple and Efficient Construction of Static Single Assignment Form.
-In: Jhala R., De Bosschere K. (eds)
-Compiler Construction. CC 2013.
+In: Jhala R., De Bosschere K. (eds) Compiler Construction. CC 2013.
 Lecture Notes in Computer Science, vol 7791. Springer, Berlin, Heidelberg
 */
 impl FrontEnd {
@@ -65,13 +68,15 @@ impl FrontEnd {
         let mut instance = Self {
             enable_warnings,
             graph: BasicBlockGraph::new(),
-            idgen: IdentGenerator::new(),
+            next_id: 0,
             variables: HashMap::new(),
             variables_read: HashSet::new(),
+            values: ValueStorage::new(),
+            ident_values: HashMap::new(),
             sealed_blocks: HashSet::new(),
             incomplete_phis: HashMap::new(),
             phi_locations: HashMap::new(),
-            phi_users: MultiMap::new(),
+            phi_users: HashMap::new(),
             trivial_phis: Vec::new(),
             entry_block: NodeIndex::new(0),
             undefined: Ident(0),
@@ -98,7 +103,8 @@ impl FrontEnd {
             entry_block: self.entry_block,
             exit_block,
             undefined: self.undefined,
-            id_count: self.idgen.id_count()
+            values: self.values,
+            id_count: self.next_id,
         }
     }
 
@@ -156,7 +162,7 @@ impl FrontEnd {
                 let negative_block = self.new_block();
 
                 let statement_location = StatementLocation::new(block, self.graph.block(block).len());
-                self.record_phi_and_undefined_usages(statement_location, once(condition));
+                self.record_phi_and_undefined_usages(statement_location, condition);
                 self.graph.block_mut(block).push(
                     Statement::CondJump(condition, positive_block, negative_block));
 
@@ -328,23 +334,15 @@ impl FrontEnd {
             None => self.undefined
         };
 
-        if let Some(vec) = self.phi_users.get_vec_mut(&phi) {
-            if let Some((index, _)) = vec.iter().find_position(|user| **user == location) {
-                vec.remove(index);
-            }
-        }
-
-        static EMPTY_USERS: sync::Lazy<Vec<StatementLocation>> = once_cell::sync_lazy!(vec![]);
-        let users = self.phi_users
-            .get_vec(&phi)
-            .unwrap_or_else(|| &*EMPTY_USERS);
-        let mut possible_trivial_phis = vec![];
-        for user in users {
-            if let Statement::Definition { ident, value } = &mut self.graph.block_mut(user.block)[user.index] {
-                replace_phi(value, phi, same);
-                if let Value::Phi(_) = value {
-                    possible_trivial_phis.push(*ident);
-                }
+        // FIXME use std's HashMap and indexing
+        self.phi_users.get_mut(&phi).unwrap().remove(&phi);
+        let mut possible_trivial_phis = HashSet::new();
+        for user in &self.phi_users[&phi] {
+            let value_index = self.ident_values[user];
+            let value = &mut self.values[value_index];
+            replace_phi(value, phi, same);
+            if let Value::Phi(_) = value {
+                possible_trivial_phis.insert(*user);
             }
         }
 
@@ -371,44 +369,41 @@ impl FrontEnd {
     }
 
     fn define(&mut self, block: NodeIndex, value: Value) -> Ident {
-        let variable = Variable::Value(value.clone());
-        let value_ident = (|| {
-            if let Variable::Value(value) = &variable {
-                if let Value::Arg(_) = value {
-                    return self.undefined;
-                } else if let Value::Phi(operands) = value {
-                    if operands.is_empty() {
-                        return self.undefined;
-                    }
-                }
-            }
+        let (value_index, reused) = self.values.insert(value);
+        let variable = Variable::Value(value_index);
+        let ident = if *reused {
             self.read_variable(&variable, block)
-        })();
-
-        if value_ident != self.undefined {
-            value_ident
         } else {
-            let definition_location = StatementLocation::new(block, self.graph.block(block).len());
-            self.record_phi_and_undefined_usages(definition_location, get_value_operands(&value));
-            let ident = self.idgen.new_id();
+            self.undefined
+        };
+        if ident != self.undefined {
+            ident
+        } else {
+            let ident = self.new_id();
+            self.ident_values.insert(ident, value_index);
             self.graph.block_mut(block).push(Statement::Definition {
                 ident,
-                value
+                value_index,
             });
-            self.write_variable(&variable, block, ident);
-            if let Variable::Value(Value::Phi(_)) = &variable {
+            self.write_variable(&Variable::Value(value_index), block, ident);
+            let definition_location = StatementLocation::new(block, self.graph.block(block).len() - 1);
+            self.record_phi_and_undefined_usages(definition_location, ident);
+            if let Value::Phi(_) = &self.values[value_index] {
                 self.phi_locations.insert(ident, definition_location);
+                self.phi_users.insert(ident, HashSet::new());
             }
             ident
         }
     }
 
     fn define_phi(&mut self, block: NodeIndex, operands: &[Ident]) -> Ident {
-        self.define(block, Value::Phi(operands.to_vec()))
+        self.define(block, Value::Phi(Phi(operands.to_vec())))
     }
 
-    fn record_phi_and_undefined_usages(&mut self, location: StatementLocation, idents: impl Iterator<Item = Ident>) {
-        let (is_using_undefined, phis_used) = idents
+    fn record_phi_and_undefined_usages(&mut self, location: StatementLocation, ident: Ident) {
+        let value_index = self.ident_values[&ident];
+        let value = &self.values[value_index];
+        let (is_using_undefined, phis_used) = get_value_operands(value)
             .fold((false, vec![]), |(mut is_using_undefined, mut phis_used), ident| {
                 if ident == self.undefined {
                     is_using_undefined = true;
@@ -421,7 +416,7 @@ impl FrontEnd {
             self.undefined_users.push(location);
         }
         for phi in phis_used {
-            self.phi_users.insert(phi, location);
+            self.phi_users.get_mut(&phi).unwrap().insert(ident);
         }
     }
 
@@ -430,17 +425,17 @@ impl FrontEnd {
     }
 
     fn phi_operands(&self, phi: Ident) -> &[Ident] {
-        let location = self.phi_locations[&phi];
-        match &self.graph.block(location.block)[location.index] {
-            Statement::Definition { value: Value::Phi(operands), .. } => &operands,
+        let value_index = self.ident_values[&phi];
+        match &self.values[value_index] {
+            Value::Phi(Phi(operands)) => operands,
             _ => unreachable!()
         }
     }
 
     fn phi_operands_mut(&mut self, phi: Ident) -> &mut Vec<Ident> {
-        let location = self.phi_locations[&phi];
-        match &mut self.graph.block_mut(location.block)[location.index] {
-            Statement::Definition { value: Value::Phi(operands), .. } => operands,
+        let value_index = self.ident_values[&phi];
+        match &mut self.values[value_index] {
+            Value::Phi(Phi(operands)) => operands,
             _ => unreachable!()
         }
     }
@@ -453,6 +448,11 @@ impl FrontEnd {
         let block = self.graph.add_node(BasicBlock(vec![]));
         self.comment(block, &format!("--- BLOCK {} ---", block.index()));
         block
+    }
+
+    fn new_id(&mut self) -> Ident {
+        let next_id = self.next_id + 1;
+        Ident(replace(&mut self.next_id, next_id))
     }
 }
 
@@ -621,6 +621,7 @@ pub(crate) struct ControlFlowGraph {
     pub(crate) entry_block: NodeIndex,
     pub(crate) exit_block: NodeIndex,
     pub(crate) undefined: Ident,
+    pub(crate) values: ValueStorage,
     pub(crate) id_count: usize,
 }
 
@@ -656,7 +657,7 @@ pub(crate) enum Statement {
     Comment(String),
     Definition {
         ident: Ident,
-        value: Value
+        value_index: ValueIndex,
     },
     CondJump(Ident, NodeIndex, NodeIndex),
 }
@@ -668,10 +669,25 @@ impl fmt::Debug for Statement {
                 let comment = comment.replace("\n", ";");
                 write!(f, "// {}", WHITESPACE_REGEX.replace_all(&comment, " "))
             },
-            Statement::Definition { ident, value } => write!(f, "{} ← {:?}", ident, value),
+            Statement::Definition { ident, value_index } => write!(f, "{} ← {}", ident, value_index),
             Statement::CondJump(ident, positive, negative) =>
                 write!(f, "condjump {}, {}, {}", ident, positive.index(), negative.index()),
         }
+    }
+}
+
+#[derive(Deref, DerefMut, Clone, Eq)]
+pub(crate) struct Phi(pub(crate) Vec<Ident>);
+
+impl PartialEq for Phi {
+    fn eq(&self, Phi(other): &Phi) -> bool {
+        !self.0.is_empty() && &self.0 == other
+    }
+}
+
+impl Hash for Phi {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.0.hash(state);
     }
 }
 
@@ -687,7 +703,7 @@ pub(crate) enum Value {
     MulInt(Ident, Ident),
     DivInt(Ident, Ident),
     AddString(Ident, Ident),
-    Phi(Vec<Ident>),
+    Phi(Phi),
     Call(Ident, Vec<Ident>),
     Arg(usize),
     Return(Ident),
@@ -706,7 +722,7 @@ impl fmt::Debug for Value {
             Value::MulInt(left, right) => write!(f, "{} * {}", left, right),
             Value::DivInt(left, right) => write!(f, "{} / {}", left, right),
             Value::AddString(left, right) => write!(f, "{} + {}", left, right),
-            Value::Phi(operands) => write!(f, "ϕ({})", operands.iter().format(", ")),
+            Value::Phi(Phi(operands)) => write!(f, "ϕ({})", operands.iter().format(", ")),
             Value::Call(function, arguments) => write!(f, "call {}({})", function, arguments.iter().format(", ")),
             Value::Arg(index) => write!(f, "arg[{}]", index),
             Value::Return(result) => write!(f, "return {}", result),
@@ -741,19 +757,19 @@ fn gen_ir() -> TestResult {
     z + 9
 
     let f = λ (g: λ (u:str, v:str) -> str, u:str, v:str) -> g u v
-    let s1 = f (λ (u:str, v:str) -> \"(\" + u + \", \" + v + \")\") \"hello\" \"world\"
+    let s1 = f (λ (u:str, v:str) -> \"(\" + u + \"; \" + v + \")\") \"hello\" \"world\"
     let s2 = f (λ (u:str, v:str) -> \"<\" + u + \"; \" + v + \">\") (\"bye, \" + \"world\") \"seeya\"
     s1 + s2
     ")?;
 
     let cfg = FrontEnd::new(EnableWarnings(false)).build(&code);
     let mut output = std::fs::File::create("ir_cfg.dot")?;
-    crate::graphviz::Graphviz::new()
+    crate::graphviz::Graphviz::new(&cfg)
         .include_comments(true)
-        .fmt(&mut output, &cfg.graph)?;
+        .fmt(&mut output)?;
 
     let value = eval::EvalContext::new(&cfg).eval();
-    assert_eq!(value, Value::String(Rc::new("(hello, world)<bye, world; seeya>".to_owned())));
+    assert_eq!(value, Value::String(Rc::new("(hello; world)<bye, world; seeya>".to_owned())));
 
     Ok(())
 }
