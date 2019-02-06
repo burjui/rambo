@@ -46,10 +46,9 @@ pub(crate) struct FrontEnd {
     variables: HashMap<Variable, HashMap<NodeIndex, Ident>>,
     variables_read: HashSet<Variable>,
     values: ValueStorage,
-    ident_values: HashMap<Ident, ValueIndex>,
+    definitions: HashMap<Ident, IdentDefinition>,
     sealed_blocks: HashSet<NodeIndex>,
     incomplete_phis: HashMap<NodeIndex, HashMap<Variable, Ident>>,
-    phi_locations: HashMap<Ident, StatementLocation>,
     phi_users: HashMap<Ident, HashSet<Ident>>,
     trivial_phis: Vec<StatementLocation>,
     entry_block: NodeIndex,
@@ -74,10 +73,9 @@ impl FrontEnd {
             variables: HashMap::new(),
             variables_read: HashSet::new(),
             values: ValueStorage::new(),
-            ident_values: HashMap::new(),
+            definitions: HashMap::new(),
             sealed_blocks: HashSet::new(),
             incomplete_phis: HashMap::new(),
-            phi_locations: HashMap::new(),
             phi_users: HashMap::new(),
             trivial_phis: Vec::new(),
             entry_block: NodeIndex::new(0),
@@ -95,9 +93,22 @@ impl FrontEnd {
         self.define(exit_block, Value::Return(result));
 
         self.assert_no_undefined_variables();
+
         if self.enable_warnings {
-            warn_about_redundant_bindings(self.variables, self.variables_read);
+            let variables = self.variables
+                .into_iter()
+                .map(|(variable, _)| variable)
+                .collect::<HashSet<_>>();
+            let redundant_bindings = variables
+                .difference(&self.variables_read)
+                .filter_map(|variable| match variable {
+                    Variable::Binding(binding) => Some(binding.clone()),
+                    Variable::Value(_) => None,
+                });
+            warn_about_redundant_bindings(redundant_bindings);
+            drop(self.variables_read);
         }
+
         remove_statements(&mut self.graph, self.trivial_phis);
 
         ControlFlowGraph {
@@ -258,10 +269,7 @@ impl FrontEnd {
     }
 
     fn read_variable(&mut self, variable: &Variable, block: NodeIndex) -> Ident {
-        if !self.variables_read.contains(variable) {
-            self.variables_read.insert(variable.clone());
-        }
-
+        self.variables_read.insert(variable.clone());
         self.variables
             .get(variable)
             .and_then(|map| map.get(&block))
@@ -300,7 +308,7 @@ impl FrontEnd {
 
     fn add_phi_operands(&mut self, variable: &Variable, phi: Ident) -> Ident {
         let predecessors = self.graph
-            .edges_directed(self.phi_locations[&phi].block, Incoming)
+            .edges_directed(self.definitions[&phi].location.block, Incoming)
             .map(|edge| edge.source())
             .collect_vec();
         for predecessor in predecessors {
@@ -328,7 +336,7 @@ impl FrontEnd {
             same = Some(operand);
         }
 
-        let location = self.phi_locations[&phi];
+        let location = self.definitions[&phi].location;
         self.trivial_phis.push(location);
 
         let same = match same {
@@ -340,9 +348,9 @@ impl FrontEnd {
         self.phi_users.get_mut(&phi).unwrap().remove(&phi);
         let mut possible_trivial_phis = HashSet::new();
         for user in &self.phi_users[&phi] {
-            let value_index = self.ident_values[user];
+            let value_index = self.definitions[user].value_index;
             let value = &mut self.values[value_index];
-            replace_phi(value, phi, same);
+            replace_ident(value, phi, same);
             if let Value::Phi(_) = value {
                 possible_trivial_phis.insert(*user);
             }
@@ -382,16 +390,15 @@ impl FrontEnd {
             ident
         } else {
             let ident = self.new_id();
-            self.ident_values.insert(ident, value_index);
             self.graph.block_mut(block).push(Statement::Definition {
                 ident,
                 value_index,
             });
             self.write_variable(&Variable::Value(value_index), block, ident);
-            let definition_location = StatementLocation::new(block, self.graph.block(block).len() - 1);
-            self.record_phi_and_undefined_usages(definition_location, ident);
+            let location = StatementLocation::new(block, self.graph.block(block).len() - 1);
+            self.definitions.insert(ident, IdentDefinition { value_index, location });
+            self.record_phi_and_undefined_usages(location, ident);
             if let Value::Phi(_) = &self.values[value_index] {
-                self.phi_locations.insert(ident, definition_location);
                 self.phi_users.insert(ident, HashSet::new());
             }
             ident
@@ -403,9 +410,9 @@ impl FrontEnd {
     }
 
     fn record_phi_and_undefined_usages(&mut self, location: StatementLocation, ident: Ident) {
-        let value_index = self.ident_values[&ident];
+        let value_index = self.definitions[&ident].value_index;
         let value = &self.values[value_index];
-        let (is_using_undefined, phis_used) = get_value_operands(value)
+        let (is_using_undefined, phis_used) = get_value_ident_operands(value)
             .fold((false, vec![]), |(mut is_using_undefined, mut phis_used), ident| {
                 if ident == self.undefined {
                     is_using_undefined = true;
@@ -423,11 +430,11 @@ impl FrontEnd {
     }
 
     fn is_a_phi(&self, ident: Ident) -> bool {
-        ident != self.undefined && self.phi_locations.contains_key(&ident)
+        ident != self.undefined && self.phi_users.contains_key(&ident)
     }
 
     fn phi_operands(&self, phi: Ident) -> &[Ident] {
-        let value_index = self.ident_values[&phi];
+        let value_index = self.definitions[&phi].value_index;
         match &self.values[value_index] {
             Value::Phi(Phi(operands)) => operands,
             _ => unreachable!()
@@ -435,7 +442,7 @@ impl FrontEnd {
     }
 
     fn phi_operands_mut(&mut self, phi: Ident) -> &mut Vec<Ident> {
-        let value_index = self.ident_values[&phi];
+        let value_index = self.definitions[&phi].value_index;
         match &mut self.values[value_index] {
             Value::Phi(Phi(operands)) => operands,
             _ => unreachable!()
@@ -458,7 +465,7 @@ impl FrontEnd {
     }
 }
 
-fn get_value_operands<'a>(value: &'a Value) -> Box<dyn Iterator<Item = Ident> + 'a> {
+fn get_value_ident_operands<'a>(value: &'a Value) -> Box<dyn Iterator<Item = Ident> + 'a> {
     match value {
         Value::Undefined |
         Value::Unit |
@@ -479,24 +486,15 @@ fn get_value_operands<'a>(value: &'a Value) -> Box<dyn Iterator<Item = Ident> + 
     }
 }
 
-fn warn_about_redundant_bindings(variables: HashMap<Variable, HashMap<NodeIndex, Ident>>, variables_read: HashSet<Variable>) {
-    let variables = variables
-        .into_iter()
-        .map(|(variable, _)| variable)
-        .collect::<HashSet<_>>();
-    let redundant_bindings = variables
-        .difference(&variables_read)
-        .filter_map(|variable| match variable {
-            Variable::Binding(binding) => Some(binding.clone()),
-            Variable::Value(_) => None,
-        })
+fn warn_about_redundant_bindings(redundant_bindings: impl Iterator<Item = BindingRef>) {
+    let redundant_bindings = redundant_bindings
         .sorted_by(|a, b| a.source.range().start().cmp(&b.source.range().start()));
     for binding in redundant_bindings {
         warning_at!(binding.source, "unused definition: {}", binding.source.text());
     }
 }
 
-fn replace_phi(value: &mut Value, phi: Ident, replacement: Ident) {
+fn replace_ident(value: &mut Value, ident: Ident, replacement: Ident) {
     let operands: Box<dyn Iterator<Item = &mut Ident>> = match value {
         Value::Undefined |
         Value::Unit |
@@ -515,7 +513,7 @@ fn replace_phi(value: &mut Value, phi: Ident, replacement: Ident) {
         Value::Return(result) => Box::new(once(result)),
     };
     for operand in operands {
-        if *operand == phi {
+        if *operand == ident {
             *operand = replacement;
         }
     }
@@ -546,6 +544,12 @@ fn remove_statements(graph: &mut BasicBlockGraph, mut locations: Vec<StatementLo
     if let Some(state) = current_state {
         state.finish();
     }
+}
+
+#[derive(Debug)]
+struct IdentDefinition {
+    value_index: ValueIndex,
+    location: StatementLocation,
 }
 
 #[derive(Debug)]
