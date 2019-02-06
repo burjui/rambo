@@ -1,9 +1,8 @@
 use std::cmp::Eq;
+use std::collections::HashMap;
 use std::error::Error;
 use std::fmt::Debug;
 use std::hash::Hash;
-
-use hashbrown::HashMap;
 
 pub(crate) struct Environment<Key, Value> {
     scopes: Vec<HashMap<Key, Value>>

@@ -1,8 +1,5 @@
 #![warn(rust_2018_idioms)]
 
-#[macro_use]
-extern crate derive_deref;
-
 use std::env::args as program_args;
 use std::error::Error;
 use std::io::Write;

@@ -1,12 +1,20 @@
 use std::collections::HashMap;
 use std::fmt;
+use std::ops::Deref;
 use std::ops::Index;
 use std::ops::IndexMut;
 
 use crate::ir::Value;
 
-#[derive(Deref, DerefMut)]
 pub(crate) struct Reused(bool);
+
+impl Deref for Reused {
+    type Target = bool;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
 
 pub(crate) struct ValueStorage {
     by_value: HashMap<Value, ValueIndex>,

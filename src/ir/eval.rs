@@ -1,4 +1,5 @@
 use std::mem::replace;
+use std::ops::Deref;
 use std::ops::Index;
 use std::ops::IndexMut;
 use std::rc::Rc;
@@ -157,7 +158,6 @@ impl<'a> EvalContext<'a> {
     }
 }
 
-#[derive(Deref, DerefMut)]
 struct EvalEnv(Vec<RuntimeValue>);
 
 impl EvalEnv {
@@ -169,6 +169,14 @@ impl EvalEnv {
 
     fn get(&self, ident: Ident) -> Option<&RuntimeValue> {
         self.0.get(ident.0)
+    }
+}
+
+impl Deref for EvalEnv {
+    type Target = [RuntimeValue];
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }
 

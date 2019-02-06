@@ -1,9 +1,8 @@
+use std::collections::HashMap;
 use std::error::Error;
 use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::fmt::Write;
-
-use hashbrown::HashMap;
 
 use crate::lexer::Lexeme;
 use crate::lexer::Lexer;

@@ -1,13 +1,15 @@
+use std::collections::HashMap;
+use std::collections::HashSet;
 use std::fmt;
 use std::hash::Hash;
 use std::hash::Hasher;
 use std::iter::empty;
 use std::iter::once;
 use std::mem::replace;
+use std::ops::Deref;
+use std::ops::DerefMut;
 use std::rc::Rc;
 
-use hashbrown::HashMap;
-use hashbrown::HashSet;
 use itertools::Itertools;
 use num_bigint::BigInt;
 use petgraph::graph::DiGraph;
@@ -456,77 +458,6 @@ impl FrontEnd {
     }
 }
 
-#[derive(Debug)]
-struct RemoveStatementsState<'a> {
-    block: NodeIndex,
-    basic_block: &'a mut BasicBlock,
-    hole_start: usize,
-    hole_end: usize,
-    total_length: usize,
-    has_removed_any: bool,
-}
-
-impl<'a> RemoveStatementsState<'a> {
-    fn new(block: NodeIndex, graph: &'a mut BasicBlockGraph) -> Self {
-        Self {
-            block,
-            basic_block: graph.block_mut(block),
-            hole_start: 0,
-            hole_end: 0,
-            total_length: 0,
-            has_removed_any: false,
-        }
-    }
-
-    fn remove_at(&mut self, index: usize) {
-        if index > self.hole_end {
-            self.total_length += index - self.hole_end;
-            while self.hole_end < index {
-                self.basic_block.swap(self.hole_start, self.hole_end);
-                self.hole_start += 1;
-                self.hole_end += 1;
-            }
-        }
-        self.hole_end += 1;
-        self.has_removed_any = true;
-    }
-
-    fn finish(mut self) {
-        if self.has_removed_any {
-            self.remove_at(self.basic_block.len());
-            unsafe { self.basic_block.set_len(self.total_length); }
-            self.basic_block.shrink_to_fit();
-        }
-    }
-}
-
-fn remove_statements(graph: &mut BasicBlockGraph, mut locations: Vec<StatementLocation>) {
-    let locations = {
-        locations.sort_unstable_by(|a, b| a.block.cmp(&b.block).then_with(|| a.index.cmp(&b.index)));
-        locations.dedup();
-        locations
-    };
-    let mut current_state: Option<RemoveStatementsState<'_>> = None;
-    for location in locations {
-        let need_new_state = match &current_state {
-            Some(state) => location.block != state.block,
-            None => true,
-        };
-        if need_new_state {
-            if let Some(previous_state) = current_state.take() {
-                previous_state.finish();
-            }
-            current_state = Some(RemoveStatementsState::new(location.block, graph));
-        }
-        if let Some(state) = current_state.as_mut() {
-            state.remove_at(location.index);
-        }
-    }
-    if let Some(state) = current_state {
-        state.finish();
-    }
-}
-
 fn get_value_operands<'a>(value: &'a Value) -> Box<dyn Iterator<Item = Ident> + 'a> {
     match value {
         Value::Undefined |
@@ -590,7 +521,77 @@ fn replace_phi(value: &mut Value, phi: Ident, replacement: Ident) {
     }
 }
 
-#[derive(Deref, DerefMut)]
+fn remove_statements(graph: &mut BasicBlockGraph, mut locations: Vec<StatementLocation>) {
+    let locations = {
+        locations.sort_unstable_by(|a, b| a.block.cmp(&b.block).then_with(|| a.index.cmp(&b.index)));
+        locations.dedup();
+        locations
+    };
+    let mut current_state: Option<RemoveStatementsState<'_>> = None;
+    for location in locations {
+        let need_new_state = match &current_state {
+            Some(state) => location.block != state.block,
+            None => true,
+        };
+        if need_new_state {
+            if let Some(previous_state) = current_state.take() {
+                previous_state.finish();
+            }
+            current_state = Some(RemoveStatementsState::new(location.block, graph));
+        }
+        if let Some(state) = current_state.as_mut() {
+            state.remove_at(location.index);
+        }
+    }
+    if let Some(state) = current_state {
+        state.finish();
+    }
+}
+
+#[derive(Debug)]
+struct RemoveStatementsState<'a> {
+    block: NodeIndex,
+    basic_block: &'a mut BasicBlock,
+    hole_start: usize,
+    hole_end: usize,
+    total_length: usize,
+    has_removed_any: bool,
+}
+
+impl<'a> RemoveStatementsState<'a> {
+    fn new(block: NodeIndex, graph: &'a mut BasicBlockGraph) -> Self {
+        Self {
+            block,
+            basic_block: graph.block_mut(block),
+            hole_start: 0,
+            hole_end: 0,
+            total_length: 0,
+            has_removed_any: false,
+        }
+    }
+
+    fn remove_at(&mut self, index: usize) {
+        if index > self.hole_end {
+            self.total_length += index - self.hole_end;
+            while self.hole_end < index {
+                self.basic_block.swap(self.hole_start, self.hole_end);
+                self.hole_start += 1;
+                self.hole_end += 1;
+            }
+        }
+        self.hole_end += 1;
+        self.has_removed_any = true;
+    }
+
+    fn finish(mut self) {
+        if self.has_removed_any {
+            self.remove_at(self.basic_block.len());
+            unsafe { self.basic_block.set_len(self.total_length); }
+            self.basic_block.shrink_to_fit();
+        }
+    }
+}
+
 pub(crate) struct BasicBlock(Vec<Statement>);
 
 impl fmt::Debug for BasicBlock {
@@ -599,7 +600,20 @@ impl fmt::Debug for BasicBlock {
     }
 }
 
-#[derive(Deref, DerefMut)]
+impl Deref for BasicBlock {
+    type Target = Vec<Statement>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for BasicBlock {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
 pub(crate) struct BasicBlockGraph(DiGraph<BasicBlock, ()>);
 
 impl BasicBlockGraph {
@@ -613,6 +627,20 @@ impl BasicBlockGraph {
 
     pub(crate) fn block_mut(&mut self, block: NodeIndex) -> &mut BasicBlock {
         self.node_weight_mut(block).unwrap()
+    }
+}
+
+impl Deref for BasicBlockGraph {
+    type Target = DiGraph<BasicBlock, ()>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for BasicBlockGraph {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
     }
 }
 
@@ -676,8 +704,22 @@ impl fmt::Debug for Statement {
     }
 }
 
-#[derive(Deref, DerefMut, Clone, Eq)]
+#[derive(Clone, Eq)]
 pub(crate) struct Phi(pub(crate) Vec<Ident>);
+
+impl Deref for Phi {
+    type Target = [Ident];
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for Phi {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
 
 impl PartialEq for Phi {
     fn eq(&self, Phi(other): &Phi) -> bool {
