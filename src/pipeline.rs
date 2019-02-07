@@ -10,6 +10,8 @@ use termcolor::WriteColor;
 
 use crate::eval::Evaluator;
 use crate::eval::Evalue;
+use crate::frontend::EnableWarnings;
+use crate::frontend::FrontEnd;
 use crate::graphviz::Graphviz;
 use crate::ir;
 use crate::ir::eval::EvalContext;
@@ -171,7 +173,7 @@ impl CompilerPass<ExprRef, (ExprRef, ir::ControlFlowGraph)> for IR {
     const TITLE: &'static str = "Generating IR";
 
     fn apply(hir: ExprRef, options: &PipelineOptions) -> Result<(ExprRef, ir::ControlFlowGraph), Box<dyn Error>> {
-        let frontend = ir::FrontEnd::new(ir::EnableWarnings(options.enable_warnings));
+        let frontend = FrontEnd::new(EnableWarnings(options.enable_warnings));
         let cfg = frontend.build(&hir);
         if options.dump_cfg {
             let mut file = File::create("ir_cfg.dot")?;

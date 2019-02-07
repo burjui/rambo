@@ -41,6 +41,7 @@ mod pipeline;
 mod unique_rc;
 mod graphviz;
 mod ir;
+mod frontend;
 
 fn main() -> Result<(), Box<dyn Error>> {
     let stdout = &mut stdout();
