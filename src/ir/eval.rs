@@ -81,7 +81,7 @@ impl<'a> EvalContext<'a> {
     fn new_state(&self, block: NodeIndex) -> LocalEvalState<'a> {
         LocalEvalState {
             block,
-            basic_block: self.cfg.graph.block(block),
+            basic_block: &self.cfg.graph[block],
             statement_index: 0
         }
     }

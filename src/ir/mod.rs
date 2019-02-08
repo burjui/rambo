@@ -59,14 +59,6 @@ impl BasicBlockGraph {
     pub(crate) fn new() -> Self {
         Self(DiGraph::new())
     }
-
-    pub(crate) fn block(&self, block: NodeIndex) -> &BasicBlock {
-        self.node_weight(block).unwrap()
-    }
-
-    pub(crate) fn block_mut(&mut self, block: NodeIndex) -> &mut BasicBlock {
-        self.node_weight_mut(block).unwrap()
-    }
 }
 
 impl Deref for BasicBlockGraph {

@@ -116,7 +116,7 @@ impl FrontEnd {
     fn assert_no_undefined_variables(&self) {
         assert!(self.undefined_users.is_empty(), "found undefined usages:\n{:?}\n",
                 self.undefined_users.iter()
-                    .map(|user| &self.graph.block(user.block)[user.index])
+                    .map(|user| &self.graph[user.block][user.index])
                     .format("\n"));
     }
 
@@ -166,9 +166,9 @@ impl FrontEnd {
                 let positive_block = self.new_block();
                 let negative_block = self.new_block();
 
-                let statement_location = StatementLocation::new(block, self.graph.block(block).len());
+                let statement_location = StatementLocation::new(block, self.graph[block].len());
                 self.record_phi_and_undefined_usages(statement_location, condition);
-                self.graph.block_mut(block).push(
+                self.graph[block].push(
                     Statement::CondJump(condition, positive_block, negative_block));
 
                 self.graph.add_edge(block, positive_block, ());
@@ -381,12 +381,12 @@ impl FrontEnd {
             ident
         } else {
             let ident = self.idgen.next_id();
-            self.graph.block_mut(block).push(Statement::Definition {
+            self.graph[block].push(Statement::Definition {
                 ident,
                 value_index,
             });
             self.write_variable(&Variable::Value(value_index), block, ident);
-            let location = StatementLocation::new(block, self.graph.block(block).len() - 1);
+            let location = StatementLocation::new(block, self.graph[block].len() - 1);
             self.definitions.insert(ident, IdentDefinition { value_index, location });
             self.record_phi_and_undefined_usages(location, ident);
             if let Value::Phi(_) = &self.values[value_index] {
@@ -441,7 +441,7 @@ impl FrontEnd {
     }
 
     fn comment(&mut self, block: NodeIndex, comment: &str) {
-        self.graph.block_mut(block).push(Statement::Comment(comment.to_owned()))
+        self.graph[block].push(Statement::Comment(comment.to_owned()))
     }
 
     fn new_block(&mut self) -> NodeIndex {
@@ -544,7 +544,7 @@ impl<'a> RemoveStatementsState<'a> {
     fn new(block: NodeIndex, graph: &'a mut BasicBlockGraph) -> Self {
         Self {
             block,
-            basic_block: graph.block_mut(block),
+            basic_block: &mut graph[block],
             hole_start: 0,
             hole_end: 0,
             total_length: 0,
