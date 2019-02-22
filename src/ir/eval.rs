@@ -1,5 +1,7 @@
+use std::collections::HashMap;
 use std::mem::replace;
 use std::ops::Deref;
+use std::ops::DerefMut;
 use std::ops::Index;
 use std::ops::IndexMut;
 use std::rc::Rc;
@@ -13,14 +15,14 @@ use petgraph::visit::EdgeRef;
 
 use crate::ir::BasicBlock;
 use crate::ir::ControlFlowGraph;
-use crate::ir::Ident;
 use crate::ir::Statement;
 use crate::ir::Value;
+use crate::ir::VarId;
 
 pub(crate) struct EvalContext<'a> {
     cfg: &'a ControlFlowGraph,
     env: EvalEnv,
-    stack: Vec<Ident>,
+    stack: Vec<VarId>,
     timestamp: usize,
 }
 
@@ -28,7 +30,7 @@ impl<'a> EvalContext<'a> {
     pub(crate) fn new(cfg: &'a ControlFlowGraph) -> Self {
         Self {
             cfg,
-            env: EvalEnv::new(cfg.id_count, RuntimeValue::undefined()),
+            env: EvalEnv::new(),
             stack: Vec::new(),
             timestamp: 0,
         }
@@ -113,17 +115,17 @@ impl<'a> EvalContext<'a> {
 
             Value::Call(function, arguments) => {
                 let value = &self.runtime_value(function).value;
-                let entry_block = match value {
-                    Value::Function(entry_block) => *entry_block,
+                let function_cfg = match value {
+                    Value::Function(_, cfg) => &**cfg,
                     _ => unreachable!("`{}' is not a function: {:?}", function, value),
                 };
-                let stack_size = self.stack.len();
+                let mut function_context = EvalContext::new(function_cfg);
                 for argument in arguments.iter().rev() {
-                    self.stack.push(*argument);
+                    let value = self.env[argument].clone();
+                    function_context.env.insert(*argument, value);
+                    function_context.stack.push(*argument);
                 }
-                let result = self.eval_impl(entry_block);
-                self.stack.resize(stack_size, self.cfg.undefined);
-                result
+                function_context.eval()
             }
 
             Value::Arg(index) => self.runtime_value(&self.stack[self.stack.len() - 1 - index])
@@ -135,7 +137,7 @@ impl<'a> EvalContext<'a> {
     }
 
     #[allow(clippy::trivially_copy_pass_by_ref)]
-    fn define(&mut self, ident: &Ident, value: Value) {
+    fn define(&mut self, ident: &VarId, value: Value) {
         let next_timestamp = self.timestamp + 1;
         self.env[ident] = RuntimeValue {
             value,
@@ -144,67 +146,71 @@ impl<'a> EvalContext<'a> {
     }
 
     #[allow(clippy::trivially_copy_pass_by_ref)]
-    fn int(&self, ident: &Ident) -> BigInt {
+    fn int(&self, ident: &VarId) -> BigInt {
         self.runtime_value(ident).into()
     }
 
     #[allow(clippy::trivially_copy_pass_by_ref)]
-    fn string(&self, ident: &Ident) -> Rc<String> {
+    fn string(&self, ident: &VarId) -> Rc<String> {
         self.runtime_value(ident).into()
     }
 
-    fn runtime_value(&self, ident: &Ident) -> &RuntimeValue {
+    fn runtime_value(&self, ident: &VarId) -> &RuntimeValue {
         &self.env[ident]
     }
 }
 
-struct EvalEnv(Vec<RuntimeValue>);
+struct EvalEnv(HashMap<VarId, RuntimeValue>);
 
 impl EvalEnv {
-    fn new(length: usize, default_value: RuntimeValue) -> Self {
-        let mut vec = Vec::with_capacity(length);
-        vec.resize(length, default_value);
-        Self(vec)
+    fn new() -> Self {
+        Self(HashMap::new())
     }
 
-    fn get(&self, ident: Ident) -> Option<&RuntimeValue> {
-        self.0.get(ident.0)
+    fn get(&self, ident: VarId) -> Option<&RuntimeValue> {
+        self.0.get(&ident)
     }
 }
 
 impl Deref for EvalEnv {
-    type Target = [RuntimeValue];
+    type Target = HashMap<VarId, RuntimeValue>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
-impl Index<&Ident> for EvalEnv {
+impl DerefMut for EvalEnv {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl Index<&VarId> for EvalEnv {
     type Output = RuntimeValue;
 
-    fn index(&self, ident: &Ident) -> &Self::Output {
+    fn index(&self, ident: &VarId) -> &Self::Output {
         self.index(*ident)
     }
 }
 
-impl Index<Ident> for EvalEnv {
+impl Index<VarId> for EvalEnv {
     type Output = RuntimeValue;
 
-    fn index(&self, ident: Ident) -> &Self::Output {
-        &self.0[ident.0]
+    fn index(&self, ident: VarId) -> &Self::Output {
+        &self.0[&ident]
     }
 }
 
-impl IndexMut<&Ident> for EvalEnv {
-    fn index_mut(&mut self, ident: &Ident) -> &mut Self::Output {
-        self.index_mut(*ident)
+impl IndexMut<&VarId> for EvalEnv {
+    fn index_mut(&mut self, ident: &VarId) -> &mut Self::Output {
+        &mut self[*ident]
     }
 }
 
-impl IndexMut<Ident> for EvalEnv {
-    fn index_mut(&mut self, ident: Ident) -> &mut Self::Output {
-        &mut self.0[ident.0]
+impl IndexMut<VarId> for EvalEnv {
+    fn index_mut(&mut self, ident: VarId) -> &mut Self::Output {
+        self.entry(ident).or_insert_with(|| RuntimeValue::undefined())
     }
 }
 
@@ -242,7 +248,7 @@ impl From<&RuntimeValue> for Rc<String> {
     fn from(value: &RuntimeValue) -> Self {
         match &value.value {
             Value::String(s) => s.clone(),
-            _ => unreachable!("BigInt::from(): {:?}", value),
+            _ => unreachable!("Rc<String>::from(): {:?}", value),
         }
     }
 }

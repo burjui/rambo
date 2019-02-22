@@ -40,6 +40,10 @@ impl ValueStorage {
         }
         (index, Reused(reused))
     }
+
+    pub(crate) fn iter(&self) -> impl Iterator<Item = &Value> {
+        self.by_index.iter()
+    }
 }
 
 impl Index<ValueIndex> for ValueStorage {

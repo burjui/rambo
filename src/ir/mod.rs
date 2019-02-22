@@ -14,6 +14,7 @@ use petgraph::graph::NodeIndex;
 use crate::ir::value_storage::ValueIndex;
 use crate::ir::value_storage::ValueStorage;
 use crate::semantics::BindingRef;
+use crate::unique_rc::UniqueRc;
 use crate::utils::WHITESPACE_REGEX;
 
 pub(crate) mod eval;
@@ -76,50 +77,67 @@ impl DerefMut for BasicBlockGraph {
 }
 
 pub(crate) struct ControlFlowGraph {
+    pub(crate) name: String,
     pub(crate) graph: BasicBlockGraph,
     pub(crate) entry_block: NodeIndex,
     pub(crate) exit_block: NodeIndex,
-    pub(crate) undefined: Ident,
+    pub(crate) undefined: VarId,
     pub(crate) values: ValueStorage,
-    pub(crate) id_count: usize,
 }
 
+pub(crate) trait Ident: Sized {
+    fn new(id: usize) -> Self;
+    fn id(&self) -> usize;
+}
 
-#[derive(Copy, Clone, Eq, PartialEq, Hash)]
-pub(crate) struct Ident(usize);
+macro_rules! define_ident {
+    ($name: ident, $prefix: literal) => {
+        #[derive(Copy, Clone, Eq, PartialEq, Hash, Ord, PartialOrd)]
+        pub(crate) struct $name(usize);
 
-impl Default for Ident {
-    fn default() -> Self {
-        Ident(0)
+        impl Ident for $name {
+            fn new(id: usize) -> Self {
+                $name(id)
+            }
+
+            fn id(&self) -> usize {
+                self.0
+            }
+        }
+
+        impl Default for $name {
+            fn default() -> Self {
+                $name(0)
+            }
+        }
+
+        impl std::fmt::Display for $name {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(f, "{}{}", $prefix, self.0)
+            }
+        }
+
+        impl std::fmt::Debug for $name {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                std::fmt::Display::fmt(self, f)
+            }
+        }
     }
 }
 
-pub(crate) struct IdentGenerator(usize);
+define_ident!(VarId, "v");
+define_ident!(FnId, "λ");
 
-impl IdentGenerator {
+pub(crate) struct IdentGenerator<Id: Ident>(Id);
+
+impl<Id: Ident> IdentGenerator<Id> {
     pub(crate) fn new() -> Self {
-        Self(0)
+        Self(Id::new(0))
     }
 
-    pub(crate) fn next_id(&mut self) -> Ident {
-        let next_id = self.0 + 1;
-        Ident(replace(&mut self.0, next_id))
-    }
-
-    pub(crate) fn id_count(&self) -> usize {
-        self.0
-    }
-}
-
-impl fmt::Display for Ident {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "v{}", self.0)
-    }
-}
-
-impl fmt::Debug for Ident {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt::Display::fmt(self, f)
+    pub(crate) fn next_id(&mut self) -> Id {
+        let next_id = Id::new(self.0.id() + 1);
+        replace(&mut self.0, next_id)
     }
 }
 
@@ -127,10 +145,10 @@ impl fmt::Debug for Ident {
 pub(crate) enum Statement {
     Comment(String),
     Definition {
-        ident: Ident,
+        ident: VarId,
         value_index: ValueIndex,
     },
-    CondJump(Ident, NodeIndex, NodeIndex),
+    CondJump(VarId, NodeIndex, NodeIndex),
 }
 
 impl fmt::Debug for Statement {
@@ -148,10 +166,10 @@ impl fmt::Debug for Statement {
 }
 
 #[derive(Clone, Eq)]
-pub(crate) struct Phi(pub(crate) Vec<Ident>);
+pub(crate) struct Phi(pub(crate) Vec<VarId>);
 
 impl Deref for Phi {
-    type Target = [Ident];
+    type Target = [VarId];
 
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -182,16 +200,16 @@ pub(crate) enum Value {
     Unit,
     Int(BigInt),
     String(Rc<String>),
-    Function(NodeIndex),
-    AddInt(Ident, Ident),
-    SubInt(Ident, Ident),
-    MulInt(Ident, Ident),
-    DivInt(Ident, Ident),
-    AddString(Ident, Ident),
+    Function(FnId, UniqueRc<ControlFlowGraph>),
+    AddInt(VarId, VarId),
+    SubInt(VarId, VarId),
+    MulInt(VarId, VarId),
+    DivInt(VarId, VarId),
+    AddString(VarId, VarId),
     Phi(Phi),
-    Call(Ident, Vec<Ident>),
+    Call(VarId, Vec<VarId>),
     Arg(usize),
-    Return(Ident),
+    Return(VarId),
 }
 
 impl fmt::Debug for Value {
@@ -201,7 +219,7 @@ impl fmt::Debug for Value {
             Value::Unit => f.write_str("()"),
             Value::Int(n) => write!(f, "{}", n),
             Value::String(s) => write!(f, "\"{}\"", s),
-            Value::Function(entry_block) => write!(f, "λ{} ", entry_block.index()),
+            Value::Function(id, _) => write!(f, "{}", id),
             Value::AddInt(left, right) => write!(f, "{} + {}", left, right),
             Value::SubInt(left, right) => write!(f, "{} - {}", left, right),
             Value::MulInt(left, right) => write!(f, "{} * {}", left, right),
