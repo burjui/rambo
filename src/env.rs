@@ -27,6 +27,15 @@ where Key: Eq + Debug + Hash + Clone, Value: Debug {
         Err(From::from(format!("`{:?}' is undefined", key)))
     }
 
+    pub(crate) fn resolve_mut(&mut self, key: &Key) -> Result<&mut Value, Box<dyn Error>> {
+        for scope in self.scopes.iter_mut().rev() {
+            if let Some(value) = scope.get_mut(key) {
+                return Ok(value);
+            }
+        }
+        Err(From::from(format!("`{:?}' is undefined", key)))
+    }
+
     pub(crate) fn push(&mut self) {
         self.scopes.push(HashMap::new());
     }

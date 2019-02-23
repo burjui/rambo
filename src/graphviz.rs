@@ -1,8 +1,8 @@
 use std::io;
+use std::mem::replace;
 
 use askama_escape::escape;
 use itertools::Itertools;
-use petgraph::graph::Edge;
 use petgraph::graph::NodeIndex;
 
 use crate::ir::BasicBlockGraph;
@@ -30,27 +30,18 @@ macro_rules! colorize {
 }
 
 impl<'a> Graphviz<'a> {
-    pub(crate) fn new(cfg: &'a ControlFlowGraph, name: String) -> Self {
-        Self {
+    pub(crate) fn write(sink: &mut impl io::Write, cfg: &'a ControlFlowGraph, name: String) -> Result<(), io::Error> {
+        let mut state = Self {
             id: 0,
             name,
             graph: &cfg.graph,
             values: &cfg.values,
             is_subgraph: false,
-        }
+        };
+        state.fmt_impl(sink)
     }
 
-    fn is_subgraph(mut self, is_subgraph: bool) -> Self {
-        self.is_subgraph = is_subgraph;
-        self
-    }
-
-    fn id(mut self, id: usize) -> Self {
-        self.id = id;
-        self
-    }
-
-    pub(crate) fn fmt(self, sink: &mut impl io::Write) -> Result<(), io::Error> {
+    fn fmt_impl(&mut self, sink: &mut impl io::Write) -> Result<(), io::Error> {
         if !self.is_subgraph {
             writeln!(sink, "digraph {{")?;
             writeln!(sink, "compound=true")?;
@@ -62,28 +53,28 @@ impl<'a> Graphviz<'a> {
         for node in self.graph.node_indices() {
             self.fmt_node(sink, node)?;
         }
-        for edge in self.graph.raw_edges().iter() {
+        for edge in self.graph.edge_indices().map(|edge| self.graph.edge_endpoints(edge).unwrap()) {
             self.fmt_edge(sink, edge)?;
         }
         writeln!(sink, "}}")?;
 
-        let mut fn_ids = Vec::new();
+        let is_subgraph = replace(&mut self.is_subgraph, true);
         let functions = self.values
             .iter()
             .filter_map(|value| match value {
                 Value::Function(id, cfg) => Some((id, cfg)),
                 _ => None,
-            })
-            .enumerate();
-        for (index, (function_id, function_cfg)) in functions {
-            Graphviz::new(function_cfg, function_id.to_string())
-                .is_subgraph(true)
-                .id(self.id + 1 + index)
-                .fmt(sink)?;
-            fn_ids.push(function_id);
+            });
+        for (id, cfg) in functions {
+            writeln!(sink)?;
+            self.id += 1;
+            self.name = id.to_string();
+            self.graph = &cfg.graph;
+            self.values = &cfg.values;
+            self.fmt_impl(sink)?;
         }
-        writeln!(sink)?;
-        if !self.is_subgraph {
+
+        if !is_subgraph {
             writeln!(sink, "}}")?;
         }
         Ok(())
@@ -95,8 +86,8 @@ impl<'a> Graphviz<'a> {
         writeln!(sink, ">];")
     }
 
-    fn fmt_edge(&self, sink: &mut impl io::Write, edge: &Edge<()>) -> Result<(), io::Error> {
-        writeln!(sink, "\"{}_{}\" -> \"{}_{}\";", self.name, edge.source().index(), self.name, edge.target().index())
+    fn fmt_edge(&self, sink: &mut impl io::Write, (source, target): (NodeIndex, NodeIndex)) -> Result<(), io::Error> {
+        writeln!(sink, "\"{}_{}\" -> \"{}_{}\";", self.name, source.index(), self.name, target.index())
     }
 
     fn fmt_block(&self, sink: &mut impl io::Write, block: &[Statement]) -> Result<(), io::Error> {
@@ -144,7 +135,6 @@ impl<'a> Graphviz<'a> {
             Value::Phi(Phi(operands)) => write!(sink, "{}({})", colorize!(keyword "ϕ"), operands.iter().format(", ")),
             Value::Call(function, arguments) => write!(sink, "{} {}({})", colorize!(keyword "call"), function, arguments.iter().format(", ")),
             Value::Arg(index) => write!(sink, "{}[{}]", colorize!(keyword "arg"), index),
-            Value::Return(result) => write!(sink, "{} {}", colorize!(keyword "return"), result),
         }
     }
 }

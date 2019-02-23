@@ -320,23 +320,6 @@ impl Debug for Type {
     }
 }
 
-pub(crate) trait Expression {
-    fn is_constant(&self) -> bool;
-}
-
-impl Expression for TypedExpr {
-    fn is_constant(&self) -> bool {
-        match self {
-            TypedExpr::Unit(_) | TypedExpr::Int(_, _) | TypedExpr::String(_, _) => true,
-            _ => false
-        }
-    }
-}
-
-impl Expression for ExprRef {
-    fn is_constant(&self) -> bool { TypedExpr::is_constant(self) }
-}
-
 #[derive(Clone)]
 pub(crate) struct ExprRef(pub(crate) rc_arena::Rc<TypedExpr>);
 
@@ -369,7 +352,7 @@ impl Debug for Lambda {
 
 pub(crate) struct Block {
     pub(crate) statements: Vec<TypedStatement>,
-    pub(crate) source: Source
+    pub(crate) source: Source // TODO make it part of TypedExpr
 }
 
 impl Debug for Block {

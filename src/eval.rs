@@ -59,7 +59,7 @@ impl<'a> Evaluator {
             },
             TypedExpr::Assign(binding, value, _) => {
                 let value = self.eval(value)?;
-                self.env.bind(binding.name.clone(), value.clone());
+                *self.env.resolve_mut(&binding.name)? = value.clone();
                 Ok(value)
             },
             TypedExpr::Reference(binding, _) => self.env.resolve(&binding.name).map(Clone::clone),

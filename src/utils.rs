@@ -59,3 +59,12 @@ pub(crate) fn stdout() -> StandardStream {
 
 #[cfg(test)]
 pub(crate) type TestResult = Result<(), Box<dyn Error>>;
+
+macro_rules! matches {
+    ($expr: expr, $($($pattern: pat)|+ $(if $guard: expr)?),+) => {
+        match $expr {
+            $($($pattern)|+ $(if $guard)? => true,)+
+            _ => false,
+        }
+    }
+}

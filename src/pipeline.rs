@@ -12,7 +12,7 @@ use crate::eval::Evaluator;
 use crate::eval::Evalue;
 use crate::frontend::FrontEnd;
 use crate::graphviz::Graphviz;
-use crate::ir;
+use crate::ir::ControlFlowGraph;
 use crate::ir::eval::EvalContext;
 use crate::lexer::Lexer;
 use crate::parser::Block as ASTBlock;
@@ -167,28 +167,28 @@ impl CompilerPass<ASTBlock, ExprRef> for VerifySemantics {
     }
 }
 
-impl CompilerPass<ExprRef, (ExprRef, ir::ControlFlowGraph)> for IR {
+impl CompilerPass<ExprRef, (ExprRef, ControlFlowGraph)> for IR {
     const NAME: &'static str = "ir";
     const TITLE: &'static str = "Generating IR";
 
-    fn apply(hir: ExprRef, options: &PipelineOptions) -> Result<(ExprRef, ir::ControlFlowGraph), Box<dyn Error>> {
+    fn apply(hir: ExprRef, options: &PipelineOptions) -> Result<(ExprRef, ControlFlowGraph), Box<dyn Error>> {
         let frontend = FrontEnd::new("main")
             .enable_warnings(options.enable_warnings)
             .include_comments(options.cfg_include_comments);
         let cfg = frontend.build(&hir);
         if options.dump_cfg {
             let mut file = File::create("ir_cfg.dot")?;
-            Graphviz::new(&cfg, cfg.name.clone()).fmt(&mut file)?;
+            Graphviz::write(&mut file, &cfg, cfg.name.clone())?;
         }
         Ok((hir, cfg))
     }
 }
 
-impl CompilerPass<(ExprRef, ir::ControlFlowGraph), ExprRef> for EvaluateIR {
+impl CompilerPass<(ExprRef, ControlFlowGraph), ExprRef> for EvaluateIR {
     const NAME: &'static str = "eval_ir";
     const TITLE: &'static str = "Evaluating IR";
 
-    fn apply(input: (ExprRef, ir::ControlFlowGraph), _: &PipelineOptions) -> Result<ExprRef, Box<dyn Error>> {
+    fn apply(input: (ExprRef, ControlFlowGraph), _: &PipelineOptions) -> Result<ExprRef, Box<dyn Error>> {
         let value = EvalContext::new(&input.1).eval();
         writeln!(&mut stdout(), "{:?}", value)?;
         Ok(input.0)

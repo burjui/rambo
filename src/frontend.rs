@@ -9,22 +9,23 @@ Lecture Notes in Computer Science, vol 7791. Springer, Berlin, Heidelberg
 
 use std::collections::HashMap;
 use std::collections::HashSet;
+#[cfg(test)] use std::fs::File;
 use std::iter::empty;
-use std::iter::FromIterator;
 use std::iter::once;
-use std::mem::replace;
 #[cfg(test)] use std::rc::Rc;
 
 use itertools::Itertools;
+#[cfg(test)] use num_bigint::BigInt;
 use petgraph::Direction;
 use petgraph::graph::NodeIndex;
 use petgraph::visit::EdgeRef;
 
+use crate::frontend::dead_code::remove_dead_code;
+#[cfg(test)] use crate::graphviz::Graphviz;
 use crate::ir::BasicBlock;
 use crate::ir::BasicBlockGraph;
 use crate::ir::ControlFlowGraph;
 use crate::ir::FnId;
-use crate::ir::Ident;
 use crate::ir::IdentGenerator;
 use crate::ir::Phi;
 use crate::ir::Statement;
@@ -41,6 +42,8 @@ use crate::semantics::TypedStatement;
 use crate::source::Source;
 use crate::unique_rc::UniqueRc;
 #[cfg(test)] use crate::utils::TestResult;
+
+mod dead_code;
 
 pub(crate) struct FrontEnd {
     name: String,
@@ -99,7 +102,6 @@ impl FrontEnd {
 
     pub(crate) fn build(mut self, code: &ExprRef) -> ControlFlowGraph {
         let (exit_block, program_result) = self.process_expr(code, self.entry_block);
-        let program_result = self.define(exit_block, Value::Return(program_result));
         self.assert_no_undefined_variables();
 
         if self.enable_warnings {
@@ -116,7 +118,8 @@ impl FrontEnd {
             warn_about_redundant_bindings(redundant_bindings);
         }
 
-        remove_dead_code(program_result, &mut self.values, &mut self.graph, &mut self.definitions);
+        remove_dead_code(
+            self.entry_block, program_result, &mut self.values, &mut self.graph, self.definitions);
 
         ControlFlowGraph {
             name: self.name,
@@ -271,7 +274,7 @@ impl FrontEnd {
     fn write_variable(&mut self, variable: &Variable, block: NodeIndex, ident: VarId) {
         self.variables
             .entry(variable.clone())
-            .or_insert_with(HashMap::new)
+            .or_default()
             .insert(block, ident);
     }
 
@@ -290,7 +293,7 @@ impl FrontEnd {
             let phi = self.define_phi(block, &[]);
             self.incomplete_phis
                 .entry(block)
-                .or_insert_with(HashMap::new)
+                .or_default()
                 .insert(variable.clone(), phi);
             phi
         } else {
@@ -393,12 +396,18 @@ impl FrontEnd {
             ident
         } else {
             let ident = self.idgen.next_id();
-            self.graph[block].push(Statement::Definition {
+            let basic_block = &mut self.graph[block];
+            let basic_block_len = basic_block.len();
+            let statement_index = match basic_block.last() {
+                Some(Statement::CondJump(_, _, _)) => basic_block_len - 1,
+                _ => basic_block_len,
+            };
+            let location = StatementLocation::new(block, statement_index);
+            basic_block.insert(statement_index, Statement::Definition {
                 ident,
                 value_index,
             });
             self.write_variable(&Variable::Value(value_index), block, ident);
-            let location = StatementLocation::new(block, self.graph[block].len() - 1);
             self.definitions.insert(ident, IdentDefinition { value_index, location });
             self.record_phi_and_undefined_usages(location, ident);
             if let Value::Phi(_) = &self.values[value_index] {
@@ -471,160 +480,6 @@ fn warn_about_redundant_bindings(redundant_bindings: impl Iterator<Item = Bindin
     }
 }
 
-// TODO refactor remove_dead_code()
-fn remove_dead_code(
-    program_result: VarId,
-    values: &mut ValueStorage,
-    graph: &mut BasicBlockGraph,
-    definitions: &mut HashMap<VarId, IdentDefinition>)
-{
-    let mut ident_usage: HashMap<VarId, usize> = HashMap::from_iter(
-        definitions
-            .keys()
-            .map(|ident| {
-                let usages = match &values[definitions[&ident].value_index] {
-                    Value::Return(_) => 1,
-                    _ => 0,
-                };
-                (*ident, usages)
-            }));
-    {
-        let used_idents = graph
-            .raw_nodes()
-            .iter()
-            .map(|node| &node.weight)
-            .flat_map(|block| block.iter())
-            .flat_map(|statement| get_statement_ident_operands(&values, statement))
-            .chain(once(program_result));
-        for ident in used_idents {
-            *ident_usage.get_mut(&ident).unwrap() += 1;
-        }
-    }
-    let unused_idents = definitions
-        .keys()
-        .filter_map(|ident| match ident_usage[ident] {
-            0 => Some(*ident),
-            _ => None,
-        })
-        .collect_vec();
-    for ident in unused_idents {
-        unuse(ident, &mut ident_usage, definitions, graph, values);
-    }
-
-    let dead_code = ident_usage
-        .iter()
-        .filter_map(|(ident, usages)| match usages {
-            0 => Some(definitions[ident].location),
-            _ => None,
-        })
-        .collect_vec();
-    remove_statements(graph, dead_code);
-
-    let unused_idents = ident_usage
-        .into_iter()
-        .filter_map(|(ident, usages)| match usages {
-            0 => Some(ident),
-            _ => None,
-        });
-    for unused_ident in unused_idents {
-        definitions.remove(&unused_ident);
-    }
-
-    let ident_rename_map: HashMap<VarId, VarId> = HashMap::from_iter({
-        definitions
-            .keys()
-            .into_iter()
-            .sorted()
-            .enumerate()
-            .map(|(i, ident)| (*ident, VarId::new(i)))
-    });
-
-    graph
-        .node_weights_mut()
-        .flat_map(|block| block.iter_mut())
-        .for_each(|statement| {
-            for ident in get_statement_idents_mut(values, statement) {
-                *ident = ident_rename_map[&ident];
-            }
-        });
-
-    let mut blocks = graph
-        .node_indices()
-        .collect_vec();
-    blocks.sort_by(|a, b| b.cmp(&a));
-
-    for block in blocks {
-        let is_empty = graph[block]
-            .iter()
-            .filter(|statement| match statement {
-                Statement::Comment(_) => false,
-                _ => true,
-            })
-            .next()
-            .is_none();
-        if is_empty {
-            let sources = graph
-                .edges_directed(block, Direction::Incoming)
-                .map(|edge| edge.source())
-                .collect_vec();
-            let targets = graph
-                .edges_directed(block, Direction::Outgoing)
-                .map(|edge| edge.target())
-                .collect_vec();
-            for source in &sources {
-                let source_basic_block: &mut BasicBlock = &mut graph[*source];
-                if let Some(Statement::CondJump(_, _, _)) = source_basic_block.last() {
-                    source_basic_block.pop();
-                }
-                for target in &targets {
-                    if !graph.contains_edge(*source, *target) {
-                        graph.add_edge(*source, *target, ());
-                    }
-                }
-            }
-            graph.remove_node(block);
-        }
-    }
-
-    for block in graph.node_indices().sorted_by(|a, b| b.cmp(&a)) {
-        let targets = graph
-            .edges_directed(block, Direction::Outgoing)
-            .map(|edge| edge.target())
-            .collect_vec();
-        if targets.len() == 1 {
-            if let Some(Statement::CondJump(_, _, _)) = graph[block].last() {
-                graph[block].pop();
-                let mut target_basic_block = replace(&mut graph[targets[0]], BasicBlock::new());
-                (&mut graph[block]).append(&mut target_basic_block);
-                graph.remove_node(targets[0]);
-            }
-        }
-    }
-
-    // TODO remove unused values and reindex the rest
-}
-
-fn unuse(
-    ident: VarId,
-    ident_usage: &mut HashMap<VarId, usize>,
-    definitions: &mut HashMap<VarId, IdentDefinition>,
-    graph: &BasicBlockGraph,
-    values: &ValueStorage)
-{
-    let usage_count = ident_usage.get_mut(&ident).unwrap();
-    if *usage_count > 0 {
-        *usage_count -= 1;
-    }
-
-    if *usage_count == 0 {
-        let location = &definitions[&ident].location;
-        let statement = &graph[location.block][location.index];
-        for ident in get_statement_ident_operands(&values, statement) {
-            unuse(ident, ident_usage, definitions, graph, values);
-        }
-    }
-}
-
 fn get_statement_ident_operands<'a>(values: &'a ValueStorage, statement: &'a Statement) -> Box<dyn Iterator<Item = VarId> + 'a> {
     match statement {
         Statement::Comment(_) => Box::new(empty()),
@@ -638,33 +493,6 @@ fn get_statement_idents_mut<'a>(values: &'a mut ValueStorage, statement: &'a mut
         Statement::Comment(_) => Box::new(empty()),
         Statement::Definition { ident, value_index } => Box::new(once(ident).chain(get_value_ident_operands_mut(&mut values[*value_index]))),
         Statement::CondJump(condition, _, _) => Box::new(once(condition)),
-    }
-}
-
-fn remove_statements(graph: &mut BasicBlockGraph, mut locations: Vec<StatementLocation>) {
-    let locations = {
-        locations.sort_unstable_by(|a, b| a.block.cmp(&b.block).then_with(|| a.index.cmp(&b.index)));
-        locations.dedup();
-        locations
-    };
-    let mut current_state: Option<RemoveStatementsState<'_>> = None;
-    for location in locations {
-        let need_new_state = match &current_state {
-            Some(state) => location.block != state.block,
-            None => true,
-        };
-        if need_new_state {
-            if let Some(previous_state) = current_state.take() {
-                previous_state.finish();
-            }
-            current_state = Some(RemoveStatementsState::new(location.block, graph));
-        }
-        if let Some(state) = current_state.as_mut() {
-            state.remove_at(location.index);
-        }
-    }
-    if let Some(state) = current_state {
-        state.finish();
     }
 }
 
@@ -684,7 +512,6 @@ fn replace_ident(value: &mut Value, ident: VarId, replacement: VarId) {
         Value::AddString(left, right) => Box::new(once(left).chain(once(right))),
         Value::Phi(operands) => Box::new(operands.iter_mut()),
         Value::Call(function, arguments) => Box::new(once(function).chain(arguments.iter_mut())),
-        Value::Return(result) => Box::new(once(result)),
     };
     for operand in operands {
         if *operand == ident {
@@ -710,7 +537,6 @@ fn get_value_ident_operands<'a>(value: &'a Value) -> Box<dyn Iterator<Item = Var
 
         Value::Phi(operands) => Box::new(operands.iter().cloned()),
         Value::Call(function, arguments) => Box::new(once(*function).chain(arguments.iter().cloned())),
-        Value::Return(result) => Box::new(once(*result)),
     }
 }
 
@@ -731,51 +557,6 @@ fn get_value_ident_operands_mut<'a>(value: &'a mut Value) -> Box<dyn Iterator<It
 
         Value::Phi(operands) => Box::new(operands.iter_mut()),
         Value::Call(function, arguments) => Box::new(once(function).chain(arguments.iter_mut())),
-        Value::Return(result) => Box::new(once(result)),
-    }
-}
-
-#[derive(Debug)]
-struct RemoveStatementsState<'a> {
-    block: NodeIndex,
-    basic_block: &'a mut BasicBlock,
-    hole_start: usize,
-    hole_end: usize,
-    total_length: usize,
-    has_removed_any: bool,
-}
-
-impl<'a> RemoveStatementsState<'a> {
-    fn new(block: NodeIndex, graph: &'a mut BasicBlockGraph) -> Self {
-        Self {
-            block,
-            basic_block: &mut graph[block],
-            hole_start: 0,
-            hole_end: 0,
-            total_length: 0,
-            has_removed_any: false,
-        }
-    }
-
-    fn remove_at(&mut self, index: usize) {
-        if index > self.hole_end {
-            self.total_length += index - self.hole_end;
-            while self.hole_end < index {
-                self.basic_block.swap(self.hole_start, self.hole_end);
-                self.hole_start += 1;
-                self.hole_end += 1;
-            }
-        }
-        self.hole_end += 1;
-        self.has_removed_any = true;
-    }
-
-    fn finish(mut self) {
-        if self.has_removed_any {
-            self.remove_at(self.basic_block.len());
-            unsafe { self.basic_block.set_len(self.total_length); }
-            self.basic_block.shrink_to_fit();
-        }
     }
 }
 
@@ -791,15 +572,34 @@ impl StatementLocation {
     }
 }
 
-#[derive(Debug)]
-struct IdentDefinition {
+#[derive(Debug, Copy, Clone)]
+pub(crate) struct IdentDefinition {
     value_index: ValueIndex,
     location: StatementLocation,
 }
 
-#[test]
-fn gen_ir() -> TestResult {
-    let code = typecheck!("
+macro_rules! test_frontend {
+    ($name: ident, $code: expr, $expected_result: expr) => {
+        #[test]
+        fn $name() -> TestResult {
+            let code = typecheck!($code)?;
+            let cfg = FrontEnd::new(&location!())
+                .enable_warnings(false)
+                .build(&code);
+            let mut output = File::create("ir_cfg.dot")?;
+            Graphviz::write(&mut output, &cfg, cfg.name.clone())?;
+
+            let value = crate::ir::eval::EvalContext::new(&cfg).eval();
+            assert_eq!(value, $expected_result);
+
+            Ok(())
+        }
+    }
+}
+
+test_frontend! {
+    generic,
+    "
     let x = 47
     let y = 29
     let z = y
@@ -828,17 +628,47 @@ fn gen_ir() -> TestResult {
     let s2 = f (λ (u:str, v:str) -> \"<\" + u + \"; \" + v + \">\") (\"bye, \" + \"world\") \"seeya\"
     let result = s1 + s2
     result
-    ")?;
+    ",
+    Value::String(Rc::new("(hello; world)<bye, world; seeya>".to_owned()))
+}
 
-    let cfg = FrontEnd::new(&location!())
-        .enable_warnings(false)
-        .include_comments(true)
-        .build(&code);
-    let mut output = std::fs::File::create("ir_cfg.dot")?;
-    crate::graphviz::Graphviz::new(&cfg, cfg.name.clone()).fmt(&mut output)?;
+test_frontend! {
+    block_removal,
+    "
+    let x = 0
+    let y = 999
+    if x {
+        x = 1
+    } else {
+        x = 2
+    }
+    if y {
+        x = 3
+    } else {
+        x = 4
+    }
+    x
+    ",
+    Value::Int(BigInt::from(3))
+}
 
-    let value = crate::ir::eval::EvalContext::new(&cfg).eval();
-    assert_eq!(value, Value::String(Rc::new("(hello; world)<bye, world; seeya>".to_owned())));
-
-    Ok(())
+test_frontend! {
+    block_removal2,
+    &"
+    let x = \"abc\"
+    let y = \"efg\"
+    let z = λ (a:str, b:str) -> {
+        let result = a + b
+        result
+    }
+    if 0 {
+        \"false\"
+    }
+    else {
+        let a = (z x y)
+        z a \"/test\"
+    }
+    let nn = 1
+    \n".repeat(7),
+    Value::Unit
 }

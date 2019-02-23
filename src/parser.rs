@@ -494,10 +494,7 @@ impl Precedence {
 
 impl Token {
     fn is_binary_operator(self) -> bool {
-        match self {
-            Token::Eq | Token::Plus | Token::Minus | Token::Star | Token::Slash => true,
-            _ => false
-        }
+        matches!(self, Token::Eq, Token::Plus, Token::Minus, Token::Star, Token::Slash)
     }
 
     fn precedence(self) -> Precedence {
@@ -510,11 +507,7 @@ impl Token {
     }
 
     fn is_left_associative(self) -> bool {
-        match self {
-            Token::Eq => false,
-            Token::Plus | Token::Minus | Token::Star | Token::Slash => true,
-            _ => unreachable!()
-        }
+        matches!(self, Token::Plus, Token::Minus, Token::Star, Token::Slash)
     }
 
     fn binary_operation(self) -> BinaryOperation {
@@ -531,11 +524,8 @@ impl Token {
 
 impl Lexeme {
     fn can_be_expression_start(&self) -> bool {
-        match self.token {
-            Token::Id => self.text() != "else",
-            Token::Int | Token::String | Token::LParen | Token::Lambda => true,
-            _ => false
-        }
+        matches!(self.token, Token::Id if self.text() != "else",
+            Token::Int | Token::String | Token::LParen | Token::Lambda)
     }
 }
 

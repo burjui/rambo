@@ -131,8 +131,6 @@ impl<'a> EvalContext<'a> {
             Value::Arg(index) => self.runtime_value(&self.stack[self.stack.len() - 1 - index])
                 .value
                 .clone(),
-
-            Value::Return(result) => self.runtime_value(result).value.clone(),
         }
     }
 
@@ -210,7 +208,7 @@ impl IndexMut<&VarId> for EvalEnv {
 
 impl IndexMut<VarId> for EvalEnv {
     fn index_mut(&mut self, ident: VarId) -> &mut Self::Output {
-        self.entry(ident).or_insert_with(|| RuntimeValue::undefined())
+        self.entry(ident).or_default()
     }
 }
 
@@ -235,11 +233,17 @@ impl RuntimeValue {
     }
 }
 
+impl Default for RuntimeValue {
+    fn default() -> Self {
+        Self::undefined()
+    }
+}
+
 impl From<&RuntimeValue> for BigInt {
     fn from(value: &RuntimeValue) -> Self {
         match &value.value {
             Value::Int(n) => n.clone(),
-            _ => unreachable!("BigInt::from(): {:?}", value),
+            _ => unreachable!("BigInt::from(): {:?}", &value.value),
         }
     }
 }
@@ -248,7 +252,7 @@ impl From<&RuntimeValue> for Rc<String> {
     fn from(value: &RuntimeValue) -> Self {
         match &value.value {
             Value::String(s) => s.clone(),
-            _ => unreachable!("Rc<String>::from(): {:?}", value),
+            _ => unreachable!("Rc<String>::from(): {:?}", &value.value),
         }
     }
 }

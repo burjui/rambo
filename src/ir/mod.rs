@@ -8,8 +8,8 @@ use std::rc::Rc;
 
 use itertools::Itertools;
 use num_bigint::BigInt;
-use petgraph::graph::DiGraph;
 use petgraph::graph::NodeIndex;
+use petgraph::stable_graph::StableDiGraph;
 
 use crate::ir::value_storage::ValueIndex;
 use crate::ir::value_storage::ValueStorage;
@@ -54,16 +54,16 @@ impl DerefMut for BasicBlock {
     }
 }
 
-pub(crate) struct BasicBlockGraph(DiGraph<BasicBlock, ()>);
+pub(crate) struct BasicBlockGraph(StableDiGraph<BasicBlock, ()>);
 
 impl BasicBlockGraph {
     pub(crate) fn new() -> Self {
-        Self(DiGraph::new())
+        Self(StableDiGraph::new())
     }
 }
 
 impl Deref for BasicBlockGraph {
-    type Target = DiGraph<BasicBlock, ()>;
+    type Target = StableDiGraph<BasicBlock, ()>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -209,7 +209,6 @@ pub(crate) enum Value {
     Phi(Phi),
     Call(VarId, Vec<VarId>),
     Arg(usize),
-    Return(VarId),
 }
 
 impl fmt::Debug for Value {
@@ -228,7 +227,6 @@ impl fmt::Debug for Value {
             Value::Phi(Phi(operands)) => write!(f, "ϕ({})", operands.iter().format(", ")),
             Value::Call(function, arguments) => write!(f, "call {}({})", function, arguments.iter().format(", ")),
             Value::Arg(index) => write!(f, "arg[{}]", index),
-            Value::Return(result) => write!(f, "return {}", result),
         }
     }
 }
