@@ -104,20 +104,21 @@ impl<'a> Graphviz<'a> {
         match statement {
             Statement::Comment(comment) => {
                 write!(sink, "{}", colorize!(comment &format!("// {}",
-                    escape(&WHITESPACE_REGEX.replace_all(comment, " ")).to_string())))?;
+                    escape(&WHITESPACE_REGEX.replace_all(comment, " ")).to_string())))
             }
 
             Statement::Definition { ident, value_index } => {
                 write!(sink, "{} ← ", ident)?;
-                self.fmt_value(sink, &self.values[*value_index])?;
+                self.fmt_value(sink, &self.values[*value_index])
             }
 
             Statement::CondJump(var, then_block, else_block) => {
                 write!(sink, "{} {}, {}, {}", colorize!(keyword "condjump"),
-                       var, then_block.index(), else_block.index())?;
+                       var, then_block.index(), else_block.index())
             }
+
+            Statement::Return(ident) => write!(sink, "{} {}", colorize!(keyword "return"), ident),
         }
-        Ok(())
     }
 
     fn fmt_value(&self, sink: &mut impl io::Write, value: &Value) -> Result<(), io::Error> {

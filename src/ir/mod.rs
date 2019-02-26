@@ -149,6 +149,7 @@ pub(crate) enum Statement {
         value_index: ValueIndex,
     },
     CondJump(VarId, NodeIndex, NodeIndex),
+    Return(VarId),
 }
 
 impl fmt::Debug for Statement {
@@ -161,6 +162,7 @@ impl fmt::Debug for Statement {
             Statement::Definition { ident, value_index } => write!(f, "{} ← {}", ident, value_index),
             Statement::CondJump(ident, positive, negative) =>
                 write!(f, "condjump {}, {}, {}", ident, positive.index(), negative.index()),
+            Statement::Return(ident) => write!(f, "return {}", ident)
         }
     }
 }

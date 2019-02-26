@@ -22,7 +22,7 @@ use crate::ir::VarId;
 pub(crate) struct EvalContext<'a> {
     cfg: &'a ControlFlowGraph,
     env: EvalEnv,
-    stack: Vec<VarId>,
+    stack: Vec<Value>,
     timestamp: usize,
 }
 
@@ -74,6 +74,11 @@ impl<'a> EvalContext<'a> {
                         _ => unreachable!("var `{}' is not a number: {:?}", var, value),
                     }
                 }
+
+                Statement::Return(id) => {
+                    result = id;
+                    break;
+                }
             }
             state.statement_index += 1;
         }
@@ -120,17 +125,15 @@ impl<'a> EvalContext<'a> {
                     _ => unreachable!("`{}' is not a function: {:?}", function, value),
                 };
                 let mut function_context = EvalContext::new(function_cfg);
-                for argument in arguments.iter().rev() {
-                    let value = self.env[argument].clone();
-                    function_context.env.insert(*argument, value);
-                    function_context.stack.push(*argument);
+                for argument in arguments.iter() {
+                    let runtime_value = self.env[argument].clone();
+                    let value = runtime_value.value.clone();
+                    function_context.stack.push(value);
                 }
                 function_context.eval()
             }
 
-            Value::Arg(index) => self.runtime_value(&self.stack[self.stack.len() - 1 - index])
-                .value
-                .clone(),
+            Value::Arg(index) => self.stack[*index].clone(),
         }
     }
 

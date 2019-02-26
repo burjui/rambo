@@ -14,6 +14,7 @@ use std::iter::empty;
 use std::iter::once;
 #[cfg(test)] use std::rc::Rc;
 
+use itertools::free::chain;
 use itertools::Itertools;
 #[cfg(test)] use num_bigint::BigInt;
 use petgraph::Direction;
@@ -62,6 +63,7 @@ pub(crate) struct FrontEnd {
     entry_block: NodeIndex,
     undefined: VarId,
     undefined_users: Vec<StatementLocation>,
+    markers: Vec<Option<Marker>>,
 }
 
 impl FrontEnd {
@@ -83,6 +85,7 @@ impl FrontEnd {
             entry_block: NodeIndex::new(0),
             undefined: VarId::default(),
             undefined_users: Vec::new(),
+            markers: Vec::new(),
         };
         instance.entry_block = instance.new_block();
         instance.seal_block(instance.entry_block);
@@ -102,6 +105,7 @@ impl FrontEnd {
 
     pub(crate) fn build(mut self, code: &ExprRef) -> ControlFlowGraph {
         let (exit_block, program_result) = self.process_expr(code, self.entry_block);
+        self.push_return(exit_block, program_result);
         self.assert_no_undefined_variables();
 
         if self.enable_warnings {
@@ -279,6 +283,11 @@ impl FrontEnd {
     }
 
     fn read_variable(&mut self, variable: &Variable, block: NodeIndex) -> VarId {
+        self.reset_markers();
+        self.read_variable_core(variable, block)
+    }
+
+    fn read_variable_core(&mut self, variable: &Variable, block: NodeIndex) -> VarId {
         self.variables_read.insert(variable.clone());
         self.variables
             .get(variable)
@@ -297,6 +306,17 @@ impl FrontEnd {
                 .insert(variable.clone(), phi);
             phi
         } else {
+            match self.get_marker(block) {
+                None => self.mark_block(block, Marker::Initial),
+
+                Some(Marker::Initial) => {
+                    let phi = self.define_phi(block, &[]);
+                    self.mark_block(block, Marker::Phi(phi));
+                }
+
+                _ => (),
+            }
+
             let mut predecessors = self.graph
                 .edges_directed(block, Direction::Incoming)
                 .map(|edge| edge.source());
@@ -304,12 +324,36 @@ impl FrontEnd {
             let second_predecessor = predecessors.next();
             if let (Some(predecessor), None) = (first_predecessor, second_predecessor) {
                 // Optimize the common case of one predecessor: no phi needed
-                self.read_variable(variable, predecessor)
+                self.read_variable_core(variable, predecessor)
             } else {
                 // Break potential cycles with operandless phi
-                let phi = self.define_phi(block, &[]);
-                self.write_variable(variable, block, phi);
-                self.add_phi_operands(variable, phi)
+                let predecessors = chain(first_predecessor, second_predecessor)
+                    .chain(predecessors)
+                    .collect_vec();
+                let definitions = predecessors
+                    .into_iter()
+                    .map(|predecessor| self.read_variable_core(variable, predecessor))
+                    .dedup()
+                    .collect_vec();
+                self.remove_marker(block);
+                match definitions.len() {
+                    1 => definitions[0],
+                    0 => self.undefined,
+                    _ => {
+                        if definitions.contains(&self.undefined) {
+                            self.undefined
+                        } else {
+                            let phi = match self.get_marker(block) {
+                                Some(Marker::Phi(phi)) => *phi,
+                                _ => self.define_phi(block, &[]),
+                            };
+                            let phi_operands = self.phi_operands_mut(phi);
+                            *phi_operands = definitions;
+                            phi_operands.sort();
+                            phi
+                        }
+                    }
+                }
             }
         };
         self.write_variable(variable, block, ident);
@@ -322,9 +366,10 @@ impl FrontEnd {
             .map(|edge| edge.source())
             .collect_vec();
         for predecessor in predecessors {
-            let operand = self.read_variable(variable, predecessor);
+            let operand = self.read_variable_core(variable, predecessor);
             self.phi_operands_mut(phi).push(operand);
         }
+        self.phi_operands_mut(phi).sort();
         self.try_remove_trivial_phi(phi)
     }
 
@@ -418,7 +463,13 @@ impl FrontEnd {
     }
 
     fn define_phi(&mut self, block: NodeIndex, operands: &[VarId]) -> VarId {
-        self.define(block, Value::Phi(Phi(operands.to_vec())))
+        let mut operands = operands.to_vec();
+        operands.sort();
+        self.define(block, Value::Phi(Phi(operands)))
+    }
+
+    fn push_return(&mut self, block: NodeIndex, ident: VarId) {
+        self.graph[block].push(Statement::Return(ident));
     }
 
     fn record_phi_and_undefined_usages(&mut self, location: StatementLocation, ident: VarId) {
@@ -470,6 +521,35 @@ impl FrontEnd {
     fn new_block(&mut self) -> NodeIndex {
         self.graph.add_node(BasicBlock::new())
     }
+
+    fn reset_markers(&mut self) {
+        let len = self.markers.len();
+        self.markers.truncate(0);
+        self.markers.resize(len, None);
+    }
+
+    fn get_marker(&mut self, block: NodeIndex) -> &Option<Marker> {
+        let index = self.marker_index(block);
+        &self.markers[index]
+    }
+
+    fn mark_block(&mut self, block: NodeIndex, marker: Marker) {
+        let index = self.marker_index(block);
+        self.markers[index] = Some(marker);
+    }
+
+    fn remove_marker(&mut self, block: NodeIndex) {
+        let index = self.marker_index(block);
+        self.markers[index] = None;
+    }
+
+    fn marker_index(&mut self, block: NodeIndex) -> usize {
+        let index = block.index();
+        if index >= self.markers.len() {
+            self.markers.resize(index +  1, None);
+        }
+        index
+    }
 }
 
 fn warn_about_redundant_bindings(redundant_bindings: impl Iterator<Item = BindingRef>) {
@@ -485,6 +565,7 @@ fn get_statement_ident_operands<'a>(values: &'a ValueStorage, statement: &'a Sta
         Statement::Comment(_) => Box::new(empty()),
         Statement::Definition { value_index, .. } => get_value_ident_operands(&values[*value_index]),
         Statement::CondJump(condition, _, _) => Box::new(once(*condition)),
+        Statement::Return(result) => Box::new(once(*result)),
     }
 }
 
@@ -493,6 +574,7 @@ fn get_statement_idents_mut<'a>(values: &'a mut ValueStorage, statement: &'a mut
         Statement::Comment(_) => Box::new(empty()),
         Statement::Definition { ident, value_index } => Box::new(once(ident).chain(get_value_ident_operands_mut(&mut values[*value_index]))),
         Statement::CondJump(condition, _, _) => Box::new(once(condition)),
+        Statement::Return(result) => Box::new(once(result)),
     }
 }
 
@@ -535,7 +617,7 @@ fn get_value_ident_operands<'a>(value: &'a Value) -> Box<dyn Iterator<Item = Var
         Value::DivInt(left, right) |
         Value::AddString(left, right) => Box::new(once(*left).chain(once(*right))),
 
-        Value::Phi(operands) => Box::new(operands.iter().cloned()),
+        Value::Phi(phi) => Box::new(phi.iter().cloned()),
         Value::Call(function, arguments) => Box::new(once(*function).chain(arguments.iter().cloned())),
     }
 }
@@ -555,9 +637,15 @@ fn get_value_ident_operands_mut<'a>(value: &'a mut Value) -> Box<dyn Iterator<It
         Value::DivInt(left, right) |
         Value::AddString(left, right) => Box::new(once(left).chain(once(right))),
 
-        Value::Phi(operands) => Box::new(operands.iter_mut()),
+        Value::Phi(phi) => Box::new(phi.iter_mut()),
         Value::Call(function, arguments) => Box::new(once(function).chain(arguments.iter_mut())),
     }
+}
+
+#[derive(Copy, Clone)]
+enum Marker {
+    Initial,
+    Phi(VarId),
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
@@ -585,6 +673,7 @@ macro_rules! test_frontend {
             let code = typecheck!($code)?;
             let cfg = FrontEnd::new(&location!())
                 .enable_warnings(false)
+                .include_comments(false)
                 .build(&code);
             let mut output = File::create("ir_cfg.dot")?;
             Graphviz::write(&mut output, &cfg, cfg.name.clone())?;
@@ -669,6 +758,24 @@ test_frontend! {
         z a \"/test\"
     }
     let nn = 1
-    \n".repeat(7),
+    ".repeat(7),
     Value::Unit
+}
+
+test_frontend!{
+    marker_eval,
+    "
+    let a = 1
+    let b = 2
+    (a + 1) * (b - 1)
+    let f = λ (a: num, b: num) -> a + b
+    let g = λ (f: λ (a: num, b: num) -> num, a: num, b: num) → f a b + 1
+    g f 1 2
+    (a + 1) * (b - 1)
+    a = 10
+    g f 1 2
+    (a + 1) * (b - 1)
+    a = 10
+    ",
+    Value::Int(BigInt::from(10))
 }
