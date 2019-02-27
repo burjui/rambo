@@ -5,6 +5,7 @@ use std::ops::Index;
 use std::ops::IndexMut;
 
 use crate::ir::Value;
+use crate::utils::RetainIndex;
 
 pub(crate) struct Reused(bool);
 
@@ -44,6 +45,16 @@ impl ValueStorage {
     pub(crate) fn iter(&self) -> impl Iterator<Item = &Value> {
         self.by_index.iter()
     }
+
+    pub(crate) fn retain(
+        &mut self,
+        predicate: impl Fn(ValueIndex) -> bool,
+        mut remap: impl FnMut(ValueIndex, ValueIndex))
+    {
+        self.by_value.retain(|_, index| predicate(*index));
+        self.by_index.retain_index(|index| predicate(ValueIndex(index)), |old_index, new_index|
+            remap(ValueIndex(old_index), ValueIndex(new_index)));
+    }
 }
 
 impl Index<ValueIndex> for ValueStorage {
@@ -61,7 +72,7 @@ impl IndexMut<ValueIndex> for ValueStorage {
 }
 
 #[derive(Debug, Eq, PartialEq, Hash, Copy, Clone)]
-pub(crate) struct ValueIndex(usize);
+pub(crate) struct ValueIndex(pub(crate) usize);
 
 impl fmt::Display for ValueIndex {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

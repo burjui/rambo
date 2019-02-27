@@ -554,7 +554,7 @@ impl FrontEnd {
 
 fn warn_about_redundant_bindings(redundant_bindings: impl Iterator<Item = BindingRef>) {
     let redundant_bindings = redundant_bindings
-        .sorted_by(|a, b| a.source.range().start().cmp(&b.source.range().start()));
+        .sorted_by_key(|binding| binding.source.range().start());
     for binding in redundant_bindings {
         warning_at!(binding.source, "unused definition: {}", binding.source.text());
     }
@@ -648,10 +648,10 @@ enum Marker {
     Phi(VarId),
 }
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash, Ord, PartialOrd)]
 struct StatementLocation {
     block: NodeIndex,
-    index: usize
+    index: usize,
 }
 
 impl StatementLocation {
