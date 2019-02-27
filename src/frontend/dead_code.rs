@@ -1,4 +1,5 @@
 use std::collections::hash_map::HashMap;
+use std::collections::HashSet;
 use std::iter::FromIterator;
 use std::iter::once;
 use std::iter::repeat;
@@ -35,6 +36,7 @@ pub(crate) fn remove_dead_code(
     remove_unused_definitions(&mut ident_usage, values, graph, &mut definitions);
     rename_idents(values, graph, &mut definitions, &mut program_result, &mut ident_usage);
     // TODO remove unused values and reindex the rest
+
 }
 
 fn compute_ident_usage(
@@ -233,71 +235,23 @@ fn merge_consecutive_basic_blocks(
     }
 }
 
-
-#[derive(Debug)]
-struct RemoveStatementsState<'a> {
-    block: NodeIndex,
-    basic_block: &'a mut BasicBlock,
-    hole_start: usize,
-    hole_end: usize,
-    total_length: usize,
-    has_removed_any: bool,
-}
-
-impl<'a> RemoveStatementsState<'a> {
-    fn new(block: NodeIndex, graph: &'a mut BasicBlockGraph) -> Self {
-        Self {
-            block,
-            basic_block: &mut graph[block],
-            hole_start: 0,
-            hole_end: 0,
-            total_length: 0,
-            has_removed_any: false,
+fn remove_statements(graph: &mut BasicBlockGraph, locations: Vec<StatementLocation>) {
+    let indices_by_block = {
+        let mut map = HashMap::<NodeIndex, HashSet<usize>>::new();
+        for location in locations {
+            map.entry(location.block)
+                .or_default()
+                .insert(location.index);
         }
-    }
-
-    fn remove_at(&mut self, index: usize) {
-        if index > self.hole_end {
-            self.total_length += index - self.hole_end;
-            while self.hole_end < index {
-                self.basic_block.swap(self.hole_start, self.hole_end);
-                self.hole_start += 1;
-                self.hole_end += 1;
-            }
-        }
-        self.hole_end += 1;
-        self.has_removed_any = true;
-    }
-
-    fn finish(mut self) {
-        if self.has_removed_any {
-            self.remove_at(self.basic_block.len());
-            unsafe { self.basic_block.set_len(self.total_length); }
-            self.basic_block.shrink_to_fit();
-        }
-    }
-}
-
-fn remove_statements(graph: &mut BasicBlockGraph, mut locations: Vec<StatementLocation>) {
-    let locations = {
-        locations.sort_unstable_by(|a, b| a.block.cmp(&b.block).then_with(|| a.index.cmp(&b.index)));
-        locations.dedup();
-        locations
+        map
     };
-    let mut current_state: Option<RemoveStatementsState<'_>> = None;
-    for location in locations {
-        let need_new_state = matches!(&current_state, Some(state) if location.block != state.block, None);
-        if need_new_state {
-            if let Some(previous_state) = current_state.take() {
-                previous_state.finish();
-            }
-            current_state = Some(RemoveStatementsState::new(location.block, graph));
-        }
-        if let Some(state) = current_state.as_mut() {
-            state.remove_at(location.index);
-        }
-    }
-    if let Some(state) = current_state {
-        state.finish();
+
+    for (block, indices) in indices_by_block {
+        let mut statement_index = 0usize;
+        graph[block].retain(|_| {
+            let next_index = statement_index + 1;
+            let statement_index = replace(&mut statement_index, next_index);
+            !indices.contains(&statement_index)
+        })
     }
 }
