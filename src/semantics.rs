@@ -65,14 +65,14 @@ impl SemanticsChecker {
                 Ok(self.new_expr(TypedExpr::String(value, source.clone())))
             },
             Expr::Id(name) => {
-                let binding = self.env.resolve(&Rc::new(name.text().to_owned()))?;
+                let binding = self.resolve(name)?;
                 Ok(self.new_expr(TypedExpr::Reference(binding.clone(), name.clone())))
             },
             Expr::Binary { operation, left, right, .. } => {
                 match operation {
                     BinaryOperation::Assign => {
                         if let Expr::Id(name) = left as &Expr {
-                            let binding = self.env.resolve(&Rc::new(name.text().to_owned())).map(Clone::clone)?;
+                            let binding = self.resolve(name)?;
                             let value = self.check_expr(right)?;
                             let binding_type = binding.data.type_();
                             let value_type = value.type_();
@@ -280,6 +280,13 @@ impl SemanticsChecker {
 
     fn new_expr(&self, expr: TypedExpr) -> ExprRef {
         ExprRef(self.expr_arena.alloc(expr))
+    }
+
+    fn resolve(&self, name: &Source) -> Result<BindingRef, String> {
+        self.env
+            .resolve(&Rc::new(name.text().to_owned()))
+            .map_err(|message| format!("{}: {}", name, message))
+            .map(Clone::clone)
     }
 }
 

@@ -1,6 +1,5 @@
 use std::cmp::Eq;
 use std::collections::HashMap;
-use std::error::Error;
 use std::fmt::Debug;
 use std::hash::Hash;
 
@@ -18,22 +17,22 @@ where Key: Eq + Debug + Hash + Clone, Value: Debug {
         self.scopes.last_mut().unwrap().insert(key, value);
     }
 
-    pub(crate) fn resolve(&self, key: &Key) -> Result<&Value, Box<dyn Error>> {
+    pub(crate) fn resolve(&self, key: &Key) -> Result<&Value, String> {
         for scope in self.scopes.iter().rev() {
             if let Some(value) = scope.get(key) {
                 return Ok(value);
             }
         }
-        Err(From::from(format!("`{:?}' is undefined", key)))
+        Err(format!("`{:?}' is undefined", key))
     }
 
-    pub(crate) fn resolve_mut(&mut self, key: &Key) -> Result<&mut Value, Box<dyn Error>> {
+    pub(crate) fn resolve_mut(&mut self, key: &Key) -> Result<&mut Value, String> {
         for scope in self.scopes.iter_mut().rev() {
             if let Some(value) = scope.get_mut(key) {
                 return Ok(value);
             }
         }
-        Err(From::from(format!("`{:?}' is undefined", key)))
+        Err(format!("`{:?}' is undefined", key))
     }
 
     pub(crate) fn push(&mut self) {
