@@ -1,6 +1,7 @@
 use std::fmt;
 use std::hash::Hash;
 use std::hash::Hasher;
+use std::io::Write;
 use std::mem::replace;
 use std::ops::Deref;
 use std::ops::DerefMut;
@@ -160,6 +161,16 @@ impl fmt::Debug for Statement {
                 write!(f, "condjump {}, {}, {}", ident, positive.index(), negative.index()),
             Statement::Return(ident) => write!(f, "return {}", ident)
         }
+    }
+}
+
+pub(crate) fn fmt_statement(sink: &mut impl Write, statement: &Statement, values: &ValueStorage) -> std::io::Result<()> {
+    match statement {
+        Statement::Comment(comment) => writeln!(sink, "// {}", comment.split(|c| c == '\n').format("\n// ")),
+        Statement::Definition { ident, value_index } => write!(sink, "{} ← {:?}", ident, &values[*value_index]),
+        Statement::CondJump(ident, positive, negative) =>
+            write!(sink, "condjump {}, {}, {}", ident, positive.index(), negative.index()),
+        Statement::Return(ident) => write!(sink, "return {}", ident)
     }
 }
 

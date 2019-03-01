@@ -14,6 +14,8 @@ use crate::frontend::FrontEnd;
 use crate::graphviz::Graphviz;
 use crate::ir::ControlFlowGraph;
 use crate::ir::eval::EvalContext;
+use crate::ir::fmt_statement;
+use crate::ir::Value;
 use crate::lexer::Lexer;
 use crate::parser::Block as ASTBlock;
 use crate::parser::Parser;
@@ -176,12 +178,59 @@ impl CompilerPass<ExprRef, (ExprRef, ControlFlowGraph)> for IR {
             .enable_warnings(options.enable_warnings)
             .include_comments(options.cfg_include_comments);
         let cfg = frontend.build(&hir);
+        let mut stdout = stdout();
+        writeln!(&mut stdout, "{} statements", cfg_statements_count(&cfg))?;
+        if options.dump_intermediate {
+            dump_cfg(&cfg, &cfg.name, &mut stdout)?;
+        }
         if options.dump_cfg {
             let mut file = File::create("ir_cfg.dot")?;
             Graphviz::write(&mut file, &cfg, cfg.name.clone())?;
         }
         Ok((hir, cfg))
     }
+}
+
+fn cfg_statements_count(cfg: &ControlFlowGraph) -> usize {
+    let functions = cfg.values
+        .iter()
+        .filter_map(|value| match value {
+            Value::Function(_, cfg) => Some(&**cfg),
+            _ => None,
+        });
+    cfg.graph
+        .node_indices()
+        .map(|block| cfg.graph[block].len())
+        .chain(functions.map(cfg_statements_count))
+        .sum()
+}
+
+fn dump_cfg(cfg: &ControlFlowGraph, name: &str, stdout: &mut StandardStream) -> std::io::Result<()> {
+    writeln!(stdout, "// {}", name)?;
+    for block in cfg.graph.node_indices() {
+        writeln!(stdout, "{}_{}:", name, block.index())?;
+        for statement in cfg.graph[block].iter() {
+            write!(stdout, "    ")?;
+            fmt_statement(stdout, statement, &cfg.values)?;
+            writeln!(stdout)?;
+        }
+    }
+    let functions = cfg.values
+        .iter()
+        .filter_map(|value| match value {
+            Value::Function(id, cfg) => Some((id, cfg)),
+            _ => None,
+        })
+        .collect_vec();
+    if !functions.is_empty() {
+        writeln!(stdout)?;
+        for (id, cfg) in functions {
+            writeln!(stdout, "// {}", cfg.name)?;
+            let name = id.to_string();
+            dump_cfg(cfg, &name, stdout)?;
+        }
+    }
+    Ok(())
 }
 
 impl CompilerPass<(ExprRef, ControlFlowGraph), ExprRef> for EvaluateIR {
