@@ -1,13 +1,8 @@
 #[cfg(test)]
 use std::error::Error;
 
-use once_cell::sync::Lazy;
-use once_cell::sync_lazy;
-use regex::Regex;
 use termcolor::ColorChoice;
 use termcolor::StandardStream;
-
-pub(crate) static WHITESPACE_REGEX: Lazy<Regex> = sync_lazy!(Regex::new(r"[ \t\n]+").unwrap());
 
 macro_rules! error {
     ($format_string: expr $(, $argument: expr)*) => { Err(From::from(format!($format_string $(, $argument)*))) };

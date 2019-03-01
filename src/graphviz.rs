@@ -11,7 +11,6 @@ use crate::ir::Phi;
 use crate::ir::Statement;
 use crate::ir::Value;
 use crate::ir::value_storage::ValueStorage;
-use crate::utils::WHITESPACE_REGEX;
 
 pub(crate) struct Graphviz<'a> {
     id: usize,
@@ -92,8 +91,19 @@ impl<'a> Graphviz<'a> {
 
     fn fmt_block(&self, sink: &mut impl io::Write, block: &[Statement]) -> Result<(), io::Error> {
         writeln!(sink, "<table border=\"0\" cellspacing=\"0\" cellpadding=\"0\"><tr><td>")?;
+        let block = block
+            .iter()
+            .fold(Vec::new(), |mut block, statement| {
+                if let (Some(Statement::Comment(s1)), Statement::Comment(s2)) = (block.last_mut(), statement) {
+                    s1.push('\n');
+                    s1.push_str(s2);
+                } else {
+                    block.push(statement.clone());
+                }
+                block
+            });
         for statement in block {
-            self.fmt_statement(sink, statement)?;
+            self.fmt_statement(sink, &statement)?;
             writeln!(sink, "<br align=\"left\"/>")?;
         }
         writeln!(sink, "</td></tr></table>")?;
@@ -103,8 +113,13 @@ impl<'a> Graphviz<'a> {
     fn fmt_statement(&self, sink: &mut impl io::Write, statement: &Statement) -> Result<(), io::Error> {
         match statement {
             Statement::Comment(comment) => {
-                write!(sink, "{}", colorize!(comment &format!("// {}",
-                    escape(&WHITESPACE_REGEX.replace_all(comment, " ")).to_string())))
+                let comment = comment
+                    .split(|c| c == '\n')
+                    .map(escape)
+                    .map(|e| e.to_string())
+                    .filter(|s| !s.is_empty())
+                    .format("<br align=\"left\"/>\n// ");
+                write!(sink, "{}", colorize!(comment &format!("// {}", comment)))
             }
 
             Statement::Definition { ident, value_index } => {

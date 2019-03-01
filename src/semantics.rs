@@ -7,7 +7,6 @@ use std::rc::Rc;
 
 use itertools::Itertools;
 use num_bigint::BigInt;
-use rc_arena::Arena;
 
 use crate::env::Environment;
 use crate::parser::BinaryOperation;
@@ -20,14 +19,12 @@ use crate::unique_rc::UniqueRc;
 
 pub(crate) struct SemanticsChecker {
     env: Environment<Rc<String>, BindingRef>,
-    expr_arena: Arena<TypedExpr>
 }
 
 impl SemanticsChecker {
     pub(crate) fn new() -> Self {
         SemanticsChecker {
             env: Environment::new(),
-            expr_arena: Arena::new(),
         }
     }
 
@@ -279,7 +276,7 @@ impl SemanticsChecker {
     }
 
     fn new_expr(&self, expr: TypedExpr) -> ExprRef {
-        ExprRef(self.expr_arena.alloc(expr))
+        ExprRef(Rc::new(expr))
     }
 
     fn resolve(&self, name: &Source) -> Result<BindingRef, String> {
@@ -328,7 +325,7 @@ impl Debug for Type {
 }
 
 #[derive(Clone)]
-pub(crate) struct ExprRef(pub(crate) rc_arena::Rc<TypedExpr>);
+pub(crate) struct ExprRef(Rc<TypedExpr>);
 
 impl Deref for ExprRef {
     type Target = TypedExpr;

@@ -15,7 +15,6 @@ use crate::ir::value_storage::ValueIndex;
 use crate::ir::value_storage::ValueStorage;
 use crate::semantics::BindingRef;
 use crate::unique_rc::UniqueRc;
-use crate::utils::WHITESPACE_REGEX;
 
 pub(crate) mod eval;
 pub(crate) mod value_storage;
@@ -155,10 +154,7 @@ pub(crate) enum Statement {
 impl fmt::Debug for Statement {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Statement::Comment(comment) => {
-                let comment = comment.replace("\n", ";");
-                write!(f, "// {}", WHITESPACE_REGEX.replace_all(&comment, " "))
-            },
+            Statement::Comment(comment) => writeln!(f, "// {}", comment.split(|c| c == '\n').format("\n// ")),
             Statement::Definition { ident, value_index } => write!(f, "{} ← {}", ident, value_index),
             Statement::CondJump(ident, positive, negative) =>
                 write!(f, "condjump {}, {}, {}", ident, positive.index(), negative.index()),
