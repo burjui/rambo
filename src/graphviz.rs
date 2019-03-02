@@ -146,7 +146,7 @@ impl<'a> Graphviz<'a> {
             Value::AddInt(left, right) => write!(sink, "{} + {}", left, right),
             Value::SubInt(left, right) => write!(sink, "{} - {}", left, right),
             Value::MulInt(left, right) => write!(sink, "{} * {}", left, right),
-            Value::DivInt(left, right) => write!(sink, "{} - {}", left, right),
+            Value::DivInt(left, right) => write!(sink, "{} / {}", left, right),
             Value::AddString(left, right) => write!(sink, "{} ++ {}", left, right),
             Value::Phi(Phi(operands)) => write!(sink, "{}({})", colorize!(keyword "ϕ"), operands.iter().format(", ")),
             Value::Call(function, arguments) => write!(sink, "{} {}({})", colorize!(keyword "call"), function, arguments.iter().format(", ")),
