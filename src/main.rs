@@ -79,12 +79,14 @@ struct CommandLine {
 }
 
 fn parse_command_line() -> Result<CommandLine, Box<dyn Error>> {
-    const HELP_OPTION: &str = "h";
-    const WARNINGS_OPTION: &str = "w";
-    const DUMP_OPTION: &str = "d";
-    const DUMP_CFG_OPTION: &str = "dump-cfg";
-    const IR_COMMENTS_OPTION: &str = "ir-comments";
-    const PASS_OPTION: &str = "p";
+    static HELP_OPTION: &str = "h";
+    static WARNINGS_OPTION: &str = "w";
+    static DUMP_OPTION: &str = "d";
+    static DUMP_CFG_OPTION: &str = "dump-cfg";
+    static IR_COMMENTS_OPTION: &str = "ir-comments";
+    static PASS_OPTION: &str = "p";
+    static NO_CFP_OPTION: &str = "no-cfp";
+    static NO_DCE_OPTION: &str = "no-dce";
 
     let args: Vec<String> = program_args().collect();
     let mut spec = Options::new();
@@ -93,6 +95,8 @@ fn parse_command_line() -> Result<CommandLine, Box<dyn Error>> {
     spec.optflag(DUMP_OPTION, "dump", "dump intermediate compilation results: AST, IR etc.");
     spec.optflag("", DUMP_CFG_OPTION, "dump CFG");
     spec.optflag("", IR_COMMENTS_OPTION, "comment the generated IR");
+    spec.optflag("", NO_CFP_OPTION, "disable constant folding and propagation");
+    spec.optflag("", NO_DCE_OPTION, "disable dead code elimination");
 
     let pass_name_list: String = COMPILER_PASS_NAMES.join(", ");
     spec.optopt(PASS_OPTION, "pass", &format!("name of the last compiler pass in the pipeline;\nvalid names are: {}", pass_name_list), "PASS");
@@ -105,10 +109,6 @@ fn parse_command_line() -> Result<CommandLine, Box<dyn Error>> {
         std::process::exit(0);
     }
     let pipeline_options = PipelineOptions {
-        enable_warnings: !matches.opt_present(WARNINGS_OPTION),
-        dump_intermediate: matches.opt_present(DUMP_OPTION),
-        dump_cfg: matches.opt_present(DUMP_CFG_OPTION),
-        cfg_include_comments: matches.opt_present(IR_COMMENTS_OPTION),
         max_pass_name: {
             let result: Result<String, Box<dyn Error>> = matches.opt_str(PASS_OPTION)
                 .map(|max_pass_name|
@@ -119,7 +119,13 @@ fn parse_command_line() -> Result<CommandLine, Box<dyn Error>> {
                     })
                 .unwrap_or_else(|| Ok(COMPILER_PASS_NAMES.iter().last().unwrap().to_string()));
             result?
-        }
+        },
+        enable_warnings: !matches.opt_present(WARNINGS_OPTION),
+        dump_intermediate: matches.opt_present(DUMP_OPTION),
+        dump_cfg: matches.opt_present(DUMP_CFG_OPTION),
+        cfg_include_comments: matches.opt_present(IR_COMMENTS_OPTION),
+        enable_cfp: !matches.opt_present(NO_CFP_OPTION),
+        enable_dce: !matches.opt_present(NO_DCE_OPTION),
     };
     let input_files = matches.free;
     Ok(CommandLine { program_name, input_files, pipeline_options })

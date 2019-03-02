@@ -1,6 +1,8 @@
 use std::error::Error;
+use std::ffi::OsStr;
 use std::fs::File;
 use std::io::Write;
+use std::path::Path;
 
 use itertools::Itertools;
 use termcolor::Color;
@@ -27,11 +29,13 @@ use crate::utils::stdout;
 
 #[derive(Clone)]
 pub(crate) struct PipelineOptions {
+    pub(crate) max_pass_name: String,
     pub(crate) enable_warnings: bool,
     pub(crate) dump_intermediate: bool,
     pub(crate) dump_cfg: bool,
     pub(crate) cfg_include_comments: bool,
-    pub(crate) max_pass_name: String
+    pub(crate) enable_cfp: bool,
+    pub(crate) enable_dce: bool,
 }
 
 pub(crate) struct Pipeline<'a, T> {
@@ -137,12 +141,12 @@ impl CompilerPass<String, SourceFileRef> for Load {
     }
 }
 
-impl CompilerPass<SourceFileRef, ASTBlock> for Parse {
+impl CompilerPass<SourceFileRef, (ASTBlock, SourceFileRef)> for Parse {
     const NAME: &'static str = "parse";
     const TITLE: &'static str = "Parsing";
 
-    fn apply(source_file: SourceFileRef, options: &PipelineOptions) -> Result<ASTBlock, Box<dyn Error>> {
-        let lexer = Lexer::new(source_file);
+    fn apply(source_file: SourceFileRef, options: &PipelineOptions) -> Result<(ASTBlock, SourceFileRef), Box<dyn Error>> {
+        let lexer = Lexer::new(source_file.clone());
         let mut parser = Parser::new(lexer);
         let ast = parser.parse()?;
         let stats = { parser.lexer_stats() };
@@ -151,32 +155,36 @@ impl CompilerPass<SourceFileRef, ASTBlock> for Parse {
         if options.dump_intermediate {
             writeln!(stdout, "{:?}", ast.statements.iter().format("\n"))?;
         }
-        Ok(ast)
+        Ok((ast, source_file))
     }
 }
 
-impl CompilerPass<ASTBlock, ExprRef> for VerifySemantics {
+impl CompilerPass<(ASTBlock, SourceFileRef), (ExprRef, SourceFileRef)> for VerifySemantics {
     const NAME: &'static str = "sem";
     const TITLE: &'static str = "Verifying semantics";
 
-    fn apply(ast: ASTBlock, options: &PipelineOptions) -> Result<ExprRef, Box<dyn Error>> {
+    fn apply((ast, source_file): (ASTBlock, SourceFileRef), options: &PipelineOptions)
+        -> Result<(ExprRef, SourceFileRef), Box<dyn Error>>
+    {
         let checker = SemanticsChecker::new();
         let hir = checker.check_module(&ast)?;
         if options.dump_intermediate {
             writeln!(&mut stdout(), "{:?}", hir)?;
         }
-        Ok(hir)
+        Ok((hir, source_file))
     }
 }
 
-impl CompilerPass<ExprRef, (ExprRef, ControlFlowGraph)> for IR {
+impl CompilerPass<(ExprRef, SourceFileRef), (ExprRef, ControlFlowGraph)> for IR {
     const NAME: &'static str = "ir";
     const TITLE: &'static str = "Generating IR";
 
-    fn apply(hir: ExprRef, options: &PipelineOptions) -> Result<(ExprRef, ControlFlowGraph), Box<dyn Error>> {
+    fn apply((hir, source_file): (ExprRef, SourceFileRef), options: &PipelineOptions) -> Result<(ExprRef, ControlFlowGraph), Box<dyn Error>> {
         let frontend = FrontEnd::new("main")
             .enable_warnings(options.enable_warnings)
-            .include_comments(options.cfg_include_comments);
+            .include_comments(options.cfg_include_comments)
+            .enable_cfp(options.enable_cfp)
+            .enable_dce(options.enable_dce);
         let cfg = frontend.build(&hir);
         let mut stdout = stdout();
         writeln!(&mut stdout, "{} statements", cfg_statements_count(&cfg))?;
@@ -184,7 +192,12 @@ impl CompilerPass<ExprRef, (ExprRef, ControlFlowGraph)> for IR {
             dump_cfg(&cfg, &cfg.name, &mut stdout)?;
         }
         if options.dump_cfg {
-            let mut file = File::create("ir_cfg.dot")?;
+            let src_path = Path::new(source_file.name());
+            let src_file_name = src_path
+                .file_name()
+                .and_then(OsStr::to_str)
+                .expect(&format!("failed to extract the file name from path: {}", src_path.display()));
+            let mut file = File::create(&format!("{}_cfg.dot", src_file_name))?;
             Graphviz::write(&mut file, &cfg, cfg.name.clone())?;
         }
         Ok((hir, cfg))

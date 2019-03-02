@@ -24,6 +24,7 @@ pub(crate) struct EvalContext<'a> {
     env: EvalEnv,
     stack: Vec<Value>,
     timestamp: usize,
+    unit: Value,
 }
 
 impl<'a> EvalContext<'a> {
@@ -33,6 +34,7 @@ impl<'a> EvalContext<'a> {
             env: EvalEnv::new(),
             stack: Vec::new(),
             timestamp: 0,
+            unit: Value::Unit,
         }
     }
 
@@ -41,7 +43,7 @@ impl<'a> EvalContext<'a> {
     }
 
     fn eval_impl(&mut self, block: NodeIndex) -> Value {
-        let mut result = &self.cfg.undefined;
+        let mut result = &self.unit;
         let mut state = self.new_state(block);
         loop {
             if state.statement_index >= state.basic_block.len() {
@@ -59,7 +61,7 @@ impl<'a> EvalContext<'a> {
                 Statement::Definition { ident, value_index } => {
                     let value = self.eval_value(&self.cfg.values[*value_index]);
                     self.define(ident, value);
-                    result = ident;
+                    result = &self.env[ident].value;
                 }
 
                 Statement::CondJump(var, then_block, else_block) => {
@@ -76,13 +78,13 @@ impl<'a> EvalContext<'a> {
                 }
 
                 Statement::Return(id) => {
-                    result = id;
+                    result = &self.env[id].value;
                     break;
                 }
             }
             state.statement_index += 1;
         }
-        replace(&mut self.env[result], RuntimeValue::undefined()).value
+        result.clone()
     }
 
     fn new_state(&self, block: NodeIndex) -> LocalEvalState<'a> {
@@ -95,7 +97,6 @@ impl<'a> EvalContext<'a> {
 
     fn eval_value(&mut self, value: &Value) -> Value {
         match value {
-            Value::Undefined |
             Value::Unit |
             Value::Int(_) |
             Value::String(_) |
@@ -227,18 +228,12 @@ struct RuntimeValue {
     timestamp: usize,
 }
 
-impl RuntimeValue {
-    fn undefined() -> Self {
-        Self {
-            value: Value::Undefined,
-            timestamp: 0,
-        }
-    }
-}
-
 impl Default for RuntimeValue {
     fn default() -> Self {
-        Self::undefined()
+        Self {
+            value: Value::Unit,
+            timestamp: 0,
+        }
     }
 }
 

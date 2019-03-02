@@ -80,14 +80,12 @@ pub(crate) struct ControlFlowGraph {
     pub(crate) name: String,
     pub(crate) graph: BasicBlockGraph,
     pub(crate) entry_block: NodeIndex,
-    pub(crate) exit_block: NodeIndex,
-    pub(crate) undefined: VarId,
     pub(crate) values: ValueStorage,
 }
 
-pub(crate) trait Ident: Sized {
-    fn new(id: usize) -> Self;
-    fn id(&self) -> usize;
+pub(crate) trait Ident: Sized + Copy {
+    const UNDEFINED: Self;
+    fn next(&self) -> Self;
 }
 
 macro_rules! define_ident {
@@ -96,18 +94,16 @@ macro_rules! define_ident {
         pub(crate) struct $name(usize);
 
         impl Ident for $name {
-            fn new(id: usize) -> Self {
-                $name(id)
-            }
+            const UNDEFINED: Self = $name(0);
 
-            fn id(&self) -> usize {
-                self.0
+            fn next(&self) -> Self {
+                $name(self.0 + 1)
             }
         }
 
         impl Default for $name {
             fn default() -> Self {
-                $name(0)
+                Self::UNDEFINED
             }
         }
 
@@ -132,11 +128,11 @@ pub(crate) struct IdentGenerator<Id: Ident>(Id);
 
 impl<Id: Ident> IdentGenerator<Id> {
     pub(crate) fn new() -> Self {
-        Self(Id::new(0))
+        Self(Id::UNDEFINED.next())
     }
 
     pub(crate) fn next_id(&mut self) -> Id {
-        let next_id = Id::new(self.0.id() + 1);
+        let next_id = self.0.next();
         replace(&mut self.0, next_id)
     }
 }
@@ -205,7 +201,6 @@ impl Hash for Phi {
 
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub(crate) enum Value {
-    Undefined,
     Unit,
     Int(BigInt),
     String(Rc<String>),
@@ -223,7 +218,6 @@ pub(crate) enum Value {
 impl fmt::Debug for Value {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Value::Undefined => f.write_str("<undefined>"),
             Value::Unit => f.write_str("()"),
             Value::Int(n) => write!(f, "{}", n),
             Value::String(s) => write!(f, "\"{}\"", s),

@@ -9,14 +9,18 @@ Lecture Notes in Computer Science, vol 7791. Springer, Berlin, Heidelberg
 
 use std::collections::HashMap;
 use std::collections::HashSet;
+#[cfg(test)] use std::ffi::OsStr;
 #[cfg(test)] use std::fs::File;
 use std::iter::empty;
 use std::iter::once;
-#[cfg(test)] use std::rc::Rc;
+#[cfg(test)] use std::path::Path;
+use std::rc::Rc;
 
 use itertools::free::chain;
 use itertools::Itertools;
-#[cfg(test)] use num_bigint::BigInt;
+use num_bigint::BigInt;
+use num_traits::identities::One;
+use num_traits::identities::Zero;
 use petgraph::Direction;
 use petgraph::graph::NodeIndex;
 use petgraph::visit::EdgeRef;
@@ -27,6 +31,7 @@ use crate::ir::BasicBlock;
 use crate::ir::BasicBlockGraph;
 use crate::ir::ControlFlowGraph;
 use crate::ir::FnId;
+use crate::ir::Ident;
 use crate::ir::IdentGenerator;
 use crate::ir::Phi;
 use crate::ir::Statement;
@@ -50,6 +55,8 @@ pub(crate) struct FrontEnd {
     name: String,
     enable_warnings: bool,
     include_comments: bool,
+    enable_cfp: bool,
+    enable_dce: bool,
     graph: BasicBlockGraph,
     idgen: IdentGenerator<VarId>,
     function_idgen: IdentGenerator<FnId>,
@@ -61,7 +68,6 @@ pub(crate) struct FrontEnd {
     incomplete_phis: HashMap<NodeIndex, HashMap<Variable, VarId>>,
     phi_users: HashMap<VarId, HashSet<VarId>>,
     entry_block: NodeIndex,
-    undefined: VarId,
     undefined_users: Vec<StatementLocation>,
     markers: Vec<Option<Marker>>,
 }
@@ -72,6 +78,8 @@ impl FrontEnd {
             name: name.to_owned(),
             enable_warnings: false,
             include_comments: false,
+            enable_cfp: false,
+            enable_dce: false,
             graph: BasicBlockGraph::new(),
             idgen: IdentGenerator::new(),
             function_idgen: IdentGenerator::new(),
@@ -83,13 +91,11 @@ impl FrontEnd {
             incomplete_phis: HashMap::new(),
             phi_users: HashMap::new(),
             entry_block: NodeIndex::new(0),
-            undefined: VarId::default(),
             undefined_users: Vec::new(),
             markers: Vec::new(),
         };
         instance.entry_block = instance.new_block();
         instance.seal_block(instance.entry_block);
-        instance.undefined = instance.define(instance.entry_block, Value::Undefined);
         instance
     }
 
@@ -100,6 +106,16 @@ impl FrontEnd {
 
     pub(crate) fn include_comments(mut self, value: bool) -> Self {
         self.include_comments = value;
+        self
+    }
+
+    pub(crate) fn enable_cfp(mut self, value: bool) -> Self {
+        self.enable_cfp = value;
+        self
+    }
+
+    pub(crate) fn enable_dce(mut self, value: bool) -> Self {
+        self.enable_dce = value;
         self
     }
 
@@ -122,15 +138,15 @@ impl FrontEnd {
             warn_about_redundant_bindings(redundant_bindings);
         }
 
-        remove_dead_code(
-            self.entry_block, program_result, &mut self.values, &mut self.graph, self.definitions);
+        if self.enable_dce {
+            remove_dead_code(
+                self.entry_block, program_result, &mut self.values, &mut self.graph, self.definitions);
+        }
 
         ControlFlowGraph {
             name: self.name,
             graph: self.graph,
             entry_block: self.entry_block,
-            exit_block,
-            undefined: self.undefined,
             values: self.values,
         }
     }
@@ -338,10 +354,10 @@ impl FrontEnd {
                 self.remove_marker(block);
                 match definitions.len() {
                     1 => definitions[0],
-                    0 => self.undefined,
+                    0 => VarId::UNDEFINED,
                     _ => {
-                        if definitions.contains(&self.undefined) {
-                            self.undefined
+                        if definitions.contains(&VarId::UNDEFINED) {
+                            VarId::UNDEFINED
                         } else {
                             let phi = match self.get_marker(block) {
                                 Some(Marker::Phi(phi)) => *phi,
@@ -376,8 +392,8 @@ impl FrontEnd {
     fn try_remove_trivial_phi(&mut self, phi: VarId) -> VarId {
         let mut same = None;
         for &operand in self.phi_operands(phi) {
-            if operand == self.undefined {
-                same = Some(self.undefined);
+            if operand == VarId::UNDEFINED {
+                same = Some(operand);
                 break;
             }
             if Some(operand) == same || operand == phi {
@@ -393,7 +409,7 @@ impl FrontEnd {
 
         let same = match same {
             Some(ident) => ident,
-            None => self.undefined
+            None => VarId::UNDEFINED,
         };
 
         self.phi_users.get_mut(&phi).unwrap().remove(&phi);
@@ -430,14 +446,18 @@ impl FrontEnd {
     }
 
     fn define(&mut self, block: NodeIndex, value: Value) -> VarId {
-        let (value_index, reused) = self.values.insert(value);
+        let value = normalize(value);
+        let (value_index, reused) = self.values.insert(value.clone());
         let variable = Variable::Value(value_index);
         let ident = if *reused {
             self.read_variable(&variable, block)
         } else {
-            self.undefined
+            if self.enable_cfp {
+                self.values[value_index] = self.fold_constants(value);
+            }
+            VarId::UNDEFINED
         };
-        if ident != self.undefined {
+        if ident != VarId::UNDEFINED {
             ident
         } else {
             let ident = self.idgen.next_id();
@@ -468,6 +488,92 @@ impl FrontEnd {
         self.define(block, Value::Phi(Phi(operands)))
     }
 
+    fn fold_constants(&self, value: Value) -> Value {
+        match &value {
+            Value::Unit |
+            Value::Int(_) |
+            Value::String(_) |
+            Value::Function(_, _) => value,
+
+            Value::AddInt(left, right) => self.fold_binary_int(*left, *right, value, |(_, left), (_, right)| {
+                match (&left, &right) {
+                    (Value::Int(left), Value::Int(right)) => Some(Value::Int(left + right)),
+                    (Value::Int(left), _) if left.is_zero() => Some(right),
+                    (_, Value::Int(right)) if right.is_zero() => Some(left),
+                    _ => None,
+                }
+            }),
+
+            Value::SubInt(left, right) => self.fold_binary_int(*left, *right, value, |(_, left), (_, right)| {
+                match (&left, &right) {
+                    (Value::Int(left), Value::Int(right)) => Some(Value::Int(left - right)),
+                    (_, Value::Int(right)) if right.is_zero() => Some(left),
+                    _ => None,
+                }
+            }),
+
+            Value::MulInt(left, right) => self.fold_binary_int(*left, *right, value, |(_, left), (_, right)| {
+                match (&left, &right) {
+                    (Value::Int(left), Value::Int(right)) => Some(Value::Int(left * right)),
+                    (Value::Int(left), _) if left.is_zero() => Some(Value::Int(BigInt::from(0))),
+                    (_, Value::Int(right)) if right.is_zero() => Some(Value::Int(BigInt::from(0))),
+                    (Value::Int(left), _) if left.is_one() => Some(right),
+                    (_, Value::Int(right)) if right.is_one() => Some(left),
+                    _ => None,
+                }
+            }),
+
+            Value::DivInt(left, right) => self.fold_binary_int(*left, *right, value, |(_, left), (_, right)| {
+                match (&left, &right) {
+                    (Value::Int(left), Value::Int(right)) => Some(Value::Int(left / right)),
+                    (Value::Int(left), _) if left.is_zero() => Some(Value::Int(BigInt::from(0))),
+                    (_, Value::Int(right)) if right.is_one() => Some(left),
+                    _ => None,
+                }
+            }),
+
+            Value::AddString(left, right) => self.fold_binary_int(*left, *right, value, |(_, left), (_, right)| {
+                match (&left, &right) {
+                    (Value::String(left), Value::String(right)) => {
+                        let mut result = String::with_capacity(left.len() + right.len());
+                        result.push_str(left);
+                        result.push_str(right);
+                        Some(Value::String(Rc::new(result)))
+                    },
+                    _ => None,
+                }
+            }),
+
+            // TODO CFP for functions
+            Value::Call(_function, _arguments) => value,
+
+            Value::Phi(_) | Value::Arg(_) => value,
+        }
+    }
+
+    fn fold_binary(
+        &self, left: VarId, right: VarId,
+        fold: impl FnOnce((VarId, Value), (VarId, Value)) -> Value) -> Value
+    {
+        let left_value = self.fold_constants(self.values[self.definitions[&left].value_index].clone());
+        let right_value = self.fold_constants(self.values[self.definitions[&right].value_index].clone());
+        fold((left, left_value), (right, right_value))
+    }
+
+    fn fold_binary_int(
+        &self, left: VarId, right: VarId, default: Value,
+        fold: impl FnOnce((VarId, Value), (VarId, Value)) -> Option<Value>) -> Value
+    {
+        self.fold_binary(left, right, move |(left, left_value), (right, right_value)| {
+            match (&left_value, &right_value) {
+                (Value::Int(_), _) |
+                (_, Value::Int(_)) =>
+                    fold((left, left_value), (right, right_value)).unwrap_or(default),
+                _ => default,
+            }
+        })
+    }
+
     fn push_return(&mut self, block: NodeIndex, ident: VarId) {
         self.graph[block].push(Statement::Return(ident));
     }
@@ -477,7 +583,7 @@ impl FrontEnd {
         let value = &self.values[value_index];
         let (is_using_undefined, phis_used) = get_value_ident_operands(value)
             .fold((false, vec![]), |(mut is_using_undefined, mut phis_used), ident| {
-                if ident == self.undefined {
+                if ident == VarId::UNDEFINED {
                     is_using_undefined = true;
                 } else if self.is_a_phi(ident) {
                     phis_used.push(ident);
@@ -493,7 +599,7 @@ impl FrontEnd {
     }
 
     fn is_a_phi(&self, ident: VarId) -> bool {
-        ident != self.undefined && self.phi_users.contains_key(&ident)
+        ident != VarId::UNDEFINED && self.phi_users.contains_key(&ident)
     }
 
     fn phi_operands(&self, phi: VarId) -> &[VarId] {
@@ -580,7 +686,6 @@ fn get_statement_idents_mut<'a>(values: &'a mut ValueStorage, statement: &'a mut
 
 fn replace_ident(value: &mut Value, ident: VarId, replacement: VarId) {
     let operands: Box<dyn Iterator<Item = &mut VarId>> = match value {
-        Value::Undefined |
         Value::Unit |
         Value::Int(_) |
         Value::String(_) |
@@ -604,7 +709,6 @@ fn replace_ident(value: &mut Value, ident: VarId, replacement: VarId) {
 
 fn get_value_ident_operands<'a>(value: &'a Value) -> Box<dyn Iterator<Item = VarId> + 'a> {
     match value {
-        Value::Undefined |
         Value::Unit |
         Value::Int(_) |
         Value::String(_) |
@@ -624,7 +728,6 @@ fn get_value_ident_operands<'a>(value: &'a Value) -> Box<dyn Iterator<Item = Var
 
 fn get_value_ident_operands_mut<'a>(value: &'a mut Value) -> Box<dyn Iterator<Item = &mut VarId> + 'a> {
     match value {
-        Value::Undefined |
         Value::Unit |
         Value::Int(_) |
         Value::String(_) |
@@ -639,6 +742,32 @@ fn get_value_ident_operands_mut<'a>(value: &'a mut Value) -> Box<dyn Iterator<It
 
         Value::Phi(phi) => Box::new(phi.iter_mut()),
         Value::Call(function, arguments) => Box::new(once(function).chain(arguments.iter_mut())),
+    }
+}
+
+fn normalize(value: Value) -> Value {
+    match &value {
+        Value::Unit |
+        Value::Int(_) |
+        Value::String(_) |
+        Value::Function {..} |
+        Value::SubInt(_, _) |
+        Value::DivInt(_, _) |
+        Value::AddString(_, _) |
+        Value::Call(_, _) |
+        Value::Arg(_) => value,
+
+        Value::AddInt(left, right) => Value::AddInt(*left.min(&right), *left.max(&right)),
+        Value::MulInt(left, right) => Value::MulInt(*left.min(&right), *left.max(&right)),
+
+        Value::Phi(Phi(operands)) => {
+            let sorted_operands = operands
+                .iter()
+                .cloned()
+                .sorted()
+                .collect_vec();
+            Value::Phi(Phi(sorted_operands))
+        },
     }
 }
 
@@ -674,8 +803,15 @@ macro_rules! test_frontend {
             let cfg = FrontEnd::new(&location!())
                 .enable_warnings(false)
                 .include_comments(false)
+                .enable_cfp(true)
+                .enable_dce(true)
                 .build(&code);
-            let mut output = File::create("ir_cfg.dot")?;
+            let test_src_path = Path::new(file!());
+            let test_src_file_name = test_src_path
+                .file_name()
+                .and_then(OsStr::to_str)
+                .expect(&format!("failed to extract the file name from path: {}", test_src_path.display()));
+            let mut output = File::create(format!("{}_{}_cfg.dot", test_src_file_name, line!()))?;
             Graphviz::write(&mut output, &cfg, cfg.name.clone())?;
 
             let value = crate::ir::eval::EvalContext::new(&cfg).eval();

@@ -16,7 +16,7 @@ use crate::frontend::IdentDefinition;
 use crate::frontend::StatementLocation;
 use crate::ir::BasicBlock;
 use crate::ir::BasicBlockGraph;
-use crate::ir::Ident;
+use crate::ir::IdentGenerator;
 use crate::ir::Statement;
 use crate::ir::value_storage::ValueIndex;
 use crate::ir::value_storage::ValueStorage;
@@ -136,12 +136,12 @@ fn rename_idents(
     program_result: &mut VarId,
     ident_usage: &mut HashMap<VarId, usize>)
 {
+    let mut idgen = IdentGenerator::new();
     let ident_rename_map: HashMap<VarId, VarId> = HashMap::from_iter({
         definitions
             .iter()
             .sorted_by_key(|(_, definition)| definition.location)
-            .enumerate()
-            .map(|(i, (ident, _))| (*ident, VarId::new(i)))
+            .map(|(ident, _)| (*ident, idgen.next_id()))
     });
     let blocks = graph
         .node_indices()
