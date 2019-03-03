@@ -19,7 +19,7 @@ use crate::ir::eval::EvalContext;
 use crate::ir::fmt_statement;
 use crate::ir::Value;
 use crate::lexer::Lexer;
-use crate::parser::Block as ASTBlock;
+use crate::parser::Block;
 use crate::parser::Parser;
 use crate::semantics::ExprRef;
 use crate::semantics::SemanticsChecker;
@@ -69,26 +69,11 @@ impl<'a, T> Pipeline<'a, T> {
             writeln!(stdout, ")")?;
             result
         })
-        .transpose_result()
+        .transpose()
         .map(move |output| {
             let input = output.filter(|_| options.max_pass_name != Pass::NAME);
             Pipeline { input, options }
         })
-    }
-}
-
-// TODO use Iterator::transpose() when it's stabilized
-trait TransposeResult<T, E> {
-    fn transpose_result(self) -> Result<Option<T>, E>;
-}
-
-impl<T, E> TransposeResult<T, E> for Option<Result<T, E>> {
-    fn transpose_result(self) -> Result<Option<T>, E> {
-        match self {
-            Some(Ok(x)) => Ok(Some(x)),
-            Some(Err(e)) => Err(e),
-            None => Ok(None),
-        }
     }
 }
 
@@ -141,11 +126,11 @@ impl CompilerPass<String, SourceFileRef> for Load {
     }
 }
 
-impl CompilerPass<SourceFileRef, (ASTBlock, SourceFileRef)> for Parse {
+impl CompilerPass<SourceFileRef, (Block, SourceFileRef)> for Parse {
     const NAME: &'static str = "parse";
     const TITLE: &'static str = "Parsing";
 
-    fn apply(source_file: SourceFileRef, options: &PipelineOptions) -> Result<(ASTBlock, SourceFileRef), Box<dyn Error>> {
+    fn apply(source_file: SourceFileRef, options: &PipelineOptions) -> Result<(Block, SourceFileRef), Box<dyn Error>> {
         let lexer = Lexer::new(source_file.clone());
         let mut parser = Parser::new(lexer);
         let ast = parser.parse()?;
@@ -159,11 +144,11 @@ impl CompilerPass<SourceFileRef, (ASTBlock, SourceFileRef)> for Parse {
     }
 }
 
-impl CompilerPass<(ASTBlock, SourceFileRef), (ExprRef, SourceFileRef)> for VerifySemantics {
+impl CompilerPass<(Block, SourceFileRef), (ExprRef, SourceFileRef)> for VerifySemantics {
     const NAME: &'static str = "sem";
     const TITLE: &'static str = "Verifying semantics";
 
-    fn apply((ast, source_file): (ASTBlock, SourceFileRef), options: &PipelineOptions)
+    fn apply((ast, source_file): (Block, SourceFileRef), options: &PipelineOptions)
         -> Result<(ExprRef, SourceFileRef), Box<dyn Error>>
     {
         let checker = SemanticsChecker::new();
@@ -196,7 +181,7 @@ impl CompilerPass<(ExprRef, SourceFileRef), (ExprRef, ControlFlowGraph)> for IR 
             let src_file_name = src_path
                 .file_name()
                 .and_then(OsStr::to_str)
-                .expect(&format!("failed to extract the file name from path: {}", src_path.display()));
+                .unwrap_or_else(|| panic!("failed to extract the file name from path: {}", src_path.display()));
             let mut file = File::create(&format!("{}_cfg.dot", src_file_name))?;
             Graphviz::write(&mut file, &cfg, cfg.name.clone())?;
         }

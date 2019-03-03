@@ -2,6 +2,8 @@ use std::io;
 use std::mem::replace;
 
 use askama_escape::escape;
+use askama_escape::Html;
+use askama_escape::Text;
 use itertools::Itertools;
 use petgraph::graph::NodeIndex;
 
@@ -48,7 +50,7 @@ impl<'a> Graphviz<'a> {
             writeln!(sink)?;
         }
         writeln!(sink, "subgraph cluster{} {{", self.id)?;
-        writeln!(sink, "label=\"{}\";", escape(&self.name))?;
+        writeln!(sink, "label=\"{}\";", escape(&self.name, Text))?;
         for node in self.graph.node_indices() {
             self.fmt_node(sink, node)?;
         }
@@ -115,8 +117,7 @@ impl<'a> Graphviz<'a> {
             Statement::Comment(comment) => {
                 let comment = comment
                     .split(|c| c == '\n')
-                    .map(escape)
-                    .map(|e| e.to_string())
+                    .map(|s| escape(s, Text).to_string())
                     .filter(|s| !s.is_empty())
                     .format("<br align=\"left\"/>\n// ");
                 write!(sink, "{}", colorize!(comment &format!("// {}", comment)))
@@ -140,8 +141,8 @@ impl<'a> Graphviz<'a> {
         match value {
             Value::Unit => write!(sink, "{}", colorize!(constant "()")),
             Value::Int(n) => write!(sink, "{}", colorize!(constant n.to_string())),
-            Value::String(s) => write!(sink, "{}", colorize!(constant escape(&format!("\"{}\"", s)))),
-            Value::Function(id, _) => write!(sink, "{}", colorize!(keyword escape(&id.to_string()))),
+            Value::String(s) => write!(sink, "{}", colorize!(constant escape(&format!("\"{}\"", s), Html))),
+            Value::Function(id, _) => write!(sink, "{}", colorize!(keyword escape(&id.to_string(), Html))),
             Value::AddInt(left, right) => write!(sink, "{} + {}", left, right),
             Value::SubInt(left, right) => write!(sink, "{} - {}", left, right),
             Value::MulInt(left, right) => write!(sink, "{} * {}", left, right),
