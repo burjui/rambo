@@ -86,24 +86,34 @@ pub(crate) struct ControlFlowGraph {
 pub(crate) trait Ident: Sized + Copy {
     const UNDEFINED: Self;
     fn next(&self) -> Self;
+    fn prefix(&self) -> &'static str;
+    fn index(&self) -> usize;
 }
 
 macro_rules! define_ident {
-    ($name: ident, $prefix: literal) => {
+    ($visibility: vis $name: ident $prefix: literal) => {
         #[derive(Copy, Clone, Eq, PartialEq, Hash, Ord, PartialOrd)]
-        pub(crate) struct $name(usize);
+        $visibility struct $name(usize);
 
-        impl Ident for $name {
+        impl crate::ir::Ident for $name {
             const UNDEFINED: Self = $name(0);
 
             fn next(&self) -> Self {
                 $name(self.0 + 1)
             }
+
+            fn prefix(&self) -> &'static str {
+                $prefix
+            }
+
+            fn index(&self) -> usize {
+                self.0
+            }
         }
 
         impl Default for $name {
             fn default() -> Self {
-                Self::UNDEFINED
+                crate::ir::Ident::UNDEFINED
             }
         }
 
@@ -121,8 +131,8 @@ macro_rules! define_ident {
     }
 }
 
-define_ident!(VarId, "v");
-define_ident!(FnId, "λ");
+define_ident!{ pub(crate) VarId "v" }
+define_ident!{ pub(crate) FnId "λ" }
 
 pub(crate) struct IdentGenerator<Id: Ident>(Id);
 

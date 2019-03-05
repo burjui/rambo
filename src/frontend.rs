@@ -26,7 +26,7 @@ use petgraph::graph::NodeIndex;
 use petgraph::visit::EdgeRef;
 
 use crate::frontend::dead_code::remove_dead_code;
-#[cfg(test)] use crate::graphviz::Graphviz;
+#[cfg(test)] use crate::graphviz::graphviz_dot_write;
 use crate::ir::BasicBlock;
 use crate::ir::BasicBlockGraph;
 use crate::ir::ControlFlowGraph;
@@ -233,10 +233,12 @@ impl FrontEnd {
             }
 
             TypedExpr::Lambda(lambda, source) => {
+                let function_id = self.function_idgen.next_id();
                 let mut function = FrontEnd::new(source.text())
                     .enable_warnings(self.enable_warnings)
-                    .include_comments(self.include_comments);
-                let function_id = self.function_idgen.next_id();
+                    .include_comments(self.include_comments)
+                    .enable_cfp(self.enable_cfp)
+                    .enable_dce(self.enable_dce);
                 for parameter in &lambda.parameters {
                     function.comment(function.entry_block, &parameter.name);
                     let index = if let BindingKind::Arg(index) = parameter.kind {
@@ -811,8 +813,8 @@ macro_rules! test_frontend {
                 .file_name()
                 .and_then(OsStr::to_str)
                 .expect(&format!("failed to extract the file name from path: {}", test_src_path.display()));
-            let mut output = File::create(format!("{}_{}_cfg.dot", test_src_file_name, line!()))?;
-            Graphviz::write(&mut output, &cfg, cfg.name.clone())?;
+            let mut file = File::create(format!("{}_{}_cfg.dot", test_src_file_name, line!()))?;
+            graphviz_dot_write(&mut file, &cfg)?;
 
             let value = crate::ir::eval::EvalContext::new(&cfg).eval();
             assert_eq!(value, $expected_result);

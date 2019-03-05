@@ -1,6 +1,7 @@
 use std::error::Error;
 use std::ffi::OsStr;
 use std::fs::File;
+use std::io::BufWriter;
 use std::io::Write;
 use std::path::Path;
 
@@ -13,7 +14,7 @@ use termcolor::WriteColor;
 use crate::eval::Evaluator;
 use crate::eval::Evalue;
 use crate::frontend::FrontEnd;
-use crate::graphviz::Graphviz;
+use crate::graphviz::graphviz_dot_write;
 use crate::ir::ControlFlowGraph;
 use crate::ir::eval::EvalContext;
 use crate::ir::fmt_statement;
@@ -182,8 +183,8 @@ impl CompilerPass<(ExprRef, SourceFileRef), (ExprRef, ControlFlowGraph)> for IR 
                 .file_name()
                 .and_then(OsStr::to_str)
                 .unwrap_or_else(|| panic!("failed to extract the file name from path: {}", src_path.display()));
-            let mut file = File::create(&format!("{}_cfg.dot", src_file_name))?;
-            Graphviz::write(&mut file, &cfg, cfg.name.clone())?;
+            let file = File::create(&format!("{}_cfg.dot", src_file_name))?;
+            graphviz_dot_write(&mut BufWriter::new(file), &cfg)?;
         }
         Ok((hir, cfg))
     }
