@@ -534,15 +534,15 @@ impl FrontEnd {
                 }
             }),
 
-            Value::AddString(left, right) => self.fold_binary_int(*left, *right, value, |(_, left), (_, right)| {
+            Value::AddString(left, right) => self.fold_binary(*left, *right, |(_, left), (_, right)| {
                 match (&left, &right) {
                     (Value::String(left), Value::String(right)) => {
                         let mut result = String::with_capacity(left.len() + right.len());
                         result.push_str(left);
                         result.push_str(right);
-                        Some(Value::String(Rc::new(result)))
+                        Value::String(Rc::new(result))
                     },
-                    _ => None,
+                    _ => value,
                 }
             }),
 
