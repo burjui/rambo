@@ -455,7 +455,7 @@ impl FrontEnd {
             self.read_variable(&variable, block)
         } else {
             if self.enable_cfp {
-                self.values[value_index] = self.fold_constants(value);
+                self.fold_constants(block, value_index);
             }
             VarId::UNDEFINED
         };
@@ -490,90 +490,86 @@ impl FrontEnd {
         self.define(block, Value::Phi(Phi(operands)))
     }
 
-    fn fold_constants(&self, value: Value) -> Value {
-        match &value {
+    fn fold_binary(
+        &mut self, block: NodeIndex,
+        left: VarId, right: VarId,
+        fold: impl FnOnce((VarId, &Value), (VarId, &Value)) -> Option<Value>) -> Option<Value>
+    {
+        let left_value_index = self.definitions[&left].value_index;
+        let right_value_index = self.definitions[&right].value_index;
+        self.fold_constants(block, left_value_index);
+        self.fold_constants(block, right_value_index);
+        fold((left, &self.values[left_value_index]), (right, &self.values[right_value_index]))
+    }
+
+    fn fold_constants(&mut self, block: NodeIndex, value_index: ValueIndex) {
+        let folded = match &self.values[value_index] {
             Value::Unit |
             Value::Int(_) |
             Value::String(_) |
-            Value::Function(_, _) => value,
+            Value::Function(_, _) => None,
 
-            Value::AddInt(left, right) => self.fold_binary_int(*left, *right, value, |(_, left), (_, right)| {
-                match (&left, &right) {
+            Value::AddInt(left, right) => self.fold_binary(block, *left, *right, |(_, left_value), (_, right_value)| {
+                match (left_value, right_value) {
                     (Value::Int(left), Value::Int(right)) => Some(Value::Int(left + right)),
-                    (Value::Int(left), _) if left.is_zero() => Some(right),
-                    (_, Value::Int(right)) if right.is_zero() => Some(left),
+                    (Value::Int(left), _) if left.is_zero() => Some(right_value.clone()),
+                    (_, Value::Int(right)) if right.is_zero() => Some(left_value.clone()),
                     _ => None,
                 }
             }),
 
-            Value::SubInt(left, right) => self.fold_binary_int(*left, *right, value, |(_, left), (_, right)| {
-                match (&left, &right) {
-                    (Value::Int(left), Value::Int(right)) => Some(Value::Int(left - right)),
-                    (_, Value::Int(right)) if right.is_zero() => Some(left),
-                    _ => None,
+            Value::SubInt(left, right) => self.fold_binary(block, *left, *right, |(left, left_value), (right, right_value)| {
+                if left == right {
+                    Some(Value::Int(BigInt::from(0)))
+                } else {
+                    match (left_value, right_value) {
+                        (Value::Int(left), Value::Int(right)) => Some(Value::Int(left - right)),
+                        (_, Value::Int(right)) if right.is_zero() => Some(left_value.clone()),
+                        _ => None,
+                    }
                 }
             }),
 
-            Value::MulInt(left, right) => self.fold_binary_int(*left, *right, value, |(_, left), (_, right)| {
-                match (&left, &right) {
+            Value::MulInt(left, right) => self.fold_binary(block, *left, *right, |(_, left_value), (_, right_value)| {
+                match (left_value, right_value) {
                     (Value::Int(left), Value::Int(right)) => Some(Value::Int(left * right)),
                     (Value::Int(left), _) if left.is_zero() => Some(Value::Int(BigInt::from(0))),
                     (_, Value::Int(right)) if right.is_zero() => Some(Value::Int(BigInt::from(0))),
-                    (Value::Int(left), _) if left.is_one() => Some(right),
-                    (_, Value::Int(right)) if right.is_one() => Some(left),
+                    (Value::Int(left), _) if left.is_one() => Some(right_value.clone()),
+                    (_, Value::Int(right)) if right.is_one() => Some(left_value.clone()),
                     _ => None,
                 }
             }),
 
-            Value::DivInt(left, right) => self.fold_binary_int(*left, *right, value, |(_, left), (_, right)| {
-                match (&left, &right) {
+            Value::DivInt(left, right) => self.fold_binary(block, *left, *right, |(_, left_value), (_, right_value)| {
+                match (left_value, right_value) {
                     (Value::Int(left), Value::Int(right)) => Some(Value::Int(left / right)),
                     (Value::Int(left), _) if left.is_zero() => Some(Value::Int(BigInt::from(0))),
-                    (_, Value::Int(right)) if right.is_one() => Some(left),
+                    (_, Value::Int(right)) if right.is_one() => Some(left_value.clone()),
                     _ => None,
                 }
             }),
 
-            Value::AddString(left, right) => self.fold_binary(*left, *right, |(_, left), (_, right)| {
-                match (&left, &right) {
+            Value::AddString(left, right) => self.fold_binary(block, *left, *right, |(_, left_value), (_, right_value)| {
+                match (left_value, right_value) {
                     (Value::String(left), Value::String(right)) => {
                         let mut result = String::with_capacity(left.len() + right.len());
-                        result.push_str(left);
-                        result.push_str(right);
-                        Value::String(Rc::new(result))
+                        result.push_str(&left);
+                        result.push_str(&right);
+                        Some(Value::String(Rc::new(result)))
                     },
-                    _ => value,
+                    _ => None,
                 }
             }),
 
             // TODO CFP for functions
-            Value::Call(_function, _arguments) => value,
+            Value::Call(_function, _arguments) => None,
 
-            Value::Phi(_) | Value::Arg(_) => value,
+            Value::Phi(_) | Value::Arg(_) => None,
+        };
+        if let Some(value) = folded {
+            self.values[value_index] = value;
         }
-    }
-
-    fn fold_binary(
-        &self, left: VarId, right: VarId,
-        fold: impl FnOnce((VarId, Value), (VarId, Value)) -> Value) -> Value
-    {
-        let left_value = self.fold_constants(self.values[self.definitions[&left].value_index].clone());
-        let right_value = self.fold_constants(self.values[self.definitions[&right].value_index].clone());
-        fold((left, left_value), (right, right_value))
-    }
-
-    fn fold_binary_int(
-        &self, left: VarId, right: VarId, default: Value,
-        fold: impl FnOnce((VarId, Value), (VarId, Value)) -> Option<Value>) -> Value
-    {
-        self.fold_binary(left, right, move |(left, left_value), (right, right_value)| {
-            match (&left_value, &right_value) {
-                (Value::Int(_), _) |
-                (_, Value::Int(_)) =>
-                    fold((left, left_value), (right, right_value)).unwrap_or(default),
-                _ => default,
-            }
-        })
     }
 
     fn push_return(&mut self, block: NodeIndex, ident: VarId) {
