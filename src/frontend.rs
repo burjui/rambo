@@ -204,20 +204,18 @@ impl FrontEnd {
                 let (block, condition) = self.process_expr(condition, block);
                 let condition_value = self.value(condition);
 
-                if self.enable_cfp {
-                    if condition_value.is_constant() {
-                        return match condition_value {
-                            Value::Int(n) => {
-                                if n.is_zero() {
-                                    self.process_expr(negative, block)
-                                } else {
-                                    self.process_expr(positive, block)
-                                }
+                if self.enable_cfp && condition_value.is_constant() {
+                    return match condition_value {
+                        Value::Int(n) => {
+                            if n.is_zero() {
+                                self.process_expr(negative, block)
+                            } else {
+                                self.process_expr(positive, block)
                             }
+                        }
 
-                            _ => unreachable!(),
-                        };
-                    }
+                        _ => unreachable!(),
+                    };
                 }
 
                 let positive_block = self.new_block();
