@@ -225,6 +225,12 @@ pub(crate) enum Value {
     Arg(usize),
 }
 
+impl Value {
+    pub(crate) fn is_constant(&self) -> bool {
+        matches!(self, Value::Unit, Value::Int(_), Value::String(_), Value::Function(_, _))
+    }
+}
+
 impl fmt::Debug for Value {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {

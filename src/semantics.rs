@@ -384,6 +384,7 @@ pub(crate) enum TypedExpr {
     DivInt(ExprRef, ExprRef, Source),
     AddStr(ExprRef, ExprRef, Source),
     Assign(BindingRef, ExprRef, Source),
+    // TODO rename: positive -> then_branch, negative -> else_branch
     Conditional {
         condition: ExprRef,
         positive: ExprRef,

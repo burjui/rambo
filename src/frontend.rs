@@ -158,6 +158,7 @@ impl FrontEnd {
                     .format("\n"));
     }
 
+    // TODO make block the first argument everywhere
     fn process_expr(&mut self, expr: &ExprRef, block: NodeIndex) -> (NodeIndex, VarId) {
         match &**expr {
             TypedExpr::Block(block_data) => {
@@ -201,6 +202,24 @@ impl FrontEnd {
             TypedExpr::Conditional { condition, positive, negative, source, .. } => {
                 self.comment(block, source.text());
                 let (block, condition) = self.process_expr(condition, block);
+                let condition_value = self.value(condition);
+
+                if self.enable_cfp {
+                    if condition_value.is_constant() {
+                        return match condition_value {
+                            Value::Int(n) => {
+                                if n.is_zero() {
+                                    self.process_expr(negative, block)
+                                } else {
+                                    self.process_expr(positive, block)
+                                }
+                            }
+
+                            _ => unreachable!(),
+                        };
+                    }
+                }
+
                 let positive_block = self.new_block();
                 let negative_block = self.new_block();
 
@@ -577,9 +596,7 @@ impl FrontEnd {
     }
 
     fn record_phi_and_undefined_usages(&mut self, location: StatementLocation, ident: VarId) {
-        let value_index = self.definitions[&ident].value_index;
-        let value = &self.values[value_index];
-        let (is_using_undefined, phis_used) = get_value_ident_operands(value)
+        let (is_using_undefined, phis_used) = get_value_ident_operands(self.value(ident))
             .fold((false, vec![]), |(mut is_using_undefined, mut phis_used), ident| {
                 if ident == VarId::UNDEFINED {
                     is_using_undefined = true;
@@ -601,8 +618,7 @@ impl FrontEnd {
     }
 
     fn phi_operands(&self, phi: VarId) -> &[VarId] {
-        let value_index = self.definitions[&phi].value_index;
-        match &self.values[value_index] {
+        match self.value(phi) {
             Value::Phi(Phi(operands)) => operands,
             _ => unreachable!()
         }
@@ -653,6 +669,10 @@ impl FrontEnd {
             self.markers.resize(index +  1, None);
         }
         index
+    }
+
+    fn value(&self, var: VarId) -> &Value {
+        &self.values[self.definitions[&var].value_index]
     }
 }
 
@@ -794,7 +814,7 @@ pub(crate) struct IdentDefinition {
 }
 
 macro_rules! test_frontend {
-    ($name: ident, $code: expr, $expected_result: expr) => {
+    ($name: ident, $code: expr, $check: expr) => {
         #[test]
         fn $name() -> TestResult {
             let code = typecheck!($code)?;
@@ -811,16 +831,23 @@ macro_rules! test_frontend {
                 .expect(&format!("failed to extract the file name from path: {}", test_src_path.display()));
             let mut file = File::create(format!("{}_{}_cfg.dot", test_src_file_name, line!()))?;
             graphviz_dot_write(&mut file, &cfg)?;
-
-            let value = crate::ir::eval::EvalContext::new(&cfg).eval();
-            assert_eq!(value, $expected_result);
-
+            let check: fn(ControlFlowGraph) = $check;
+            check(cfg);
             Ok(())
         }
     }
 }
 
-test_frontend! {
+macro_rules! test_frontend_eval {
+    ($name: ident, $code: expr, $expected_result: expr) => {
+        test_frontend!{ $name, $code, |cfg| {
+            let value = crate::ir::eval::EvalContext::new(&cfg).eval();
+            assert_eq!(value, $expected_result);
+        }}
+    }
+}
+
+test_frontend_eval! {
     generic,
     "
     let x = 47
@@ -855,7 +882,7 @@ test_frontend! {
     Value::String(Rc::new("(hello; world)<bye, world; seeya>".to_owned()))
 }
 
-test_frontend! {
+test_frontend_eval! {
     block_removal,
     "
     let x = 0
@@ -875,7 +902,7 @@ test_frontend! {
     Value::Int(BigInt::from(3))
 }
 
-test_frontend! {
+test_frontend_eval! {
     block_removal2,
     &"
     let x = \"abc\"
@@ -896,7 +923,7 @@ test_frontend! {
     Value::Unit
 }
 
-test_frontend!{
+test_frontend_eval!{
     marker_eval,
     "
     let a = 1
@@ -912,4 +939,20 @@ test_frontend!{
     a = 10
     ",
     Value::Int(BigInt::from(10))
+}
+
+
+test_frontend!{
+    conditional_cfp,
+    "
+    let f = λ (a: num, b: num) -> a + b
+    let x = 0
+    if x {
+        x = f 3 4
+    } else {
+        x = f 5 6
+    }
+    x
+    ",
+    |cfg| assert_eq!(cfg.graph.edge_count(), 0)
 }
