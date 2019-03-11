@@ -166,7 +166,7 @@ dependencies = [
 
 [[package]]
 name = "rambo"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "elapsed 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "getopts 0.2.18 (registry+https://github.com/rust-lang/crates.io-index)",
