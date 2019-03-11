@@ -23,6 +23,5 @@ shift
 
 cargo build $MODE
 for i in x.rambo y.rambo z.rambo str.rambo; do
-	echo -n "$i: "
-	/usr/bin/time -f "%E" ./target/$TARGET/rambo "$SRC_DIR/$i" $@ > /dev/null | perl -pe 's/.\w+: (.*)/\1/g'
+	./target/$TARGET/rambo "$SRC_DIR/$i" $@
 done

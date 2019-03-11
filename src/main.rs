@@ -1,10 +1,13 @@
 #![warn(rust_2018_idioms)]
 
+use std::alloc::System;
 use std::env::args as program_args;
 use std::error::Error;
 use std::io::Write;
 
+use elapsed::measure_time;
 use getopts::Options;
+use number_prefix::{binary_prefix, Result::{Prefixed, Standalone}};
 use termcolor::Color;
 use termcolor::ColorSpec;
 use termcolor::WriteColor;
@@ -44,6 +47,12 @@ mod pipeline;
 mod unique_rc;
 mod graphviz;
 mod frontend;
+mod tracking_allocator;
+
+type TrackingAllocator = tracking_allocator::TrackingAllocator<System>;
+
+#[global_allocator]
+static ALLOCATOR: TrackingAllocator = TrackingAllocator::new(System);
 
 fn main() -> Result<(), Box<dyn Error>> {
     let stdout = &mut stdout();
@@ -81,22 +90,22 @@ struct CommandLine {
 fn parse_command_line() -> Result<CommandLine, Box<dyn Error>> {
     static HELP_OPTION: &str = "h";
     static WARNINGS_OPTION: &str = "w";
-    static DUMP_OPTION: &str = "d";
     static DUMP_CFG_OPTION: &str = "dump-cfg";
     static IR_COMMENTS_OPTION: &str = "ir-comments";
     static PASS_OPTION: &str = "p";
     static NO_CFP_OPTION: &str = "no-cfp";
     static NO_DCE_OPTION: &str = "no-dce";
+    static VERBOSE_OPTION: &str = "v";
 
     let args: Vec<String> = program_args().collect();
     let mut spec = Options::new();
     spec.optflag(HELP_OPTION, "help", "print this help menu");
     spec.optflag(WARNINGS_OPTION, "", "suppress warnings");
-    spec.optflag(DUMP_OPTION, "dump", "dump intermediate compilation results: AST, IR etc.");
     spec.optflag("", DUMP_CFG_OPTION, "dump CFG");
     spec.optflag("", IR_COMMENTS_OPTION, "comment the generated IR");
     spec.optflag("", NO_CFP_OPTION, "disable constant folding and propagation");
     spec.optflag("", NO_DCE_OPTION, "disable dead code elimination");
+    spec.optflagmulti(VERBOSE_OPTION, "verbose", "print individual passes;\nuse twice to dump intermediate results");
 
     let pass_name_list: String = COMPILER_PASS_NAMES.join(", ");
     spec.optopt(PASS_OPTION, "pass", &format!("name of the last compiler pass in the pipeline;\nvalid names are: {}", pass_name_list), "PASS");
@@ -120,8 +129,9 @@ fn parse_command_line() -> Result<CommandLine, Box<dyn Error>> {
                 .unwrap_or_else(|| Ok(COMPILER_PASS_NAMES.iter().last().unwrap().to_string()));
             result?
         },
+        print_passes: matches.opt_present(VERBOSE_OPTION),
+        dump_intermediate: matches.opt_count(VERBOSE_OPTION) > 1,
         enable_warnings: !matches.opt_present(WARNINGS_OPTION),
-        dump_intermediate: matches.opt_present(DUMP_OPTION),
         dump_cfg: matches.opt_present(DUMP_CFG_OPTION),
         cfg_include_comments: matches.opt_present(IR_COMMENTS_OPTION),
         enable_cfp: !matches.opt_present(NO_CFP_OPTION),
@@ -134,12 +144,19 @@ fn parse_command_line() -> Result<CommandLine, Box<dyn Error>> {
 fn process(path: String, options: &PipelineOptions) -> Result<(), Box<dyn Error>> {
     let stdout = &mut stdout();
     stdout.write_title("==>", &path, Color::Yellow)?;
-    Pipeline::new(path, options)
+    stdout.reset()?;
+    let (elapsed, result) = measure_time(|| Pipeline::new(path, options)
         .map(Load)?
         .map(Parse)?
         .map(VerifySemantics)?
         .map(IR)?
         .map(EvaluateIR)?
         .map(Evaluate)
-        .map(|_| ())
+        .map(|_| ()));
+    println!("Execution time : {}", elapsed);
+    println!("Memory usage: {}", match binary_prefix(ALLOCATOR.max_usage() as f32) {
+        Standalone(usage) => format!("{} bytes", usage),
+        Prefixed(prefix, usage) =>  format!("{:.0} {}B", usage, prefix),
+    });
+    result
 }

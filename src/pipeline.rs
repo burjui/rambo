@@ -31,8 +31,9 @@ use crate::utils::stdout;
 #[derive(Clone)]
 pub(crate) struct PipelineOptions {
     pub(crate) max_pass_name: String,
-    pub(crate) enable_warnings: bool,
+    pub(crate) print_passes: bool,
     pub(crate) dump_intermediate: bool,
+    pub(crate) enable_warnings: bool,
     pub(crate) dump_cfg: bool,
     pub(crate) cfg_include_comments: bool,
     pub(crate) enable_cfp: bool,
@@ -53,21 +54,25 @@ impl<'a, T> Pipeline<'a, T> {
         let Pipeline { input, options } = self;
         input.map(|input| {
             let stdout = &mut stdout();
-            stdout.write_title("::", Pass::TITLE, Color::White)?;
-            stdout.set_color(ColorSpec::new()
-                .set_fg(Some(Color::Black))
-                .set_intense(true))?;
-            let (elapsed, result) = elapsed::measure_time(|| Pass::apply(input, options));
-            stdout.set_color(ColorSpec::new()
-                .set_fg(Some(Color::White)))?;
-            write!(stdout, "(")?;
-            stdout.set_color(ColorSpec::new()
-                .set_fg(Some(Color::Black))
-                .set_intense(true))?;
-            write!(stdout, "{}", elapsed)?;
-            stdout.set_color(ColorSpec::new()
-                .set_fg(Some(Color::White)))?;
-            writeln!(stdout, ")")?;
+            if options.print_passes {
+                stdout.write_title("::", Pass::TITLE, Color::White)?;
+                stdout.set_color(ColorSpec::new()
+                    .set_fg(Some(Color::Black))
+                    .set_intense(true))?;
+            }
+                let (elapsed, result) = elapsed::measure_time(|| Pass::apply(input, options));
+            if options.print_passes {
+                stdout.set_color(ColorSpec::new()
+                    .set_fg(Some(Color::White)))?;
+                write!(stdout, "(")?;
+                stdout.set_color(ColorSpec::new()
+                    .set_fg(Some(Color::Black))
+                    .set_intense(true))?;
+                write!(stdout, "{}", elapsed)?;
+                stdout.set_color(ColorSpec::new()
+                    .set_fg(Some(Color::White)))?;
+                writeln!(stdout, ")")?;
+            }
             result
         })
         .transpose()
@@ -118,11 +123,13 @@ impl CompilerPass<String, SourceFileRef> for Load {
     const NAME: &'static str = "load";
     const TITLE: &'static str = "Loading";
 
-    fn apply(path: String, _: &PipelineOptions) -> Result<SourceFileRef, Box<dyn Error>> {
+    fn apply(path: String, options: &PipelineOptions) -> Result<SourceFileRef, Box<dyn Error>> {
         let source_file = SourceFile::load(&path)?;
         let line_count = source_file.lines().len();
         let stdout = &mut stdout();
-        writeln!(stdout, "{}, {} lines", Self::file_size_pretty(source_file.size()), line_count)?;
+        if options.print_passes {
+            writeln!(stdout, "{}, {} lines", Self::file_size_pretty(source_file.size()), line_count)?;
+        }
         Ok(source_file)
     }
 }
@@ -137,7 +144,9 @@ impl CompilerPass<SourceFileRef, (Block, SourceFileRef)> for Parse {
         let ast = parser.parse()?;
         let stats = { parser.lexer_stats() };
         let stdout = &mut stdout();
-        writeln!(stdout, "{} lexemes", stats.lexeme_count)?;
+        if options.print_passes {
+            writeln!(stdout, "{} lexemes", stats.lexeme_count)?;
+        }
         if options.dump_intermediate {
             writeln!(stdout, "{:?}", ast.statements.iter().format("\n"))?;
         }
@@ -173,7 +182,9 @@ impl CompilerPass<(ExprRef, SourceFileRef), (ExprRef, ControlFlowGraph)> for IR 
             .enable_dce(options.enable_dce);
         let cfg = frontend.build(&hir);
         let mut stdout = stdout();
-        writeln!(&mut stdout, "{} statements", cfg_statements_count(&cfg))?;
+        if options.print_passes {
+            writeln!(&mut stdout, "{} statements", cfg_statements_count(&cfg))?;
+        }
         if options.dump_intermediate {
             dump_cfg(&cfg, &cfg.name, &mut stdout)?;
         }
@@ -236,9 +247,11 @@ impl CompilerPass<(ExprRef, ControlFlowGraph), ExprRef> for EvaluateIR {
     const NAME: &'static str = "eval_ir";
     const TITLE: &'static str = "Evaluating IR";
 
-    fn apply(input: (ExprRef, ControlFlowGraph), _: &PipelineOptions) -> Result<ExprRef, Box<dyn Error>> {
+    fn apply(input: (ExprRef, ControlFlowGraph), options: &PipelineOptions) -> Result<ExprRef, Box<dyn Error>> {
         let value = EvalContext::new(&input.1).eval();
-        writeln!(&mut stdout(), "{:?}", value)?;
+        if options.print_passes {
+            writeln!(&mut stdout(), "{:?}", value)?;
+        }
         Ok(input.0)
     }
 }
@@ -247,10 +260,12 @@ impl CompilerPass<ExprRef, Evalue> for Evaluate {
     const NAME: &'static str = "eval";
     const TITLE: &'static str = "Evaluating HIR";
 
-    fn apply(hir: ExprRef, _: &PipelineOptions) -> Result<Evalue, Box<dyn Error>> {
+    fn apply(hir: ExprRef, options: &PipelineOptions) -> Result<Evalue, Box<dyn Error>> {
         let mut evaluator = Evaluator::new();
         let value = evaluator.eval(&hir)?;
-        writeln!(&mut stdout(), "{:?}", value)?;
+        if options.print_passes {
+            writeln!(&mut stdout(), "{:?}", value)?;
+        }
         Ok(value)
     }
 }
