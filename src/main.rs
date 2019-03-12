@@ -7,7 +7,9 @@ use std::io::Write;
 
 use elapsed::measure_time;
 use getopts::Options;
-use number_prefix::{binary_prefix, Result::{Prefixed, Standalone}};
+use number_prefix::binary_prefix;
+use number_prefix::Result::Prefixed;
+use number_prefix::Result::Standalone;
 use termcolor::Color;
 use termcolor::ColorSpec;
 use termcolor::WriteColor;
