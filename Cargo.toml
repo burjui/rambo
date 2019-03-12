@@ -21,3 +21,4 @@ strum_macros = "0.13.0"
 elapsed = "0.1.2"
 once_cell = "0.1.8"
 number_prefix = "0.2.8"
+stable-vec = { git = "https://github.com/burjui/stable-vec", rev = "a4f6576e7638410035db9a7a9c25a5f28cc3d922" }

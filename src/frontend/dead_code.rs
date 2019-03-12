@@ -21,7 +21,6 @@ use crate::ir::Statement;
 use crate::ir::value_storage::ValueIndex;
 use crate::ir::value_storage::ValueStorage;
 use crate::ir::VarId;
-use crate::utils::RetainIndex;
 
 pub(crate) fn remove_dead_code(
     entry_block: NodeIndex,
@@ -32,12 +31,11 @@ pub(crate) fn remove_dead_code(
 {
     let mut ident_usage = compute_ident_usage(program_result, values, graph, &mut definitions);
     remove_unused_definitions(&mut ident_usage, values, graph, &mut definitions);
-    rename_idents(values, graph, &mut definitions, &mut program_result, &mut ident_usage);
     remove_empty_blocks(graph);
     merge_consecutive_basic_blocks(entry_block, values, graph, &mut ident_usage, &mut definitions);
     remove_unused_definitions(&mut ident_usage, values, graph, &mut definitions);
     rename_idents(values, graph, &mut definitions, &mut program_result, &mut ident_usage);
-    remove_unused_values(graph, definitions, values);
+    remove_unused_values(&definitions, values);
 }
 
 fn compute_ident_usage(
@@ -91,21 +89,7 @@ fn remove_unused_definitions(
         definitions.remove(&ident);
         ident_usage.remove(&ident);
     }
-    remove_statements(dead_code, definitions, graph);
-
-    let blocks = graph
-        .node_indices()
-        .collect_vec();
-    for block in blocks {
-        graph[block]
-            .iter_mut()
-            .enumerate()
-            .for_each(|(index, statement)| if let Statement::Definition { ident, .. } = statement {
-                if let Some(definition) = definitions.get_mut(ident) {
-                    definition.location.index = index;
-                }
-            })
-    }
+    remove_statements(dead_code, graph);
 }
 
 fn unuse(
@@ -169,8 +153,7 @@ fn rename_idents(
     *program_result = ident_rename_map[program_result];
 }
 
-fn remove_empty_blocks(graph: &mut BasicBlockGraph)
-{
+fn remove_empty_blocks(graph: &mut BasicBlockGraph) {
     let blocks = graph
         .node_indices()
         .collect_vec();
@@ -217,21 +200,20 @@ fn merge_consecutive_basic_blocks(
     if successors.len() == 1 {
         let successor = successors[0];
         if graph.edges_directed(successor, Direction::Incoming).count() == 1 {
-            let mut successor_basic_block = replace(&mut graph[successor], BasicBlock::new());
-            if let Some(Statement::CondJump(condition, _, _)) = graph[block].last() {
+            if let Some(Statement::CondJump(condition, _, _)) = graph[block].find_last() {
                 unuse(*condition, graph, values, ident_usage, definitions);
                 graph[block].pop();
             }
 
+            let successor_basic_block = replace(&mut graph[successor], BasicBlock::new());
             let basic_block = &mut graph[block];
-            let basic_block_len = basic_block.len();
-            for (i, statement) in successor_basic_block.iter().enumerate() {
+            for statement in successor_basic_block.into_iter() {
                 if let Statement::Definition { ident, .. } = statement {
-                    let definition = definitions.get_mut(ident).unwrap();
-                    definition.location = StatementLocation::new(block, basic_block_len + i);
+                    let definition = definitions.get_mut(&ident).unwrap();
+                    definition.location.block = block;
+                    definition.location.index = basic_block.push(statement);
                 }
             }
-            basic_block.append(&mut successor_basic_block);
 
             let targets = graph
                 .edges_directed(successor, Direction::Outgoing)
@@ -245,51 +227,16 @@ fn merge_consecutive_basic_blocks(
     }
 }
 
-fn remove_unused_values(
-    graph: &mut BasicBlockGraph,
-    definitions: HashMap<VarId, IdentDefinition>,
-    values: &mut ValueStorage)
-{
-    let value_locations: HashMap<ValueIndex, StatementLocation> = HashMap::from_iter(
-        definitions
-            .into_iter()
-            .map(|(_, definition)| (definition.value_index, definition.location)));
-    values.retain(|value| value_locations.contains_key(&value), |old_index, new_index| {
-        let location = value_locations[&old_index];
-        match &mut graph[location.block][location.index] {
-            Statement::Definition { value_index, .. } => *value_index = new_index,
-            _ => unreachable!(),
-        }
-    });
+fn remove_unused_values(definitions: &HashMap<VarId, IdentDefinition>, values: &mut ValueStorage) {
+    let values_used: HashSet<ValueIndex> = definitions
+        .values()
+        .map(|definition| definition.value_index)
+        .collect();
+    values.retain(|value_index| values_used.contains(&value_index));
 }
 
-fn remove_statements(
-    locations: Vec<StatementLocation>,
-    definitions: &mut HashMap<VarId, IdentDefinition>,
-    graph: &mut BasicBlockGraph)
-{
-    let indices_by_block = {
-        let mut map = HashMap::<NodeIndex, HashSet<usize>>::new();
-        for location in locations {
-            map.entry(location.block)
-                .or_default()
-                .insert(location.index);
-        }
-        map
-    };
-
-    let definition_remap = {
-        let mut map = HashMap::new();
-        for (block, indices) in indices_by_block {
-            graph[block].retain_index(|index| !indices.contains(&index), |old_index, new_index| {
-                map.insert(StatementLocation::new(block, old_index), new_index);
-            });
-        }
-        map
-    };
-    for definition in definitions.values_mut().sorted_by_key(|definition| definition.location) {
-        if let Some(new_index) = definition_remap.get(&definition.location) {
-            definition.location.index = *new_index;
-        }
+fn remove_statements(locations: Vec<StatementLocation>, graph: &mut BasicBlockGraph) {
+    for location in locations {
+        graph[location.block].remove(location.index);
     }
 }
