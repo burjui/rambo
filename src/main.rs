@@ -153,7 +153,7 @@ fn process(path: String, options: &PipelineOptions) -> Result<(), Box<dyn Error>
         .map(EvaluateIR)?
         .map(Evaluate)
         .map(|_| ()));
-    println!("Execution time : {}", elapsed);
+    println!("Execution time: {}", elapsed);
     println!("Memory usage: {}", match binary_prefix(ALLOCATOR.max_usage() as f32) {
         Standalone(usage) => format!("{} bytes", usage),
         Prefixed(prefix, usage) =>  format!("{:.0} {}B", usage, prefix),
