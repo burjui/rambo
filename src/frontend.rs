@@ -221,10 +221,10 @@ impl FrontEnd {
                 let positive_block = self.new_block();
                 let negative_block = self.new_block();
 
-                let statement_location = StatementLocation::new(block, self.graph[block].len());
-                self.record_phi_and_undefined_usages(statement_location, condition);
-                self.graph[block].push(
+                let statement_index = self.graph[block].push(
                     Statement::CondJump(condition, positive_block, negative_block));
+                let statement_location = StatementLocation::new(block, statement_index);
+                self.record_phi_and_undefined_usages(statement_location, condition);
 
                 self.graph.add_edge(block, positive_block, ());
                 self.graph.add_edge(block, negative_block, ());
@@ -481,17 +481,12 @@ impl FrontEnd {
         } else {
             let ident = self.idgen.next_id();
             let basic_block = &mut self.graph[block];
-            let basic_block_len = basic_block.len();
-            let statement_index = match basic_block.last() {
-                Some(Statement::CondJump(_, _, _)) => basic_block_len - 1,
-                _ => basic_block_len,
-            };
-            let location = StatementLocation::new(block, statement_index);
-            basic_block.insert(statement_index, Statement::Definition {
+            let statement_index = basic_block.push(Statement::Definition {
                 ident,
                 value_index,
             });
             self.write_variable(&Variable::Value(value_index), block, ident);
+            let location = StatementLocation::new(block, statement_index);
             self.definitions.insert(ident, IdentDefinition { value_index, location });
             self.record_phi_and_undefined_usages(location, ident);
             if let Value::Phi(_) = &self.values[value_index] {

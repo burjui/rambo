@@ -145,6 +145,7 @@ fn process(path: String, options: &PipelineOptions) -> Result<(), Box<dyn Error>
     let stdout = &mut stdout();
     stdout.write_title("==>", &path, Color::Yellow)?;
     stdout.reset()?;
+    stdout.flush()?;
     let (elapsed, result) = measure_time(|| Pipeline::new(path, options)
         .map(Load)?
         .map(Parse)?

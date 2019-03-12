@@ -101,9 +101,8 @@ fn write_block(
     writeln!(output, "{} [", block_id)?;
     writeln_attribute(output, "shape", "box")?;
     writeln_node_xlabel_attribute(output, &block.index().to_string())?;
-    let statements = &**graph[block];
     let label_end = write_html_attribute_start(output, "label")?;
-    write_basic_block(output, statements, values)?;
+    write_basic_block(output, graph[block].iter(), values)?;
     label_end.write(output)?;
     writeln!(output, "\n]")
 }
@@ -112,12 +111,16 @@ fn write_edge(output: &mut impl io::Write, source_id: BlockId, target_id: BlockI
     writeln!(output, "{} -> {}", source_id, target_id)
 }
 
-fn write_basic_block(output: &mut impl io::Write, statements: &[Statement], values: &ValueStorage) -> io::Result<()> {
+fn write_basic_block<'a>(
+    output: &mut impl io::Write,
+    statements: impl IntoIterator<Item = &'a Statement>,
+    values: &ValueStorage) -> io::Result<()>
+{
     let table_end_tag = write_html_start_tag(output, "table", &[ ("border", "0"), ("cellspacing", "0"), ("cellpadding", "0")])?;
     let row_end_tag = write_html_start_tag(output, "tr", &[])?;
     let cell_end_tag = write_html_start_tag(output, "td", &[])?;
     let statements = statements
-        .iter()
+        .into_iter()
         .fold(Vec::new(), |mut statements, statement| {
             if let (Some(Statement::Comment(s1)), Statement::Comment(s2)) = (statements.last_mut(), statement) {
                 s1.push('\n');

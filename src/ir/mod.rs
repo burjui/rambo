@@ -11,6 +11,7 @@ use itertools::Itertools;
 use num_bigint::BigInt;
 use petgraph::graph::NodeIndex;
 use petgraph::stable_graph::StableDiGraph;
+use stable_vec::StableVec;
 
 use crate::ir::value_storage::ValueIndex;
 use crate::ir::value_storage::ValueStorage;
@@ -26,11 +27,24 @@ pub(crate) enum Variable {
     Binding(BindingRef),
 }
 
-pub(crate) struct BasicBlock(Vec<Statement>);
+pub(crate) struct BasicBlock(StableVec<Statement>);
 
 impl BasicBlock {
     pub(crate) fn new() -> Self {
-        Self(Vec::new())
+        Self(StableVec::new())
+    }
+
+    pub(crate) fn len(&self) -> usize {
+        self.0.num_elements()
+    }
+}
+
+impl IntoIterator for BasicBlock {
+    type Item = Statement;
+    type IntoIter = std::vec::IntoIter<Statement>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_vec().into_iter()
     }
 }
 
@@ -41,7 +55,7 @@ impl fmt::Debug for BasicBlock {
 }
 
 impl Deref for BasicBlock {
-    type Target = Vec<Statement>;
+    type Target = StableVec<Statement>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
