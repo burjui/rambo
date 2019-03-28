@@ -7,9 +7,7 @@ use std::io::Write;
 
 use elapsed::measure_time;
 use getopts::Options;
-use number_prefix::binary_prefix;
-use number_prefix::Result::Prefixed;
-use number_prefix::Result::Standalone;
+use number_prefix::NumberPrefix;
 use termcolor::Color;
 use termcolor::ColorSpec;
 use termcolor::WriteColor;
@@ -157,9 +155,9 @@ fn process(path: String, options: &PipelineOptions) -> Result<(), Box<dyn Error>
         .map(Evaluate)
         .map(|_| ()));
     println!("Execution time: {}", elapsed);
-    println!("Memory usage: {}", match binary_prefix(ALLOCATOR.max_usage() as f32) {
-        Standalone(usage) => format!("{} bytes", usage),
-        Prefixed(prefix, usage) =>  format!("{:.0} {}B", usage, prefix),
+    println!("Memory usage: {}", match NumberPrefix::binary(ALLOCATOR.max_usage() as f32) {
+        NumberPrefix::Standalone(usage) => format!("{} bytes", usage),
+        NumberPrefix::Prefixed(prefix, usage) =>  format!("{:.0} {}B", usage, prefix),
     });
     result
 }
