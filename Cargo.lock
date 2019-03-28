@@ -182,7 +182,7 @@ dependencies = [
  "number_prefix 0.2.8 (registry+https://github.com/rust-lang/crates.io-index)",
  "once_cell 0.1.8 (registry+https://github.com/rust-lang/crates.io-index)",
  "petgraph 0.4.13 (registry+https://github.com/rust-lang/crates.io-index)",
- "stable-vec 0.3.1 (git+https://github.com/burjui/stable-vec?rev=a4f6576e7638410035db9a7a9c25a5f28cc3d922)",
+ "stable-vec 0.3.1 (git+https://github.com/burjui/stable-vec?rev=c660fc50bfb6d553bd56d74032ef77573d8b2803)",
  "strum 0.13.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "strum_macros 0.13.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "termcolor 1.0.4 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -326,7 +326,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 [[package]]
 name = "stable-vec"
 version = "0.3.1"
-source = "git+https://github.com/burjui/stable-vec?rev=a4f6576e7638410035db9a7a9c25a5f28cc3d922#a4f6576e7638410035db9a7a9c25a5f28cc3d922"
+source = "git+https://github.com/burjui/stable-vec?rev=c660fc50bfb6d553bd56d74032ef77573d8b2803#c660fc50bfb6d553bd56d74032ef77573d8b2803"
 dependencies = [
  "bit-vec 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
@@ -457,7 +457,7 @@ dependencies = [
 "checksum semver 0.9.0 (registry+https://github.com/rust-lang/crates.io-index)" = "1d7eb9ef2c18661902cc47e535f9bc51b78acd254da71d375c2f6720d9a40403"
 "checksum semver-parser 0.7.0 (registry+https://github.com/rust-lang/crates.io-index)" = "388a1df253eca08550bef6c72392cfe7c30914bf41df5269b68cbd6ff8f570a3"
 "checksum smallvec 0.6.9 (registry+https://github.com/rust-lang/crates.io-index)" = "c4488ae950c49d403731982257768f48fada354a5203fe81f9bb6f43ca9002be"
-"checksum stable-vec 0.3.1 (git+https://github.com/burjui/stable-vec?rev=a4f6576e7638410035db9a7a9c25a5f28cc3d922)" = "<none>"
+"checksum stable-vec 0.3.1 (git+https://github.com/burjui/stable-vec?rev=c660fc50bfb6d553bd56d74032ef77573d8b2803)" = "<none>"
 "checksum strum 0.13.0 (registry+https://github.com/rust-lang/crates.io-index)" = "f6b3fc98c482ff9bb37a6db6a6491218c4c82bec368bd5682033e5b96b969143"
 "checksum strum_macros 0.13.0 (registry+https://github.com/rust-lang/crates.io-index)" = "6969d7021d96b53b12b774d4f412026f1debe7f168a0b8c59e93b4c1e850a05f"
 "checksum syn 0.15.27 (registry+https://github.com/rust-lang/crates.io-index)" = "525bd55255f03c816e5d7f615587bd13030c7103354fadb104993dcee6a788ec"
