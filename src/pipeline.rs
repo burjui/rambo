@@ -11,8 +11,6 @@ use termcolor::ColorSpec;
 use termcolor::StandardStream;
 use termcolor::WriteColor;
 
-use crate::eval::Evaluator;
-use crate::eval::Evalue;
 use crate::frontend::FrontEnd;
 use crate::graphviz::graphviz_dot_write;
 use crate::ir::ControlFlowGraph;
@@ -97,8 +95,7 @@ compiler_passes! {
     Parse,
     VerifySemantics,
     IR,
-    EvaluateIR,
-    Evaluate
+    EvaluateIR
 }
 
 pub(crate) trait CompilerPass<Input, Output> {
@@ -253,20 +250,6 @@ impl CompilerPass<(ExprRef, ControlFlowGraph), ExprRef> for EvaluateIR {
             writeln!(&mut stdout(), "{:?}", value)?;
         }
         Ok(input.0)
-    }
-}
-
-impl CompilerPass<ExprRef, Evalue> for Evaluate {
-    const NAME: &'static str = "eval";
-    const TITLE: &'static str = "Evaluating HIR";
-
-    fn apply(hir: ExprRef, options: &PipelineOptions) -> Result<Evalue, Box<dyn Error>> {
-        let mut evaluator = Evaluator::new();
-        let value = evaluator.eval(&hir)?;
-        if options.print_passes {
-            writeln!(&mut stdout(), "{:?}", value)?;
-        }
-        Ok(value)
     }
 }
 

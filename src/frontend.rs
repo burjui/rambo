@@ -161,10 +161,10 @@ impl FrontEnd {
     // TODO make block the first argument everywhere
     fn process_expr(&mut self, expr: &ExprRef, block: NodeIndex) -> (NodeIndex, VarId) {
         match &**expr {
-            TypedExpr::Block(block_data) => {
+            TypedExpr::Block(statements, _) => {
                 let mut current_block = block;
                 let mut current_ident = None;
-                for statement in &block_data.statements {
+                for statement in statements {
                     let (block, ident) = self.process_statement(statement, current_block);
                     current_block = block;
                     current_ident = Some(ident);
