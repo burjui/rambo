@@ -219,10 +219,7 @@ impl SemanticsChecker {
                 let statements = statements.iter()
                     .map(|statement| self.check_statement(statement))
                     .collect::<CheckResult<Vec<_>>>()?;
-                Ok(self.new_expr(TypedExpr::Block(Block {
-                    statements,
-                    source: source.clone()
-                })))
+                Ok(self.new_expr(TypedExpr::Block(statements, source.clone())))
             }
         }
     }
@@ -267,10 +264,7 @@ impl SemanticsChecker {
             if let TypedStatement::Binding(_) = statements.last().unwrap() {
                 statements.push(TypedStatement::Expr(self.new_expr(TypedExpr::Unit(source.clone()))));
             }
-            TypedExpr::Block(Block {
-                statements,
-                source
-            })
+            TypedExpr::Block(statements, source)
         };
         Ok(expr)
     }
@@ -354,17 +348,6 @@ impl Debug for Lambda {
     }
 }
 
-pub(crate) struct Block {
-    pub(crate) statements: Vec<TypedStatement>,
-    pub(crate) source: Source // TODO make it part of TypedExpr
-}
-
-impl Debug for Block {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(formatter, "{{\n{:?}\n}}", self.statements.iter().format("\n"))
-    }
-}
-
 pub(crate) enum TypedExpr {
     ArgumentPlaceholder(Rc<String>, Type),
     Unit(Source),
@@ -392,7 +375,7 @@ pub(crate) enum TypedExpr {
         type_: Type,
         source: Source
     },
-    Block(Block)
+    Block(Vec<TypedStatement>, Source)
 }
 
 impl Debug for TypedExpr {
@@ -413,7 +396,7 @@ impl Debug for TypedExpr {
             TypedExpr::Application { function, arguments, .. } => write!(formatter, "({:?} @ {:?})", function, arguments),
             TypedExpr::Conditional { condition, positive, negative, .. } =>
                 write!(formatter, "(if ({:?}) {:?} else {:?})", condition, positive, negative),
-            TypedExpr::Block(block) => block.fmt(formatter)
+            TypedExpr::Block(statements, _) => write!(formatter, "{{\n{:?}\n}}", statements.iter().format("\n")),
         }
     }
 }
@@ -438,7 +421,10 @@ impl TypedExpr {
             TypedExpr::Lambda(lambda, _) => Type::Function(lambda.type_.clone()),
             TypedExpr::Application { type_, .. } => type_.clone(),
             TypedExpr::Conditional { type_, .. } => type_.clone(),
-            TypedExpr::Block(Block { statements, .. }) => statements.last().map(TypedStatement::type_).unwrap_or_else(|| Type::Unit)
+
+            TypedExpr::Block(statements, _) => statements.last()
+                .map(TypedStatement::type_)
+                .unwrap_or_else(|| Type::Unit)
         }
     }
 }

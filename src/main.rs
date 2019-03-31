@@ -13,7 +13,6 @@ use termcolor::ColorSpec;
 use termcolor::WriteColor;
 
 use crate::pipeline::COMPILER_PASS_NAMES;
-use crate::pipeline::Evaluate;
 use crate::pipeline::EvaluateIR;
 use crate::pipeline::IR;
 use crate::pipeline::Load;
@@ -40,7 +39,6 @@ mod ir;
 mod source;
 mod lexer;
 mod parser;
-mod eval;
 mod semantics;
 mod env;
 mod pipeline;
@@ -151,8 +149,7 @@ fn process(path: String, options: &PipelineOptions) -> Result<(), Box<dyn Error>
         .map(Parse)?
         .map(VerifySemantics)?
         .map(IR)?
-        .map(EvaluateIR)?
-        .map(Evaluate)
+        .map(EvaluateIR)
         .map(|_| ()));
     println!("Execution time: {}", elapsed);
     println!("Memory usage: {}", match NumberPrefix::binary(ALLOCATOR.max_usage() as f32) {
