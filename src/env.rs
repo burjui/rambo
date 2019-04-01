@@ -4,21 +4,25 @@ use std::fmt::Debug;
 use std::hash::Hash;
 
 pub(crate) struct Environment<Key, Value> {
-    scopes: Vec<HashMap<Key, Value>>
+    scopes: Vec<HashMap<Key, Value>>,
+    current_scope_count: usize,
 }
 
 impl<Key, Value> Environment<Key, Value>
 where Key: Eq + Debug + Hash + Clone, Value: Debug {
     pub(crate) fn new() -> Environment<Key, Value> {
-        Environment { scopes: vec![HashMap::new()] }
+        Environment {
+            scopes: Vec::new(),
+            current_scope_count: 0,
+        }
     }
 
     pub(crate) fn bind(&mut self, key: Key, value: Value) {
-        self.scopes.last_mut().unwrap().insert(key, value);
+        self.scopes[self.current_scope_count - 1].insert(key, value);
     }
 
     pub(crate) fn resolve(&self, key: &Key) -> Result<&Value, String> {
-        for scope in self.scopes.iter().rev() {
+        for scope in self.scopes[0 .. self.current_scope_count].iter().rev() {
             if let Some(value) = scope.get(key) {
                 return Ok(value);
             }
@@ -27,10 +31,15 @@ where Key: Eq + Debug + Hash + Clone, Value: Debug {
     }
 
     pub(crate) fn push(&mut self) {
-        self.scopes.push(HashMap::new());
+        if self.current_scope_count == self.scopes.len() {
+            self.scopes.push(HashMap::new());
+        }
+        self.current_scope_count += 1;
     }
 
     pub(crate) fn pop(&mut self) {
-        self.scopes.pop();
+        debug_assert_ne!(self.current_scope_count, 0);
+        self.scopes[self.current_scope_count - 1].clear();
+        self.current_scope_count -= 1;
     }
 }
