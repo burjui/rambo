@@ -13,13 +13,14 @@ use petgraph::graph::NodeIndex;
 use petgraph::prelude::Direction::Outgoing;
 use petgraph::visit::EdgeRef;
 
-use crate::ir::ControlFlowGraph;
+use crate::ir::{ControlFlowGraph, FunctionMap};
 use crate::ir::Statement;
 use crate::ir::Value;
 use crate::ir::VarId;
 
 pub(crate) struct EvalContext<'a> {
     cfg: &'a ControlFlowGraph,
+    functions: &'a FunctionMap,
     env: EvalEnv,
     stack: Vec<Value>,
     timestamp: usize,
@@ -27,9 +28,10 @@ pub(crate) struct EvalContext<'a> {
 }
 
 impl<'a> EvalContext<'a> {
-    pub(crate) fn new(cfg: &'a ControlFlowGraph) -> Self {
+    pub(crate) fn new(cfg: &'a ControlFlowGraph, functions: &'a FunctionMap) -> Self {
         Self {
             cfg,
+            functions,
             env: EvalEnv::new(),
             stack: Vec::new(),
             timestamp: 0,
@@ -121,11 +123,12 @@ impl<'a> EvalContext<'a> {
 
             Value::Call(function, arguments) => {
                 let value = &self.runtime_value(function).value;
-                let function_cfg = match value {
-                    Value::Function(_, cfg) => &**cfg,
+                let fn_id = match value {
+                    Value::Function(fn_id) => fn_id,
                     _ => unreachable!("`{}' is not a function: {:?}", function, value),
                 };
-                let mut function_context = EvalContext::new(function_cfg);
+                let function_cfg = &self.functions[fn_id];
+                let mut function_context = EvalContext::new(function_cfg, &self.cfg.functions);
                 for argument in arguments.iter() {
                     let runtime_value = self.env[argument].clone();
                     let value = runtime_value.value.clone();
