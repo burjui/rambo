@@ -42,7 +42,7 @@ impl SemanticsChecker {
             Statement::Binding { name, value, source } => {
                 let name = Rc::new(name.text().to_owned());
                 let value = self.check_expr(&value)?;
-                let binding = BindingRef::from(Binding::new(name.clone(), value, source.clone(), BindingKind::Let));
+                let binding = BindingRef::from(Binding::new(name.clone(), value, source.clone()));
                 self.env.bind(name, binding.clone());
                 Ok(TypedStatement::Binding(binding))
             }
@@ -228,10 +228,10 @@ impl SemanticsChecker {
         let outer_env = replace(&mut self.env, Environment::new());
         self.env.push();
         let mut parameter_bindings = vec![];
-        for (index, parameter) in parameters.iter().enumerate() {
+        for parameter in parameters {
             let name = Rc::new(parameter.name.text().to_owned());
             let value = self.new_expr(TypedExpr::ArgumentPlaceholder(name.clone(), parameter.type_.clone()));
-            let binding = BindingRef::from(Binding::new(name.clone(), value, parameter.source.clone(), BindingKind::Arg(index)));
+            let binding = BindingRef::from(Binding::new(name.clone(), value, parameter.source.clone()));
             self.env.bind(name.clone(), binding.clone());
             parameter_bindings.push(binding);
         }
@@ -433,18 +433,15 @@ impl TypedExpr {
 pub(crate) type LambdaRef = UniqueRc<Lambda>;
 pub(crate) type BindingRef = UniqueRc<Binding>;
 
-pub(crate) enum BindingKind { Let, Arg(usize) }
-
 pub(crate) struct Binding {
     pub(crate) name: Rc<String>,
     pub(crate) data: ExprRef,
     pub(crate) source: Source,
-    pub(crate) kind: BindingKind
 }
 
 impl Binding {
-    pub(crate) fn new(name: Rc<String>, data: ExprRef, source: Source, kind: BindingKind) -> Binding {
-        Binding { name, data, source, kind }
+    pub(crate) fn new(name: Rc<String>, data: ExprRef, source: Source) -> Binding {
+        Binding { name, data, source }
     }
 }
 

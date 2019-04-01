@@ -18,6 +18,7 @@ impl Deref for Reused {
     }
 }
 
+#[derive(Clone)]
 pub(crate) struct ValueStorage {
     by_value: HashMap<Value, ValueIndex>,
     by_index: StableVec<Value>,
@@ -46,7 +47,11 @@ impl ValueStorage {
         self.by_index.iter()
     }
 
-    pub(crate) fn retain(&mut self, predicate: impl Fn(ValueIndex) -> bool) {
+    pub(crate) fn indices(&self) -> impl Iterator<Item = &ValueIndex> {
+        self.by_value.values()
+    }
+
+    pub(crate) fn retain(&mut self, mut predicate: impl FnMut(ValueIndex) -> bool) {
         self.by_value.retain(|_, index| predicate(*index));
         self.by_index.retain_indices(|index| predicate(ValueIndex(index)));
     }

@@ -1,3 +1,4 @@
+use core::borrow::Borrow;
 use std::error::Error;
 use std::ffi::OsStr;
 use std::fs::File;
@@ -180,7 +181,7 @@ impl CompilerPass<(ExprRef, SourceFileRef), (ExprRef, ControlFlowGraph)> for IR 
         let cfg = frontend.build(&hir);
         let mut stdout = stdout();
         if options.print_passes {
-            writeln!(&mut stdout, "{} statements", cfg_statements_count(&cfg))?;
+            writeln!(&mut stdout, "{} statements", cfg_statements_count(&cfg.borrow()))?;
         }
         if options.dump_intermediate {
             dump_cfg(&cfg, &cfg.name, &mut stdout)?;
@@ -202,13 +203,13 @@ fn cfg_statements_count(cfg: &ControlFlowGraph) -> usize {
     let functions = cfg.values
         .iter()
         .filter_map(|value| match value {
-            Value::Function(_, cfg) => Some(&**cfg),
+            Value::Function(fn_id) => Some(&cfg.functions[fn_id]),
             _ => None,
         });
     cfg.graph
         .node_indices()
         .map(|block| cfg.graph[block].len())
-        .chain(functions.map(cfg_statements_count))
+        .chain(functions.map(|function_cfg| cfg_statements_count(&function_cfg.borrow())))
         .sum()
 }
 
@@ -225,7 +226,7 @@ fn dump_cfg(cfg: &ControlFlowGraph, name: &str, stdout: &mut StandardStream) -> 
     let functions = cfg.values
         .iter()
         .filter_map(|value| match value {
-            Value::Function(id, cfg) => Some((id, cfg)),
+            Value::Function(fn_id) => Some((fn_id, &cfg.functions[fn_id])),
             _ => None,
         })
         .collect_vec();
@@ -245,7 +246,8 @@ impl CompilerPass<(ExprRef, ControlFlowGraph), ExprRef> for EvaluateIR {
     const TITLE: &'static str = "Evaluating IR";
 
     fn apply(input: (ExprRef, ControlFlowGraph), options: &PipelineOptions) -> Result<ExprRef, Box<dyn Error>> {
-        let value = EvalContext::new(&input.1).eval();
+        let cfg = &input.1;
+        let value = EvalContext::new(cfg, &cfg.functions).eval();
         if options.print_passes {
             writeln!(&mut stdout(), "{:?}", value)?;
         }

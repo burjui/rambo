@@ -27,7 +27,7 @@ use petgraph::visit::EdgeRef;
 
 use crate::frontend::dead_code::remove_dead_code;
 #[cfg(test)] use crate::graphviz::graphviz_dot_write;
-use crate::ir::BasicBlock;
+use crate::ir::{BasicBlock, FunctionMap};
 use crate::ir::BasicBlockGraph;
 use crate::ir::ControlFlowGraph;
 use crate::ir::FnId;
@@ -40,13 +40,11 @@ use crate::ir::value_storage::ValueIndex;
 use crate::ir::value_storage::ValueStorage;
 use crate::ir::Variable;
 use crate::ir::VarId;
-use crate::semantics::BindingKind;
 use crate::semantics::BindingRef;
 use crate::semantics::ExprRef;
 use crate::semantics::TypedExpr;
 use crate::semantics::TypedStatement;
 use crate::source::Source;
-use crate::unique_rc::UniqueRc;
 #[cfg(test)] use crate::utils::TestResult;
 
 mod dead_code;
@@ -63,6 +61,7 @@ pub(crate) struct FrontEnd {
     variables: HashMap<Variable, HashMap<NodeIndex, VarId>>,
     variables_read: HashSet<Variable>,
     values: ValueStorage,
+    functions: FunctionMap,
     definitions: HashMap<VarId, IdentDefinition>,
     sealed_blocks: HashSet<NodeIndex>,
     incomplete_phis: HashMap<NodeIndex, HashMap<Variable, VarId>>,
@@ -86,6 +85,7 @@ impl FrontEnd {
             variables: HashMap::new(),
             variables_read: HashSet::new(),
             values: ValueStorage::new(),
+            functions: HashMap::new(),
             definitions: HashMap::new(),
             sealed_blocks: HashSet::new(),
             incomplete_phis: HashMap::new(),
@@ -120,7 +120,7 @@ impl FrontEnd {
     }
 
     pub(crate) fn build(mut self, code: &ExprRef) -> ControlFlowGraph {
-        let (exit_block, program_result) = self.process_expr(code, self.entry_block);
+        let (exit_block, mut program_result) = self.process_expr(code, self.entry_block);
         self.push_return(exit_block, program_result);
         self.assert_no_undefined_variables();
 
@@ -139,15 +139,18 @@ impl FrontEnd {
         }
 
         if self.enable_dce {
-            remove_dead_code(
-                self.entry_block, program_result, &mut self.values, &mut self.graph, self.definitions);
+            remove_dead_code(self.entry_block, &mut program_result, &mut self.values,
+                             &mut self.graph, &mut self.definitions, &mut self.functions);
         }
 
         ControlFlowGraph {
             name: self.name,
             graph: self.graph,
             entry_block: self.entry_block,
+            definitions: self.definitions,
             values: self.values,
+            functions: self.functions,
+            result: program_result,
         }
     }
 
@@ -250,24 +253,19 @@ impl FrontEnd {
             }
 
             TypedExpr::Lambda(lambda, source) => {
-                let function_id = self.function_idgen.next_id();
                 let mut function = FrontEnd::new(source.text())
                     .enable_warnings(self.enable_warnings)
                     .include_comments(self.include_comments)
                     .enable_cfp(self.enable_cfp)
                     .enable_dce(self.enable_dce);
-                for parameter in &lambda.parameters {
+                for (index, parameter) in lambda.parameters.iter().enumerate() {
                     function.comment(function.entry_block, &parameter.name);
-                    let index = if let BindingKind::Arg(index) = parameter.kind {
-                        index
-                    } else {
-                        unreachable!()
-                    };
                     let declaration = function.define(function.entry_block, Value::Arg(index));
                     function.write_variable(&Variable::Binding(parameter.clone()), function.entry_block, declaration);
                 }
-                let function_cfg = UniqueRc::from(function.build(&lambda.body));
-                (block, self.define(block, Value::Function(function_id, function_cfg)))
+                let fn_id = self.function_idgen.next_id();
+                self.functions.insert(fn_id, function.build(&lambda.body));
+                (block, self.define(block, Value::Function(fn_id)))
             }
 
             TypedExpr::Application { function, arguments, source, .. } => {
@@ -280,7 +278,7 @@ impl FrontEnd {
                     argument_idents.push(ident);
                     current_block = block;
                 }
-                (block, self.define(current_block, Value::Call(function_ident, argument_idents)))
+                (block, self.define(block, Value::Call(function_ident, argument_idents)))
             }
 
             _ => unimplemented!("process_expr: {:?}", expr)
@@ -472,7 +470,7 @@ impl FrontEnd {
             self.read_variable(&variable, block)
         } else {
             if self.enable_cfp {
-                self.fold_constants(block, value_index);
+                fold_constants(block, &self.definitions, &mut self.values, &self.functions, value_index);
             }
             VarId::UNDEFINED
         };
@@ -500,88 +498,6 @@ impl FrontEnd {
         let mut operands = operands.to_vec();
         operands.sort();
         self.define(block, Value::Phi(Phi(operands)))
-    }
-
-    fn fold_binary(
-        &mut self, block: NodeIndex,
-        left: VarId, right: VarId,
-        fold: impl FnOnce((VarId, &Value), (VarId, &Value)) -> Option<Value>) -> Option<Value>
-    {
-        let left_value_index = self.definitions[&left].value_index;
-        let right_value_index = self.definitions[&right].value_index;
-        self.fold_constants(block, left_value_index);
-        self.fold_constants(block, right_value_index);
-        fold((left, &self.values[left_value_index]), (right, &self.values[right_value_index]))
-    }
-
-    fn fold_constants(&mut self, block: NodeIndex, value_index: ValueIndex) {
-        let folded = match &self.values[value_index] {
-            Value::Unit |
-            Value::Int(_) |
-            Value::String(_) |
-            Value::Function(_, _) => None,
-
-            Value::AddInt(left, right) => self.fold_binary(block, *left, *right, |(_, left_value), (_, right_value)| {
-                match (left_value, right_value) {
-                    (Value::Int(left), Value::Int(right)) => Some(Value::Int(left + right)),
-                    (Value::Int(left), _) if left.is_zero() => Some(right_value.clone()),
-                    (_, Value::Int(right)) if right.is_zero() => Some(left_value.clone()),
-                    _ => None,
-                }
-            }),
-
-            Value::SubInt(left, right) => self.fold_binary(block, *left, *right, |(left, left_value), (right, right_value)| {
-                if left == right {
-                    Some(Value::Int(BigInt::from(0)))
-                } else {
-                    match (left_value, right_value) {
-                        (Value::Int(left), Value::Int(right)) => Some(Value::Int(left - right)),
-                        (_, Value::Int(right)) if right.is_zero() => Some(left_value.clone()),
-                        _ => None,
-                    }
-                }
-            }),
-
-            Value::MulInt(left, right) => self.fold_binary(block, *left, *right, |(_, left_value), (_, right_value)| {
-                match (left_value, right_value) {
-                    (Value::Int(left), Value::Int(right)) => Some(Value::Int(left * right)),
-                    (Value::Int(left), _) if left.is_zero() => Some(Value::Int(BigInt::from(0))),
-                    (_, Value::Int(right)) if right.is_zero() => Some(Value::Int(BigInt::from(0))),
-                    (Value::Int(left), _) if left.is_one() => Some(right_value.clone()),
-                    (_, Value::Int(right)) if right.is_one() => Some(left_value.clone()),
-                    _ => None,
-                }
-            }),
-
-            Value::DivInt(left, right) => self.fold_binary(block, *left, *right, |(_, left_value), (_, right_value)| {
-                match (left_value, right_value) {
-                    (Value::Int(left), Value::Int(right)) => Some(Value::Int(left / right)),
-                    (Value::Int(left), _) if left.is_zero() => Some(Value::Int(BigInt::from(0))),
-                    (_, Value::Int(right)) if right.is_one() => Some(left_value.clone()),
-                    _ => None,
-                }
-            }),
-
-            Value::AddString(left, right) => self.fold_binary(block, *left, *right, |(_, left_value), (_, right_value)| {
-                match (left_value, right_value) {
-                    (Value::String(left), Value::String(right)) => {
-                        let mut result = String::with_capacity(left.len() + right.len());
-                        result.push_str(&left);
-                        result.push_str(&right);
-                        Some(Value::String(Rc::new(result)))
-                    },
-                    _ => None,
-                }
-            }),
-
-            // TODO CFP for functions
-            Value::Call(_function, _arguments) => None,
-
-            Value::Phi(_) | Value::Arg(_) => None,
-        };
-        if let Some(value) = folded {
-            self.values[value_index] = value;
-        }
     }
 
     fn push_return(&mut self, block: NodeIndex, ident: VarId) {
@@ -675,6 +591,138 @@ fn warn_about_redundant_bindings(redundant_bindings: impl Iterator<Item = Bindin
     for binding in redundant_bindings {
         warning_at!(binding.source, "unused definition: {}", binding.source.text());
     }
+}
+
+fn fold_constants(
+    block: NodeIndex,
+    definitions: &HashMap<VarId, IdentDefinition>,
+    values: &mut ValueStorage,
+    functions: &FunctionMap,
+    value_index: ValueIndex)
+{
+    let folded = match &values[value_index] {
+        Value::Unit |
+        Value::Int(_) |
+        Value::String(_) |
+        Value::Function(_) => None,
+
+        Value::AddInt(left, right) => fold_binary(block, definitions, values, functions, *left, *right, |(_, left_value), (_, right_value)| {
+            match (left_value, right_value) {
+                (Value::Int(left), Value::Int(right)) => Some(Value::Int(left + right)),
+                (Value::Int(left), _) if left.is_zero() => Some(right_value.clone()),
+                (_, Value::Int(right)) if right.is_zero() => Some(left_value.clone()),
+                _ => None,
+            }
+        }),
+
+        Value::SubInt(left, right) => fold_binary(block, definitions, values, functions, *left, *right, |(left, left_value), (right, right_value)| {
+            if left == right {
+                Some(Value::Int(BigInt::from(0)))
+            } else {
+                match (left_value, right_value) {
+                    (Value::Int(left), Value::Int(right)) => Some(Value::Int(left - right)),
+                    (_, Value::Int(right)) if right.is_zero() => Some(left_value.clone()),
+                    _ => None,
+                }
+            }
+        }),
+
+        Value::MulInt(left, right) => fold_binary(block, definitions, values, functions, *left, *right, |(_, left_value), (_, right_value)| {
+            match (left_value, right_value) {
+                (Value::Int(left), Value::Int(right)) => Some(Value::Int(left * right)),
+                (Value::Int(left), _) if left.is_zero() => Some(Value::Int(BigInt::from(0))),
+                (_, Value::Int(right)) if right.is_zero() => Some(Value::Int(BigInt::from(0))),
+                (Value::Int(left), _) if left.is_one() => Some(right_value.clone()),
+                (_, Value::Int(right)) if right.is_one() => Some(left_value.clone()),
+                _ => None,
+            }
+        }),
+
+        Value::DivInt(left, right) => fold_binary(block, definitions, values, functions, *left, *right, |(_, left_value), (_, right_value)| {
+            match (left_value, right_value) {
+                (Value::Int(left), Value::Int(right)) => Some(Value::Int(left / right)),
+                (Value::Int(left), _) if left.is_zero() => Some(Value::Int(BigInt::from(0))),
+                (_, Value::Int(right)) if right.is_one() => Some(left_value.clone()),
+                _ => None,
+            }
+        }),
+
+        Value::AddString(left, right) => fold_binary(block, definitions, values, functions, *left, *right, |(_, left_value), (_, right_value)| {
+            match (left_value, right_value) {
+                (Value::String(left), Value::String(right)) => {
+                    let mut result = String::with_capacity(left.len() + right.len());
+                    result.push_str(&left);
+                    result.push_str(&right);
+                    Some(Value::String(Rc::new(result)))
+                },
+                _ => None,
+            }
+        }),
+
+        Value::Call(function, arguments) =>
+            fold_call(*function, arguments.to_vec(), values, definitions, functions),
+
+        Value::Phi(_) |
+        Value::Arg(_) => None,
+    };
+    if let Some(value) = folded {
+        values[value_index] = value;
+    }
+}
+
+fn fold_binary(
+    block: NodeIndex,
+    definitions: &HashMap<VarId, IdentDefinition>,
+    values: &mut ValueStorage,
+    functions: &FunctionMap,
+    left: VarId, right: VarId,
+    fold: impl FnOnce((VarId, &Value), (VarId, &Value)) -> Option<Value>) -> Option<Value>
+{
+    let left_value_index = definitions[&left].value_index;
+    let right_value_index = definitions[&right].value_index;
+    fold_constants(block, definitions, values, functions, left_value_index);
+    fold_constants(block, definitions, values, functions, right_value_index);
+    fold((left, &values[left_value_index]), (right, &values[right_value_index]))
+}
+
+fn fold_call(
+    function: VarId,
+    arguments: Vec<VarId>,
+    values: &mut ValueStorage,
+    definitions: &HashMap<VarId, IdentDefinition>,
+    functions: &FunctionMap) -> Option<Value>
+{
+    let arguments_are_constant = arguments
+        .iter()
+        .all(|argument| values[definitions[argument].value_index].is_constant());
+    if arguments_are_constant {
+        let mut function_cfg = match &values[definitions[&function].value_index] {
+            Value::Function(fn_id) => functions[fn_id].clone(),
+            _ => unreachable!(),
+        };
+        // FIXME probably should store argument ids somewhere, instead of collecting them like that
+        let parameter_ids = function_cfg.definitions
+            .values()
+            .filter_map(|definition| match function_cfg.values[definition.value_index] {
+                Value::Arg(index) => Some((definition.value_index, index)),
+                _ => None,
+            })
+            .collect_vec();
+        for (parameter_value_index, argument_index) in parameter_ids {
+            function_cfg.values[parameter_value_index] =
+                values[definitions[&arguments[argument_index]].value_index].clone();
+        }
+
+        let result_definition = function_cfg.definitions[&function_cfg.result];
+        let result_block = result_definition.location.block;
+        fold_constants(result_block, &function_cfg.definitions,
+                       &mut function_cfg.values, functions, result_definition.value_index);
+        let result_value = &function_cfg.values[result_definition.value_index];
+        if result_value.is_constant() {
+            return Some(result_value.clone())
+        }
+    }
+    None
 }
 
 fn get_statement_ident_operands<'a>(values: &'a ValueStorage, statement: &'a Statement) -> Box<dyn Iterator<Item = VarId> + 'a> {
@@ -834,7 +882,7 @@ macro_rules! test_frontend {
 macro_rules! test_frontend_eval {
     ($name: ident, $code: expr, $expected_result: expr) => {
         test_frontend!{ $name, $code, |cfg| {
-            let value = crate::ir::eval::EvalContext::new(&cfg).eval();
+            let value = crate::ir::eval::EvalContext::new(&cfg, &cfg.functions).eval();
             assert_eq!(value, $expected_result);
         }}
     }
@@ -933,7 +981,6 @@ test_frontend_eval!{
     ",
     Value::Int(BigInt::from(10))
 }
-
 
 test_frontend!{
     conditional_cfp,

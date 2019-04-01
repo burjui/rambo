@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fmt;
 use std::hash::Hash;
 use std::hash::Hasher;
@@ -13,10 +14,10 @@ use petgraph::graph::NodeIndex;
 use petgraph::stable_graph::StableDiGraph;
 use stable_vec::StableVec;
 
+use crate::frontend::IdentDefinition;
 use crate::ir::value_storage::ValueIndex;
 use crate::ir::value_storage::ValueStorage;
 use crate::semantics::BindingRef;
-use crate::unique_rc::UniqueRc;
 
 pub(crate) mod eval;
 pub(crate) mod value_storage;
@@ -27,6 +28,7 @@ pub(crate) enum Variable {
     Binding(BindingRef),
 }
 
+#[derive(Clone)]
 pub(crate) struct BasicBlock(StableVec<Statement>);
 
 impl BasicBlock {
@@ -68,6 +70,7 @@ impl DerefMut for BasicBlock {
     }
 }
 
+#[derive(Clone)]
 pub(crate) struct BasicBlockGraph(StableDiGraph<BasicBlock, ()>);
 
 impl BasicBlockGraph {
@@ -90,11 +93,17 @@ impl DerefMut for BasicBlockGraph {
     }
 }
 
+pub(crate) type FunctionMap = HashMap<FnId, ControlFlowGraph>;
+
+#[derive(Clone)]
 pub(crate) struct ControlFlowGraph {
     pub(crate) name: String,
     pub(crate) graph: BasicBlockGraph,
     pub(crate) entry_block: NodeIndex,
+    pub(crate) definitions: HashMap<VarId, IdentDefinition>,
     pub(crate) values: ValueStorage,
+    pub(crate) functions: FunctionMap,
+    pub(crate) result: VarId,
 }
 
 pub(crate) trait Ident: Sized + Copy {
@@ -228,7 +237,7 @@ pub(crate) enum Value {
     Unit,
     Int(BigInt),
     String(Rc<String>),
-    Function(FnId, UniqueRc<ControlFlowGraph>),
+    Function(FnId),
     AddInt(VarId, VarId),
     SubInt(VarId, VarId),
     MulInt(VarId, VarId),
@@ -241,7 +250,7 @@ pub(crate) enum Value {
 
 impl Value {
     pub(crate) fn is_constant(&self) -> bool {
-        matches!(self, Value::Unit, Value::Int(_), Value::String(_), Value::Function(_, _))
+        matches!(self, Value::Unit, Value::Int(_), Value::String(_), Value::Function(_))
     }
 }
 
@@ -251,7 +260,7 @@ impl fmt::Debug for Value {
             Value::Unit => f.write_str("()"),
             Value::Int(n) => write!(f, "{}", n),
             Value::String(s) => write!(f, "\"{}\"", s),
-            Value::Function(id, _) => write!(f, "{}", id),
+            Value::Function(id) => write!(f, "{}", id),
             Value::AddInt(left, right) => write!(f, "{} + {}", left, right),
             Value::SubInt(left, right) => write!(f, "{} - {}", left, right),
             Value::MulInt(left, right) => write!(f, "{} * {}", left, right),

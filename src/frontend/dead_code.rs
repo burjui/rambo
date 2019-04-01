@@ -14,28 +14,30 @@ use crate::frontend::get_statement_ident_operands;
 use crate::frontend::get_statement_idents_mut;
 use crate::frontend::IdentDefinition;
 use crate::frontend::StatementLocation;
-use crate::ir::BasicBlock;
+use crate::ir::{BasicBlock, FunctionMap};
 use crate::ir::BasicBlockGraph;
 use crate::ir::IdentGenerator;
 use crate::ir::Statement;
+use crate::ir::Value;
 use crate::ir::value_storage::ValueIndex;
 use crate::ir::value_storage::ValueStorage;
 use crate::ir::VarId;
 
 pub(crate) fn remove_dead_code(
     entry_block: NodeIndex,
-    mut program_result: VarId,
+    program_result: &mut VarId,
     values: &mut ValueStorage,
     graph: &mut BasicBlockGraph,
-    mut definitions: HashMap<VarId, IdentDefinition>)
+    definitions: &mut HashMap<VarId, IdentDefinition>,
+    functions: &mut FunctionMap)
 {
-    let mut ident_usage = compute_ident_usage(program_result, values, graph, &mut definitions);
-    remove_unused_definitions(&mut ident_usage, values, graph, &mut definitions);
+    let mut ident_usage = compute_ident_usage(*program_result, values, graph, definitions);
+    remove_unused_definitions(&mut ident_usage, values, graph, definitions);
     remove_empty_blocks(graph);
-    merge_consecutive_basic_blocks(entry_block, values, graph, &mut ident_usage, &mut definitions);
-    remove_unused_definitions(&mut ident_usage, values, graph, &mut definitions);
-    rename_idents(values, graph, &mut definitions, &mut program_result, &mut ident_usage);
-    remove_unused_values(&definitions, values);
+    merge_consecutive_basic_blocks(entry_block, values, graph, &mut ident_usage, definitions);
+    remove_unused_definitions(&mut ident_usage, values, graph, definitions);
+    rename_idents(values, graph, definitions, program_result, &mut ident_usage);
+    remove_unused_values(&definitions, values, functions);
 }
 
 fn compute_ident_usage(
@@ -227,11 +229,22 @@ fn merge_consecutive_basic_blocks(
     }
 }
 
-fn remove_unused_values(definitions: &HashMap<VarId, IdentDefinition>, values: &mut ValueStorage) {
+fn remove_unused_values(
+    definitions: &HashMap<VarId, IdentDefinition>,
+    values: &mut ValueStorage,
+    functions: &mut FunctionMap)
+{
     let values_used: HashSet<ValueIndex> = definitions
         .values()
         .map(|definition| definition.value_index)
         .collect();
+    for value_index in values.indices() {
+        if !values_used.contains(value_index) {
+            if let Value::Function(fn_id) = &values[*value_index] {
+                functions.remove(fn_id);
+            }
+        }
+    }
     values.retain(|value_index| values_used.contains(&value_index));
 }
 

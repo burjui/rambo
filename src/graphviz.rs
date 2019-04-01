@@ -62,7 +62,7 @@ fn write_cfg(
     let functions = cfg.values
         .iter()
         .filter_map(|value| match value {
-            Value::Function(id, cfg) => Some((*id, cfg)),
+            Value::Function(fn_id) => Some((*fn_id, &cfg.functions[fn_id])),
             _ => None,
         });
     for (id, cfg) in functions {
@@ -189,9 +189,9 @@ fn write_value(output: &mut impl io::Write, value: &Value) -> io::Result<()> {
         Value::Unit => write_with_font_color(output, CONSTANT_COLOR, "()"),
         Value::Int(n) => write_with_font_color(output, CONSTANT_COLOR, &n.to_string()),
         Value::String(s) => write_with_font_color(output, CONSTANT_COLOR, &format!("\"{}\"", s)),
-        Value::Function(function_id, _) => {
+        Value::Function(fn_id) => {
             let font_color_end = write_font_color_start(output, LAMBDA_COLOR)?;
-            write_ident(output, *function_id)?;
+            write_ident(output, *fn_id)?;
             font_color_end.write(output)
         },
         Value::AddInt(left, right) => write_binary(output, "+", *left, *right),
