@@ -226,6 +226,7 @@ impl SemanticsChecker {
 
     fn check_function(&mut self, parameters: &[Parameter], body: &Expr) -> CheckResult<Lambda> {
         let outer_env = replace(&mut self.env, Environment::new());
+        self.env.push();
         let mut parameter_bindings = vec![];
         for (index, parameter) in parameters.iter().enumerate() {
             let name = Rc::new(parameter.name.text().to_owned());
@@ -235,7 +236,7 @@ impl SemanticsChecker {
             parameter_bindings.push(binding);
         }
         let body = self.check_expr(body)?;
-        self.env = outer_env;
+        self.env = outer_env; // no need for self.env.pop()
 
         let function_type = Rc::new(FunctionType {
             parameters: parameters.to_vec(),
