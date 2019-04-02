@@ -20,7 +20,7 @@ impl Deref for Reused {
 
 #[derive(Clone)]
 pub(crate) struct ValueStorage {
-    by_value: HashMap<Value, ValueIndex>,
+    by_value: HashMap<Value, ValueId>,
     by_index: StableVec<Value>,
 }
 
@@ -32,11 +32,11 @@ impl ValueStorage {
         }
     }
 
-    pub(crate) fn insert(&mut self, value: Value) -> (ValueIndex, Reused) {
+    pub(crate) fn insert(&mut self, value: Value) -> (ValueId, Reused) {
         match self.by_value.get(&value) {
             Some(index) => (*index, Reused(true)),
             None => {
-                let index = ValueIndex(self.by_index.push(value.clone()));
+                let index = ValueId(self.by_index.push(value.clone()));
                 self.by_value.insert(value, index);
                 (index, Reused(false))
             }
@@ -47,34 +47,36 @@ impl ValueStorage {
         self.by_index.iter()
     }
 
-    pub(crate) fn indices(&self) -> impl Iterator<Item = &ValueIndex> {
+    pub(crate) fn indices(&self) -> impl Iterator<Item = &ValueId> {
         self.by_value.values()
     }
 
-    pub(crate) fn retain(&mut self, mut predicate: impl FnMut(ValueIndex) -> bool) {
+    pub(crate) fn retain(&mut self, mut predicate: impl FnMut(ValueId) -> bool) {
         self.by_value.retain(|_, index| predicate(*index));
-        self.by_index.retain_indices(|index| predicate(ValueIndex(index)));
+        self.by_index.retain_indices(|index| predicate(ValueId(index)));
     }
 }
 
-impl Index<ValueIndex> for ValueStorage {
+impl Index<ValueId> for ValueStorage {
     type Output = Value;
 
-    fn index(&self, index: ValueIndex) -> &Self::Output {
+    fn index(&self, index: ValueId) -> &Self::Output {
         &self.by_index[index.0]
     }
 }
 
-impl IndexMut<ValueIndex> for ValueStorage {
-    fn index_mut(&mut self, index: ValueIndex) -> &mut Self::Output {
+impl IndexMut<ValueId> for ValueStorage {
+    fn index_mut(&mut self, index: ValueId) -> &mut Self::Output {
         &mut self.by_index[index.0]
     }
 }
 
-#[derive(Debug, Eq, PartialEq, Hash, Copy, Clone)]
-pub(crate) struct ValueIndex(pub(crate) usize);
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash, Ord, PartialOrd)]
+pub(crate) struct ValueId(pub(crate) usize);
 
-impl fmt::Display for ValueIndex {
+pub(crate) static UNDEFINED_VALUE: ValueId = ValueId(usize::max_value());
+
+impl fmt::Display for ValueId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Debug::fmt(self, f)
     }

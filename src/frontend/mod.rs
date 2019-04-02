@@ -27,19 +27,17 @@ use petgraph::visit::EdgeRef;
 
 use crate::frontend::dead_code::remove_dead_code;
 #[cfg(test)] use crate::graphviz::graphviz_dot_write;
-use crate::ir::{BasicBlock, FunctionMap};
+use crate::ir::{BasicBlock, FunctionMap, StatementLocation};
 use crate::ir::BasicBlockGraph;
 use crate::ir::ControlFlowGraph;
 use crate::ir::FnId;
-use crate::ir::Ident;
 use crate::ir::IdentGenerator;
 use crate::ir::Phi;
 use crate::ir::Statement;
 use crate::ir::Value;
-use crate::ir::value_storage::ValueIndex;
+use crate::ir::value_storage::{UNDEFINED_VALUE, ValueId};
 use crate::ir::value_storage::ValueStorage;
 use crate::ir::Variable;
-use crate::ir::VarId;
 use crate::semantics::BindingRef;
 use crate::semantics::ExprRef;
 use crate::semantics::TypedExpr;
@@ -56,16 +54,15 @@ pub(crate) struct FrontEnd {
     enable_cfp: bool,
     enable_dce: bool,
     graph: BasicBlockGraph,
-    idgen: IdentGenerator<VarId>,
     function_idgen: IdentGenerator<FnId>,
-    variables: HashMap<Variable, HashMap<NodeIndex, VarId>>,
+    variables: HashMap<Variable, HashMap<NodeIndex, ValueId>>,
     variables_read: HashSet<Variable>,
     values: ValueStorage,
     functions: FunctionMap,
-    definitions: HashMap<VarId, IdentDefinition>,
+    definitions: HashMap<ValueId, StatementLocation>,
     sealed_blocks: HashSet<NodeIndex>,
-    incomplete_phis: HashMap<NodeIndex, HashMap<Variable, VarId>>,
-    phi_users: HashMap<VarId, HashSet<VarId>>,
+    incomplete_phis: HashMap<NodeIndex, HashMap<Variable, ValueId>>,
+    phi_users: HashMap<ValueId, HashSet<ValueId>>,
     entry_block: NodeIndex,
     undefined_users: Vec<StatementLocation>,
     markers: Vec<Option<Marker>>,
@@ -80,7 +77,6 @@ impl FrontEnd {
             enable_cfp: false,
             enable_dce: false,
             graph: BasicBlockGraph::new(),
-            idgen: IdentGenerator::new(),
             function_idgen: IdentGenerator::new(),
             variables: HashMap::new(),
             variables_read: HashSet::new(),
@@ -162,18 +158,18 @@ impl FrontEnd {
     }
 
     // TODO make block the first argument everywhere
-    fn process_expr(&mut self, expr: &ExprRef, block: NodeIndex) -> (NodeIndex, VarId) {
+    fn process_expr(&mut self, expr: &ExprRef, block: NodeIndex) -> (NodeIndex, ValueId) {
         match &**expr {
             TypedExpr::Block(statements, _) => {
                 let mut current_block = block;
-                let mut current_ident = None;
+                let mut current_value_id = None;
                 for statement in statements {
-                    let (block, ident) = self.process_statement(statement, current_block);
+                    let (block, value_id) = self.process_statement(statement, current_block);
                     current_block = block;
-                    current_ident = Some(ident);
+                    current_value_id = Some(value_id);
                 }
-                let ident = current_ident.unwrap_or_else(|| self.define(block, Value::Unit));
-                (current_block, ident)
+                let value_id = current_value_id.unwrap_or_else(|| self.define(block, Value::Unit));
+                (current_block, value_id)
             }
 
             TypedExpr::Unit(source) => {
@@ -205,7 +201,7 @@ impl FrontEnd {
             TypedExpr::Conditional { condition, positive, negative, source, .. } => {
                 self.comment(block, source.text());
                 let (block, condition) = self.process_expr(condition, block);
-                let condition_value = self.value(condition);
+                let condition_value = &self.values[condition];
 
                 if self.enable_cfp && condition_value.is_constant() {
                     return match condition_value {
@@ -247,9 +243,9 @@ impl FrontEnd {
             TypedExpr::Assign(binding, value, source) => {
                 self.comment(block, source.text());
                 let variable = Variable::Binding(binding.clone());
-                let (block, ident) = self.process_expr(value, block);
-                self.write_variable(&variable, block, ident);
-                (block, ident)
+                let (block, value_id) = self.process_expr(value, block);
+                self.write_variable(&variable, block, value_id);
+                (block, value_id)
             }
 
             TypedExpr::Lambda(lambda, source) => {
@@ -270,15 +266,15 @@ impl FrontEnd {
 
             TypedExpr::Application { function, arguments, source, .. } => {
                 self.comment(block, source.text());
-                let (block, function_ident) = self.process_expr(function, block);
+                let (block, function_value_id) = self.process_expr(function, block);
                 let mut current_block = block;
-                let mut argument_idents = vec![];
+                let mut argument_value_ids = vec![];
                 for argument in arguments {
-                    let (block, ident) = self.process_expr(argument, current_block);
-                    argument_idents.push(ident);
+                    let (block, value_id) = self.process_expr(argument, current_block);
+                    argument_value_ids.push(value_id);
                     current_block = block;
                 }
-                (block, self.define(block, Value::Call(function_ident, argument_idents)))
+                (block, self.define(block, Value::Call(function_value_id, argument_value_ids)))
             }
 
             _ => unimplemented!("process_expr: {:?}", expr)
@@ -286,41 +282,40 @@ impl FrontEnd {
     }
 
     fn process_binary(&mut self, block: NodeIndex, left: &ExprRef, right: &ExprRef, source: &Source,
-                      value_constructor: impl Fn(VarId, VarId) -> Value) -> (NodeIndex, VarId)
+                      value_constructor: impl Fn(ValueId, ValueId) -> Value) -> (NodeIndex, ValueId)
     {
-        let (block, left_ident) = self.process_expr(left, block);
-        let (block, right_ident) = self.process_expr(right, block);
+        let (block, left_value_id) = self.process_expr(left, block);
+        let (block, right_value_id) = self.process_expr(right, block);
         self.comment(block, source.text());
-        (block, self.define(block, value_constructor(left_ident, right_ident)))
+        (block, self.define(block, value_constructor(left_value_id, right_value_id)))
     }
 
-    fn process_statement(&mut self, statement: &TypedStatement, block: NodeIndex) -> (NodeIndex, VarId) {
+    fn process_statement(&mut self, statement: &TypedStatement, block: NodeIndex) -> (NodeIndex, ValueId) {
         match statement {
+            TypedStatement::Expr(expr) => self.process_expr(expr, block),
+
             TypedStatement::Binding(binding) => {
                 self.comment(block, binding.source.text());
-                let (block, ident) = self.process_expr(&binding.data, block);
-                self.write_variable(&Variable::Binding(binding.clone()), block, ident);
-                (block, ident)
+                let (block, value_id) = self.process_expr(&binding.data, block);
+                self.write_variable(&Variable::Binding(binding.clone()), block, value_id);
+                (block, value_id)
             },
-            TypedStatement::Expr(expr) => {
-                self.process_expr(expr, block)
-            }
         }
     }
 
-    fn write_variable(&mut self, variable: &Variable, block: NodeIndex, ident: VarId) {
+    fn write_variable(&mut self, variable: &Variable, block: NodeIndex, value_id: ValueId) {
         self.variables
             .entry(variable.clone())
             .or_default()
-            .insert(block, ident);
+            .insert(block, value_id);
     }
 
-    fn read_variable(&mut self, variable: &Variable, block: NodeIndex) -> VarId {
+    fn read_variable(&mut self, variable: &Variable, block: NodeIndex) -> ValueId {
         self.reset_markers();
         self.read_variable_core(variable, block)
     }
 
-    fn read_variable_core(&mut self, variable: &Variable, block: NodeIndex) -> VarId {
+    fn read_variable_core(&mut self, variable: &Variable, block: NodeIndex) -> ValueId {
         self.variables_read.insert(variable.clone());
         self.variables
             .get(variable)
@@ -329,8 +324,8 @@ impl FrontEnd {
             .unwrap_or_else(|| self.read_variable_recursive(variable, block))
     }
 
-    fn read_variable_recursive(&mut self, variable: &Variable, block: NodeIndex) -> VarId {
-        let ident = if !self.sealed_blocks.contains(&block) {
+    fn read_variable_recursive(&mut self, variable: &Variable, block: NodeIndex) -> ValueId {
+        let value_id = if !self.sealed_blocks.contains(&block) {
             // Incomplete CFG
             let phi = self.define_phi(block, &[]);
             self.incomplete_phis
@@ -371,10 +366,10 @@ impl FrontEnd {
                 self.remove_marker(block);
                 match definitions.len() {
                     1 => definitions[0],
-                    0 => VarId::UNDEFINED,
+                    0 => UNDEFINED_VALUE,
                     _ => {
-                        if definitions.contains(&VarId::UNDEFINED) {
-                            VarId::UNDEFINED
+                        if definitions.contains(&UNDEFINED_VALUE) {
+                            UNDEFINED_VALUE
                         } else {
                             let phi = match self.get_marker(block) {
                                 Some(Marker::Phi(phi)) => *phi,
@@ -389,13 +384,13 @@ impl FrontEnd {
                 }
             }
         };
-        self.write_variable(variable, block, ident);
-        ident
+        self.write_variable(variable, block, value_id);
+        value_id
     }
 
-    fn add_phi_operands(&mut self, variable: &Variable, phi: VarId) -> VarId {
+    fn add_phi_operands(&mut self, variable: &Variable, phi: ValueId) -> ValueId {
         let predecessors = self.graph
-            .edges_directed(self.definitions[&phi].location.block, Direction::Incoming)
+            .edges_directed(self.definitions[&phi].block, Direction::Incoming)
             .map(|edge| edge.source())
             .collect_vec();
         for predecessor in predecessors {
@@ -406,10 +401,10 @@ impl FrontEnd {
         self.try_remove_trivial_phi(phi)
     }
 
-    fn try_remove_trivial_phi(&mut self, phi: VarId) -> VarId {
+    fn try_remove_trivial_phi(&mut self, phi: ValueId) -> ValueId {
         let mut same = None;
         for &operand in self.phi_operands(phi) {
-            if operand == VarId::UNDEFINED {
+            if operand == UNDEFINED_VALUE {
                 same = Some(operand);
                 break;
             }
@@ -425,16 +420,15 @@ impl FrontEnd {
         }
 
         let same = match same {
-            Some(ident) => ident,
-            None => VarId::UNDEFINED,
+            Some(value_id) => value_id,
+            None => UNDEFINED_VALUE,
         };
 
         self.phi_users.get_mut(&phi).unwrap().remove(&phi);
         let mut possible_trivial_phis = HashSet::new();
         for user in &self.phi_users[&phi] {
-            let value_index = self.definitions[user].value_index;
-            let value = &mut self.values[value_index];
-            replace_ident(value, phi, same);
+            let value = &mut self.values[*user];
+            replace_value_id(value, phi, same);
             if let Value::Phi(_) = value {
                 possible_trivial_phis.insert(*user);
             }
@@ -462,55 +456,47 @@ impl FrontEnd {
         self.sealed_blocks.insert(block);
     }
 
-    fn define(&mut self, block: NodeIndex, value: Value) -> VarId {
+    fn define(&mut self, block: NodeIndex, value: Value) -> ValueId {
         let value = normalize(value);
         let (value_index, reused) = self.values.insert(value.clone());
         let variable = Variable::Value(value_index);
-        let ident = if *reused {
+        if *reused {
             self.read_variable(&variable, block)
         } else {
             if self.enable_cfp {
                 fold_constants(block, &self.definitions, &mut self.values, &self.functions, value_index);
             }
-            VarId::UNDEFINED
-        };
-        if ident != VarId::UNDEFINED {
-            ident
-        } else {
-            let ident = self.idgen.next_id();
             let basic_block = &mut self.graph[block];
-            let statement_index = basic_block.push(Statement::Definition {
-                ident,
-                value_index,
-            });
-            self.write_variable(&Variable::Value(value_index), block, ident);
+            let statement_index = basic_block.push(Statement::Definition(value_index));
+            self.write_variable(&Variable::Value(value_index), block, value_index);
             let location = StatementLocation::new(block, statement_index);
-            self.definitions.insert(ident, IdentDefinition { value_index, location });
-            self.record_phi_and_undefined_usages(location, ident);
+
+            self.definitions.insert(value_index, location);
+            self.record_phi_and_undefined_usages(location, value_index);
             if let Value::Phi(_) = &self.values[value_index] {
-                self.phi_users.insert(ident, HashSet::new());
+                self.phi_users.insert(value_index, HashSet::new());
             }
-            ident
+            value_index
         }
     }
 
-    fn define_phi(&mut self, block: NodeIndex, operands: &[VarId]) -> VarId {
+    fn define_phi(&mut self, block: NodeIndex, operands: &[ValueId]) -> ValueId {
         let mut operands = operands.to_vec();
         operands.sort();
         self.define(block, Value::Phi(Phi(operands)))
     }
 
-    fn push_return(&mut self, block: NodeIndex, ident: VarId) {
-        self.graph[block].push(Statement::Return(ident));
+    fn push_return(&mut self, block: NodeIndex, value_id: ValueId) {
+        self.graph[block].push(Statement::Return(value_id));
     }
 
-    fn record_phi_and_undefined_usages(&mut self, location: StatementLocation, ident: VarId) {
-        let (is_using_undefined, phis_used) = get_value_ident_operands(self.value(ident))
-            .fold((false, vec![]), |(mut is_using_undefined, mut phis_used), ident| {
-                if ident == VarId::UNDEFINED {
+    fn record_phi_and_undefined_usages(&mut self, location: StatementLocation, value_id: ValueId) {
+        let (is_using_undefined, phis_used) = get_value_operands(&self.values[value_id])
+            .fold((false, vec![]), |(mut is_using_undefined, mut phis_used), value_id| {
+                if value_id == UNDEFINED_VALUE {
                     is_using_undefined = true;
-                } else if self.is_a_phi(ident) {
-                    phis_used.push(ident);
+                } else if self.is_a_phi(value_id) {
+                    phis_used.push(value_id);
                 }
                 (is_using_undefined, phis_used)
             });
@@ -518,24 +504,23 @@ impl FrontEnd {
             self.undefined_users.push(location);
         }
         for phi in phis_used {
-            self.phi_users.get_mut(&phi).unwrap().insert(ident);
+            self.phi_users.get_mut(&phi).unwrap().insert(value_id);
         }
     }
 
-    fn is_a_phi(&self, ident: VarId) -> bool {
-        ident != VarId::UNDEFINED && self.phi_users.contains_key(&ident)
+    fn is_a_phi(&self, value_id: ValueId) -> bool {
+        value_id != UNDEFINED_VALUE && self.phi_users.contains_key(&value_id)
     }
 
-    fn phi_operands(&self, phi: VarId) -> &[VarId] {
-        match self.value(phi) {
+    fn phi_operands(&self, phi: ValueId) -> &[ValueId] {
+        match &self.values[phi] {
             Value::Phi(Phi(operands)) => operands,
             _ => unreachable!()
         }
     }
 
-    fn phi_operands_mut(&mut self, phi: VarId) -> &mut Vec<VarId> {
-        let value_index = self.definitions[&phi].value_index;
-        match &mut self.values[value_index] {
+    fn phi_operands_mut(&mut self, phi: ValueId) -> &mut Vec<ValueId> {
+        match &mut self.values[phi] {
             Value::Phi(Phi(operands)) => operands,
             _ => unreachable!()
         }
@@ -579,10 +564,6 @@ impl FrontEnd {
         }
         index
     }
-
-    fn value(&self, var: VarId) -> &Value {
-        &self.values[self.definitions[&var].value_index]
-    }
 }
 
 fn warn_about_redundant_bindings(redundant_bindings: impl Iterator<Item = BindingRef>) {
@@ -595,10 +576,10 @@ fn warn_about_redundant_bindings(redundant_bindings: impl Iterator<Item = Bindin
 
 fn fold_constants(
     block: NodeIndex,
-    definitions: &HashMap<VarId, IdentDefinition>,
+    definitions: &HashMap<ValueId, StatementLocation>,
     values: &mut ValueStorage,
     functions: &FunctionMap,
-    value_index: ValueIndex)
+    value_index: ValueId)
 {
     let folded = match &values[value_index] {
         Value::Unit |
@@ -660,7 +641,7 @@ fn fold_constants(
         }),
 
         Value::Call(function, arguments) =>
-            fold_call(*function, arguments.to_vec(), values, definitions, functions),
+            fold_call(*function, arguments.to_vec(), values, functions),
 
         Value::Phi(_) |
         Value::Arg(_) => None,
@@ -672,52 +653,48 @@ fn fold_constants(
 
 fn fold_binary(
     block: NodeIndex,
-    definitions: &HashMap<VarId, IdentDefinition>,
+    definitions: &HashMap<ValueId, StatementLocation>,
     values: &mut ValueStorage,
     functions: &FunctionMap,
-    left: VarId, right: VarId,
-    fold: impl FnOnce((VarId, &Value), (VarId, &Value)) -> Option<Value>) -> Option<Value>
+    left: ValueId, right: ValueId,
+    fold: impl FnOnce((ValueId, &Value), (ValueId, &Value)) -> Option<Value>) -> Option<Value>
 {
-    let left_value_index = definitions[&left].value_index;
-    let right_value_index = definitions[&right].value_index;
-    fold_constants(block, definitions, values, functions, left_value_index);
-    fold_constants(block, definitions, values, functions, right_value_index);
-    fold((left, &values[left_value_index]), (right, &values[right_value_index]))
+    fold_constants(block, definitions, values, functions, left);
+    fold_constants(block, definitions, values, functions, right);
+    fold((left, &values[left]), (right, &values[right]))
 }
 
 fn fold_call(
-    function: VarId,
-    arguments: Vec<VarId>,
+    function: ValueId,
+    arguments: Vec<ValueId>,
     values: &mut ValueStorage,
-    definitions: &HashMap<VarId, IdentDefinition>,
     functions: &FunctionMap) -> Option<Value>
 {
     let arguments_are_constant = arguments
         .iter()
-        .all(|argument| values[definitions[argument].value_index].is_constant());
+        .all(|argument| values[*argument].is_constant());
     if arguments_are_constant {
-        let mut function_cfg = match &values[definitions[&function].value_index] {
+        let mut function_cfg = match &values[function] {
             Value::Function(fn_id) => functions[fn_id].clone(),
             _ => unreachable!(),
         };
         // FIXME probably should store argument ids somewhere, instead of collecting them like that
         let parameter_ids = function_cfg.definitions
-            .values()
-            .filter_map(|definition| match function_cfg.values[definition.value_index] {
-                Value::Arg(index) => Some((definition.value_index, index)),
+            .keys()
+            .filter_map(|value_index| match function_cfg.values[*value_index] {
+                Value::Arg(index) => Some((*value_index, index)),
                 _ => None,
             })
             .collect_vec();
         for (parameter_value_index, argument_index) in parameter_ids {
             function_cfg.values[parameter_value_index] =
-                values[definitions[&arguments[argument_index]].value_index].clone();
+                values[arguments[argument_index]].clone();
         }
 
-        let result_definition = function_cfg.definitions[&function_cfg.result];
-        let result_block = result_definition.location.block;
+        let result_block = function_cfg.definitions[&function_cfg.result].block;
         fold_constants(result_block, &function_cfg.definitions,
-                       &mut function_cfg.values, functions, result_definition.value_index);
-        let result_value = &function_cfg.values[result_definition.value_index];
+                       &mut function_cfg.values, functions, function_cfg.result);
+        let result_value = &function_cfg.values[function_cfg.result];
         if result_value.is_constant() {
             return Some(result_value.clone())
         }
@@ -725,26 +702,19 @@ fn fold_call(
     None
 }
 
-fn get_statement_ident_operands<'a>(values: &'a ValueStorage, statement: &'a Statement) -> Box<dyn Iterator<Item = VarId> + 'a> {
+fn get_statement_operands<'a>(values: &'a ValueStorage, statement: &'a Statement)
+    -> Box<dyn Iterator<Item = ValueId> + 'a>
+{
     match statement {
         Statement::Comment(_) => Box::new(empty()),
-        Statement::Definition { value_index, .. } => get_value_ident_operands(&values[*value_index]),
+        Statement::Definition(value_index) => get_value_operands(&values[*value_index]),
         Statement::CondJump(condition, _, _) => Box::new(once(*condition)),
         Statement::Return(result) => Box::new(once(*result)),
     }
 }
 
-fn get_statement_idents_mut<'a>(values: &'a mut ValueStorage, statement: &'a mut Statement) -> Box<dyn Iterator<Item = &'a mut VarId> + 'a> {
-    match statement {
-        Statement::Comment(_) => Box::new(empty()),
-        Statement::Definition { ident, value_index } => Box::new(once(ident).chain(get_value_ident_operands_mut(&mut values[*value_index]))),
-        Statement::CondJump(condition, _, _) => Box::new(once(condition)),
-        Statement::Return(result) => Box::new(once(result)),
-    }
-}
-
-fn replace_ident(value: &mut Value, ident: VarId, replacement: VarId) {
-    let operands: Box<dyn Iterator<Item = &mut VarId>> = match value {
+fn replace_value_id(value: &mut Value, value_id: ValueId, replacement: ValueId) {
+    let operands: Box<dyn Iterator<Item = &mut ValueId>> = match value {
         Value::Unit |
         Value::Int(_) |
         Value::String(_) |
@@ -760,13 +730,13 @@ fn replace_ident(value: &mut Value, ident: VarId, replacement: VarId) {
         Value::Call(function, arguments) => Box::new(once(function).chain(arguments.iter_mut())),
     };
     for operand in operands {
-        if *operand == ident {
+        if *operand == value_id {
             *operand = replacement;
         }
     }
 }
 
-fn get_value_ident_operands<'a>(value: &'a Value) -> Box<dyn Iterator<Item = VarId> + 'a> {
+fn get_value_operands<'a>(value: &'a Value) -> Box<dyn Iterator<Item =ValueId> + 'a> {
     match value {
         Value::Unit |
         Value::Int(_) |
@@ -782,25 +752,6 @@ fn get_value_ident_operands<'a>(value: &'a Value) -> Box<dyn Iterator<Item = Var
 
         Value::Phi(phi) => Box::new(phi.iter().cloned()),
         Value::Call(function, arguments) => Box::new(once(*function).chain(arguments.iter().cloned())),
-    }
-}
-
-fn get_value_ident_operands_mut<'a>(value: &'a mut Value) -> Box<dyn Iterator<Item = &mut VarId> + 'a> {
-    match value {
-        Value::Unit |
-        Value::Int(_) |
-        Value::String(_) |
-        Value::Function {..} |
-        Value::Arg(_) => Box::new(empty()),
-
-        Value::AddInt(left, right) |
-        Value::SubInt(left, right) |
-        Value::MulInt(left, right) |
-        Value::DivInt(left, right) |
-        Value::AddString(left, right) => Box::new(once(left).chain(once(right))),
-
-        Value::Phi(phi) => Box::new(phi.iter_mut()),
-        Value::Call(function, arguments) => Box::new(once(function).chain(arguments.iter_mut())),
     }
 }
 
@@ -833,25 +784,7 @@ fn normalize(value: Value) -> Value {
 #[derive(Copy, Clone)]
 enum Marker {
     Initial,
-    Phi(VarId),
-}
-
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash, Ord, PartialOrd)]
-struct StatementLocation {
-    block: NodeIndex,
-    index: usize,
-}
-
-impl StatementLocation {
-    fn new(block: NodeIndex, index: usize) -> Self {
-        Self { block, index }
-    }
-}
-
-#[derive(Debug, Copy, Clone)]
-pub(crate) struct IdentDefinition {
-    value_index: ValueIndex,
-    location: StatementLocation,
+    Phi(ValueId),
 }
 
 macro_rules! test_frontend {
