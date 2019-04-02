@@ -17,8 +17,7 @@ use crate::ir::IdentGenerator;
 use crate::ir::Phi;
 use crate::ir::Statement;
 use crate::ir::Value;
-use crate::ir::value_storage::ValueStorage;
-use crate::ir::VarId;
+use crate::ir::value_storage::{ValueId, ValueStorage};
 
 define_ident!{ ClusterId "cluster" }
 
@@ -156,8 +155,8 @@ fn write_statement(output: &mut impl io::Write, statement: &Statement, values: &
             font_color_end.write(output)
         }
 
-        Statement::Definition { ident, value_index } => {
-            write_ident(output, *ident)?;
+        Statement::Definition(value_index) => {
+            write_value_id(output, *value_index)?;
             write!(output, " ← ")?;
             write_value(output, &values[*value_index])
         }
@@ -165,14 +164,14 @@ fn write_statement(output: &mut impl io::Write, statement: &Statement, values: &
         Statement::CondJump(condition, then_block, else_block) => {
             write_with_font_color(output, KEYWORD_COLOR, "condjump")?;
             write!(output, " ")?;
-            write_ident(output, *condition)?;
+            write_value_id(output, *condition)?;
             write!(output, ", {}, {}", then_block.index(), else_block.index())
         }
 
-        Statement::Return(ident) => {
+        Statement::Return(value_id) => {
             write_with_font_color(output, KEYWORD_COLOR, "return")?;
             write!(output, " ")?;
-            write_ident(output, *ident)
+            write_value_id(output, *value_id)
         }
     }
 }
@@ -181,6 +180,13 @@ fn write_ident(output: &mut impl io::Write, ident: impl Ident) -> io::Result<()>
     write!(output, "{}", ident.prefix())?;
     let sub_tag_end = write_html_start_tag(output, "sub", &[])?;
     write!(output, "{}", ident.index())?;
+    sub_tag_end.write(output)
+}
+
+fn write_value_id(output: &mut impl io::Write, value_id: ValueId) -> io::Result<()> {
+    write!(output, "v")?;
+    let sub_tag_end = write_html_start_tag(output, "sub", &[])?;
+    write!(output, "{}", value_id)?;
     sub_tag_end.write(output)
 }
 
@@ -206,7 +212,7 @@ fn write_value(output: &mut impl io::Write, value: &Value) -> io::Result<()> {
         Value::Call(function, arguments) => {
             write_with_font_color(output, KEYWORD_COLOR, "call")?;
             write!(output, " ")?;
-            write_ident(output, *function)?;
+            write_value_id(output, *function)?;
             write_arguments(output, arguments)
         },
         Value::Arg(index) => {
@@ -219,21 +225,21 @@ fn write_value(output: &mut impl io::Write, value: &Value) -> io::Result<()> {
 fn write_binary(
     output: &mut impl io::Write,
     operator: &'static str,
-    left: VarId, right: VarId)
+    left: ValueId, right: ValueId)
     -> io::Result<()>
 {
-    write_ident(output, left)?;
+    write_value_id(output, left)?;
     write!(output, " ")?;
     write_with_font_color(output, OPERATOR_COLOR, operator)?;
     write!(output, " ")?;
-    write_ident(output, right)
+    write_value_id(output, right)
 }
 
-fn write_arguments(output: &mut impl io::Write, operands: &[VarId]) -> io::Result<()> {
+fn write_arguments(output: &mut impl io::Write, operands: &[ValueId]) -> io::Result<()> {
     write!(output, "(")?;
     let mut operands = operands.iter().peekable();
     while let Some(operand) = operands.next() {
-        write_ident(output, *operand)?;
+        write_value_id(output, *operand)?;
         if operands.peek().is_some() {
             write!(output, ", ")?;
         }

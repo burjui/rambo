@@ -16,7 +16,7 @@ use petgraph::visit::EdgeRef;
 use crate::ir::{ControlFlowGraph, FunctionMap};
 use crate::ir::Statement;
 use crate::ir::Value;
-use crate::ir::VarId;
+use crate::ir::value_storage::ValueId;
 
 pub(crate) struct EvalContext<'a> {
     cfg: &'a ControlFlowGraph,
@@ -60,10 +60,10 @@ impl<'a> EvalContext<'a> {
             match statement {
                 Some(Statement::Comment(_)) => (),
 
-                Some(Statement::Definition { ident, value_index }) => {
+                Some(Statement::Definition(value_index)) => {
                     let value = self.eval_value(&self.cfg.values[*value_index]);
-                    self.define(ident, value);
-                    result = &self.env[ident].value;
+                    self.define(*value_index, value);
+                    result = &self.env[value_index].value;
                 }
 
                 Some(Statement::CondJump(var, then_block, else_block)) => {
@@ -142,43 +142,43 @@ impl<'a> EvalContext<'a> {
     }
 
     #[allow(clippy::trivially_copy_pass_by_ref)]
-    fn define(&mut self, ident: &VarId, value: Value) {
+    fn define(&mut self, value_id: ValueId, value: Value) {
         let next_timestamp = self.timestamp + 1;
-        self.env[ident] = RuntimeValue {
+        self.env[value_id] = RuntimeValue {
             value,
             timestamp: replace(&mut self.timestamp, next_timestamp),
         };
     }
 
     #[allow(clippy::trivially_copy_pass_by_ref)]
-    fn int(&self, ident: &VarId) -> BigInt {
-        self.runtime_value(ident).into()
+    fn int(&self, value_id: &ValueId) -> BigInt {
+        self.runtime_value(value_id).into()
     }
 
     #[allow(clippy::trivially_copy_pass_by_ref)]
-    fn string(&self, ident: &VarId) -> Rc<String> {
-        self.runtime_value(ident).into()
+    fn string(&self, value_id: &ValueId) -> Rc<String> {
+        self.runtime_value(value_id).into()
     }
 
-    fn runtime_value(&self, ident: &VarId) -> &RuntimeValue {
-        &self.env[ident]
+    fn runtime_value(&self, value_id: &ValueId) -> &RuntimeValue {
+        &self.env[value_id]
     }
 }
 
-struct EvalEnv(HashMap<VarId, RuntimeValue>);
+struct EvalEnv(HashMap<ValueId, RuntimeValue>);
 
 impl EvalEnv {
     fn new() -> Self {
         Self(HashMap::new())
     }
 
-    fn get(&self, ident: VarId) -> Option<&RuntimeValue> {
-        self.0.get(&ident)
+    fn get(&self, value_id: ValueId) -> Option<&RuntimeValue> {
+        self.0.get(&value_id)
     }
 }
 
 impl Deref for EvalEnv {
-    type Target = HashMap<VarId, RuntimeValue>;
+    type Target = HashMap<ValueId, RuntimeValue>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -191,31 +191,31 @@ impl DerefMut for EvalEnv {
     }
 }
 
-impl Index<&VarId> for EvalEnv {
+impl Index<&ValueId> for EvalEnv {
     type Output = RuntimeValue;
 
-    fn index(&self, ident: &VarId) -> &Self::Output {
-        self.index(*ident)
+    fn index(&self, value_id: &ValueId) -> &Self::Output {
+        self.index(*value_id)
     }
 }
 
-impl Index<VarId> for EvalEnv {
+impl Index<ValueId> for EvalEnv {
     type Output = RuntimeValue;
 
-    fn index(&self, ident: VarId) -> &Self::Output {
-        &self.0[&ident]
+    fn index(&self, value_id: ValueId) -> &Self::Output {
+        &self.0[&value_id]
     }
 }
 
-impl IndexMut<&VarId> for EvalEnv {
-    fn index_mut(&mut self, ident: &VarId) -> &mut Self::Output {
-        &mut self[*ident]
+impl IndexMut<&ValueId> for EvalEnv {
+    fn index_mut(&mut self, value_id: &ValueId) -> &mut Self::Output {
+        &mut self[*value_id]
     }
 }
 
-impl IndexMut<VarId> for EvalEnv {
-    fn index_mut(&mut self, ident: VarId) -> &mut Self::Output {
-        self.entry(ident).or_default()
+impl IndexMut<ValueId> for EvalEnv {
+    fn index_mut(&mut self, value_id: ValueId) -> &mut Self::Output {
+        self.entry(value_id).or_default()
     }
 }
 

@@ -14,8 +14,7 @@ use petgraph::graph::NodeIndex;
 use petgraph::stable_graph::StableDiGraph;
 use stable_vec::StableVec;
 
-use crate::frontend::IdentDefinition;
-use crate::ir::value_storage::ValueIndex;
+use crate::ir::value_storage::ValueId;
 use crate::ir::value_storage::ValueStorage;
 use crate::semantics::BindingRef;
 
@@ -24,7 +23,7 @@ pub(crate) mod value_storage;
 
 #[derive(Debug, Eq, PartialEq, Hash, Clone)]
 pub(crate) enum Variable {
-    Value(ValueIndex),
+    Value(ValueId),
     Binding(BindingRef),
 }
 
@@ -100,10 +99,10 @@ pub(crate) struct ControlFlowGraph {
     pub(crate) name: String,
     pub(crate) graph: BasicBlockGraph,
     pub(crate) entry_block: NodeIndex,
-    pub(crate) definitions: HashMap<VarId, IdentDefinition>,
+    pub(crate) definitions: HashMap<ValueId, StatementLocation>,
     pub(crate) values: ValueStorage,
     pub(crate) functions: FunctionMap,
-    pub(crate) result: VarId,
+    pub(crate) result: ValueId,
 }
 
 pub(crate) trait Ident: Sized + Copy {
@@ -154,7 +153,18 @@ macro_rules! define_ident {
     }
 }
 
-define_ident!{ pub(crate) VarId "v" }
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash, Ord, PartialOrd)]
+pub(crate) struct StatementLocation {
+    pub(crate) block: NodeIndex,
+    pub(crate) index: usize,
+}
+
+impl StatementLocation {
+    pub(crate) fn new(block: NodeIndex, index: usize) -> Self {
+        Self { block, index }
+    }
+}
+
 define_ident!{ pub(crate) FnId "λ" }
 
 pub(crate) struct IdentGenerator<Id: Ident>(Id);
@@ -173,22 +183,19 @@ impl<Id: Ident> IdentGenerator<Id> {
 #[derive(Clone)]
 pub(crate) enum Statement {
     Comment(String),
-    Definition {
-        ident: VarId,
-        value_index: ValueIndex,
-    },
-    CondJump(VarId, NodeIndex, NodeIndex),
-    Return(VarId),
+    Definition(ValueId),
+    CondJump(ValueId, NodeIndex, NodeIndex),
+    Return(ValueId),
 }
 
 impl fmt::Debug for Statement {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Statement::Comment(comment) => writeln!(f, "// {}", comment.split(|c| c == '\n').format("\n// ")),
-            Statement::Definition { ident, value_index } => write!(f, "{} ← {}", ident, value_index),
-            Statement::CondJump(ident, positive, negative) =>
-                write!(f, "condjump {}, {}, {}", ident, positive.index(), negative.index()),
-            Statement::Return(ident) => write!(f, "return {}", ident)
+            Statement::Definition(value_index) => write!(f, "define {}", value_index),
+            Statement::CondJump(condition, true_branch, false_branch) =>
+                write!(f, "condjump {}, {}, {}", condition, true_branch.index(), false_branch.index()),
+            Statement::Return(value_id) => write!(f, "return {}", value_id)
         }
     }
 }
@@ -196,18 +203,18 @@ impl fmt::Debug for Statement {
 pub(crate) fn fmt_statement(sink: &mut impl Write, statement: &Statement, values: &ValueStorage) -> std::io::Result<()> {
     match statement {
         Statement::Comment(comment) => writeln!(sink, "// {}", comment.split(|c| c == '\n').format("\n// ")),
-        Statement::Definition { ident, value_index } => write!(sink, "{} ← {:?}", ident, &values[*value_index]),
-        Statement::CondJump(ident, positive, negative) =>
-            write!(sink, "condjump {}, {}, {}", ident, positive.index(), negative.index()),
-        Statement::Return(ident) => write!(sink, "return {}", ident)
+        Statement::Definition(value_index) => write!(sink, "{} ← {:?}", value_index, &values[*value_index]),
+        Statement::CondJump(value_id, true_branch, false_branch) =>
+            write!(sink, "condjump {}, {}, {}", value_id, true_branch.index(), false_branch.index()),
+        Statement::Return(value_id) => write!(sink, "return {}", value_id)
     }
 }
 
 #[derive(Clone, Eq)]
-pub(crate) struct Phi(pub(crate) Vec<VarId>);
+pub(crate) struct Phi(pub(crate) Vec<ValueId>);
 
 impl Deref for Phi {
-    type Target = [VarId];
+    type Target = [ValueId];
 
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -238,13 +245,13 @@ pub(crate) enum Value {
     Int(BigInt),
     String(Rc<String>),
     Function(FnId),
-    AddInt(VarId, VarId),
-    SubInt(VarId, VarId),
-    MulInt(VarId, VarId),
-    DivInt(VarId, VarId),
-    AddString(VarId, VarId),
+    AddInt(ValueId, ValueId),
+    SubInt(ValueId, ValueId),
+    MulInt(ValueId, ValueId),
+    DivInt(ValueId, ValueId),
+    AddString(ValueId, ValueId),
     Phi(Phi),
-    Call(VarId, Vec<VarId>),
+    Call(ValueId, Vec<ValueId>),
     Arg(usize),
 }
 
