@@ -63,3 +63,23 @@ macro_rules! matches {
         }
     }
 }
+
+pub(crate) trait RetainIndices<T> {
+    fn retain_indices(&mut self, predicate: impl FnMut(&T, usize) -> bool, remap: impl FnMut(&T, usize, usize));
+}
+
+impl<T> RetainIndices<T> for Vec<T> {
+    fn retain_indices(&mut self, mut predicate: impl FnMut(&T, usize) -> bool, mut remap: impl FnMut(&T, usize, usize)) {
+        let mut index = 0;
+        let mut new_index = 0;
+        self.retain(|value| {
+            let retain = predicate(value, index);
+            if retain {
+                remap(value, index, new_index);
+                new_index += 1;
+            }
+            index += 1;
+            retain
+        });
+    }
+}

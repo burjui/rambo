@@ -17,7 +17,8 @@ use crate::ir::IdentGenerator;
 use crate::ir::Phi;
 use crate::ir::Statement;
 use crate::ir::Value;
-use crate::ir::value_storage::{ValueId, ValueStorage};
+use crate::ir::value_storage::ValueId;
+use crate::ir::value_storage::ValueStorage;
 
 define_ident!{ ClusterId "cluster" }
 
@@ -60,7 +61,7 @@ fn write_cfg(
 
     let functions = cfg.values
         .iter()
-        .filter_map(|value| match value {
+        .filter_map(|(value, _)| match value {
             Value::Function(fn_id) => Some((*fn_id, &cfg.functions[fn_id])),
             _ => None,
         });
@@ -155,10 +156,10 @@ fn write_statement(output: &mut impl io::Write, statement: &Statement, values: &
             font_color_end.write(output)
         }
 
-        Statement::Definition(value_index) => {
-            write_value_id(output, *value_index)?;
+        Statement::Definition(value_id) => {
+            write_value_id(output, *value_id)?;
             write!(output, " ← ")?;
-            write_value(output, &values[*value_index])
+            write_value(output, &values[*value_id])
         }
 
         Statement::CondJump(condition, then_block, else_block) => {
@@ -186,7 +187,7 @@ fn write_ident(output: &mut impl io::Write, ident: impl Ident) -> io::Result<()>
 fn write_value_id(output: &mut impl io::Write, value_id: ValueId) -> io::Result<()> {
     write!(output, "v")?;
     let sub_tag_end = write_html_start_tag(output, "sub", &[])?;
-    write!(output, "{}", value_id)?;
+    write!(output, "{}", value_id.0)?;
     sub_tag_end.write(output)
 }
 

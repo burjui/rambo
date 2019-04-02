@@ -9,11 +9,6 @@ Lecture Notes in Computer Science, vol 7791. Springer, Berlin, Heidelberg
 
 use std::collections::HashMap;
 use std::collections::HashSet;
-#[cfg(test)] use std::ffi::OsStr;
-#[cfg(test)] use std::fs::File;
-use std::iter::empty;
-use std::iter::once;
-#[cfg(test)] use std::path::Path;
 use std::rc::Rc;
 
 use itertools::free::chain;
@@ -26,26 +21,29 @@ use petgraph::graph::NodeIndex;
 use petgraph::visit::EdgeRef;
 
 use crate::frontend::dead_code::remove_dead_code;
-#[cfg(test)] use crate::graphviz::graphviz_dot_write;
-use crate::ir::{BasicBlock, FunctionMap, StatementLocation};
+use crate::ir::BasicBlock;
 use crate::ir::BasicBlockGraph;
 use crate::ir::ControlFlowGraph;
 use crate::ir::FnId;
+use crate::ir::FunctionMap;
+use crate::ir::get_value_operands;
 use crate::ir::IdentGenerator;
+use crate::ir::normalize;
 use crate::ir::Phi;
+use crate::ir::replace_value_id;
 use crate::ir::Statement;
+use crate::ir::StatementLocation;
 use crate::ir::Value;
 use crate::ir::value_storage::{UNDEFINED_VALUE, ValueId};
 use crate::ir::value_storage::ValueStorage;
-use crate::ir::Variable;
 use crate::semantics::BindingRef;
 use crate::semantics::ExprRef;
 use crate::semantics::TypedExpr;
 use crate::semantics::TypedStatement;
 use crate::source::Source;
-#[cfg(test)] use crate::utils::TestResult;
 
 mod dead_code;
+#[cfg(test)] mod tests;
 
 pub(crate) struct FrontEnd {
     name: String,
@@ -55,16 +53,17 @@ pub(crate) struct FrontEnd {
     enable_dce: bool,
     graph: BasicBlockGraph,
     function_idgen: IdentGenerator<FnId>,
-    variables: HashMap<Variable, HashMap<NodeIndex, ValueId>>,
-    variables_read: HashSet<Variable>,
+    variables: HashMap<BindingRef, HashMap<NodeIndex, ValueId>>,
+    variables_read: HashSet<BindingRef>,
     values: ValueStorage,
     functions: FunctionMap,
+    parameters: Vec<ValueId>,
     definitions: HashMap<ValueId, StatementLocation>,
     sealed_blocks: HashSet<NodeIndex>,
-    incomplete_phis: HashMap<NodeIndex, HashMap<Variable, ValueId>>,
+    incomplete_phis: HashMap<NodeIndex, HashMap<BindingRef, ValueId>>,
     phi_users: HashMap<ValueId, HashSet<ValueId>>,
     entry_block: NodeIndex,
-    undefined_users: Vec<StatementLocation>,
+    undefined_users: Vec<ValueId>,
     markers: Vec<Option<Marker>>,
 }
 
@@ -82,6 +81,7 @@ impl FrontEnd {
             variables_read: HashSet::new(),
             values: ValueStorage::new(),
             functions: HashMap::new(),
+            parameters: Vec::new(),
             definitions: HashMap::new(),
             sealed_blocks: HashSet::new(),
             incomplete_phis: HashMap::new(),
@@ -125,12 +125,7 @@ impl FrontEnd {
                 .into_iter()
                 .map(|(variable, _)| variable)
                 .collect::<HashSet<_>>();
-            let redundant_bindings = variables
-                .difference(&self.variables_read)
-                .filter_map(|variable| match variable {
-                    Variable::Binding(binding) => Some(binding.clone()),
-                    Variable::Value(_) => None,
-                });
+            let redundant_bindings = variables.difference(&self.variables_read);
             warn_about_redundant_bindings(redundant_bindings);
         }
 
@@ -146,6 +141,7 @@ impl FrontEnd {
             definitions: self.definitions,
             values: self.values,
             functions: self.functions,
+            parameters: self.parameters,
             result: program_result,
         }
     }
@@ -153,7 +149,7 @@ impl FrontEnd {
     fn assert_no_undefined_variables(&self) {
         assert!(self.undefined_users.is_empty(), "found undefined usages:\n{:?}\n",
                 self.undefined_users.iter()
-                    .map(|user| &self.graph[user.block][user.index])
+                    .map(|user| &self.values[*user])
                     .format("\n"));
     }
 
@@ -195,7 +191,7 @@ impl FrontEnd {
 
             TypedExpr::Reference(binding, source) => {
                 self.comment(block, source.text());
-                (block, self.read_variable(&Variable::Binding(binding.clone()), block))
+                (block, self.read_variable(binding, block))
             }
 
             TypedExpr::Conditional { condition, positive, negative, source, .. } => {
@@ -220,10 +216,8 @@ impl FrontEnd {
                 let positive_block = self.new_block();
                 let negative_block = self.new_block();
 
-                let statement_index = self.graph[block].push(
-                    Statement::CondJump(condition, positive_block, negative_block));
-                let statement_location = StatementLocation::new(block, statement_index);
-                self.record_phi_and_undefined_usages(statement_location, condition);
+                self.graph[block].push(Statement::CondJump(condition, positive_block, negative_block));
+                self.record_phi_and_undefined_usages(condition);
 
                 self.graph.add_edge(block, positive_block, ());
                 self.graph.add_edge(block, negative_block, ());
@@ -242,9 +236,8 @@ impl FrontEnd {
 
             TypedExpr::Assign(binding, value, source) => {
                 self.comment(block, source.text());
-                let variable = Variable::Binding(binding.clone());
                 let (block, value_id) = self.process_expr(value, block);
-                self.write_variable(&variable, block, value_id);
+                self.write_variable(binding.clone(), block, value_id);
                 (block, value_id)
             }
 
@@ -257,7 +250,8 @@ impl FrontEnd {
                 for (index, parameter) in lambda.parameters.iter().enumerate() {
                     function.comment(function.entry_block, &parameter.name);
                     let declaration = function.define(function.entry_block, Value::Arg(index));
-                    function.write_variable(&Variable::Binding(parameter.clone()), function.entry_block, declaration);
+                    function.write_variable(parameter.clone(), function.entry_block, declaration);
+                    function.parameters.push(declaration);
                 }
                 let fn_id = self.function_idgen.next_id();
                 self.functions.insert(fn_id, function.build(&lambda.body));
@@ -297,25 +291,25 @@ impl FrontEnd {
             TypedStatement::Binding(binding) => {
                 self.comment(block, binding.source.text());
                 let (block, value_id) = self.process_expr(&binding.data, block);
-                self.write_variable(&Variable::Binding(binding.clone()), block, value_id);
+                self.write_variable(binding.clone(), block, value_id);
                 (block, value_id)
             },
         }
     }
 
-    fn write_variable(&mut self, variable: &Variable, block: NodeIndex, value_id: ValueId) {
+    fn write_variable(&mut self, variable: BindingRef, block: NodeIndex, value_id: ValueId) {
         self.variables
-            .entry(variable.clone())
+            .entry(variable)
             .or_default()
             .insert(block, value_id);
     }
 
-    fn read_variable(&mut self, variable: &Variable, block: NodeIndex) -> ValueId {
+    fn read_variable(&mut self, variable: &BindingRef, block: NodeIndex) -> ValueId {
         self.reset_markers();
         self.read_variable_core(variable, block)
     }
 
-    fn read_variable_core(&mut self, variable: &Variable, block: NodeIndex) -> ValueId {
+    fn read_variable_core(&mut self, variable: &BindingRef, block: NodeIndex) -> ValueId {
         self.variables_read.insert(variable.clone());
         self.variables
             .get(variable)
@@ -324,7 +318,7 @@ impl FrontEnd {
             .unwrap_or_else(|| self.read_variable_recursive(variable, block))
     }
 
-    fn read_variable_recursive(&mut self, variable: &Variable, block: NodeIndex) -> ValueId {
+    fn read_variable_recursive(&mut self, variable: &BindingRef, block: NodeIndex) -> ValueId {
         let value_id = if !self.sealed_blocks.contains(&block) {
             // Incomplete CFG
             let phi = self.define_phi(block, &[]);
@@ -384,11 +378,11 @@ impl FrontEnd {
                 }
             }
         };
-        self.write_variable(variable, block, value_id);
+        self.write_variable(variable.clone(), block, value_id);
         value_id
     }
 
-    fn add_phi_operands(&mut self, variable: &Variable, phi: ValueId) -> ValueId {
+    fn add_phi_operands(&mut self, variable: &BindingRef, phi: ValueId) -> ValueId {
         let predecessors = self.graph
             .edges_directed(self.definitions[&phi].block, Direction::Incoming)
             .map(|edge| edge.source())
@@ -458,26 +452,21 @@ impl FrontEnd {
 
     fn define(&mut self, block: NodeIndex, value: Value) -> ValueId {
         let value = normalize(value);
-        let (value_index, reused) = self.values.insert(value.clone());
-        let variable = Variable::Value(value_index);
-        if *reused {
-            self.read_variable(&variable, block)
-        } else {
+        let (value_id, reused) = self.values.insert(value.clone());
+        if !*reused {
             if self.enable_cfp {
-                fold_constants(block, &self.definitions, &mut self.values, &self.functions, value_index);
+                fold_constants(block, &self.definitions, &mut self.values, &self.functions, value_id);
             }
             let basic_block = &mut self.graph[block];
-            let statement_index = basic_block.push(Statement::Definition(value_index));
-            self.write_variable(&Variable::Value(value_index), block, value_index);
+            let statement_index = basic_block.push(Statement::Definition(value_id));
             let location = StatementLocation::new(block, statement_index);
-
-            self.definitions.insert(value_index, location);
-            self.record_phi_and_undefined_usages(location, value_index);
-            if let Value::Phi(_) = &self.values[value_index] {
-                self.phi_users.insert(value_index, HashSet::new());
+            self.definitions.insert(value_id, location);
+            self.record_phi_and_undefined_usages(value_id);
+            if let Value::Phi(_) = &self.values[value_id] {
+                self.phi_users.insert(value_id, HashSet::new());
             }
-            value_index
         }
+        value_id
     }
 
     fn define_phi(&mut self, block: NodeIndex, operands: &[ValueId]) -> ValueId {
@@ -490,7 +479,7 @@ impl FrontEnd {
         self.graph[block].push(Statement::Return(value_id));
     }
 
-    fn record_phi_and_undefined_usages(&mut self, location: StatementLocation, value_id: ValueId) {
+    fn record_phi_and_undefined_usages(&mut self, value_id: ValueId) {
         let (is_using_undefined, phis_used) = get_value_operands(&self.values[value_id])
             .fold((false, vec![]), |(mut is_using_undefined, mut phis_used), value_id| {
                 if value_id == UNDEFINED_VALUE {
@@ -501,7 +490,7 @@ impl FrontEnd {
                 (is_using_undefined, phis_used)
             });
         if is_using_undefined {
-            self.undefined_users.push(location);
+            self.undefined_users.push(value_id);
         }
         for phi in phis_used {
             self.phi_users.get_mut(&phi).unwrap().insert(value_id);
@@ -566,7 +555,13 @@ impl FrontEnd {
     }
 }
 
-fn warn_about_redundant_bindings(redundant_bindings: impl Iterator<Item = BindingRef>) {
+#[derive(Copy, Clone)]
+enum Marker {
+    Initial,
+    Phi(ValueId),
+}
+
+fn warn_about_redundant_bindings<'a>(redundant_bindings: impl Iterator<Item = &'a BindingRef>) {
     let redundant_bindings = redundant_bindings
         .sorted_by_key(|binding| binding.source.range().start());
     for binding in redundant_bindings {
@@ -579,9 +574,9 @@ fn fold_constants(
     definitions: &HashMap<ValueId, StatementLocation>,
     values: &mut ValueStorage,
     functions: &FunctionMap,
-    value_index: ValueId)
+    value_id: ValueId)
 {
-    let folded = match &values[value_index] {
+    let folded = match &values[value_id] {
         Value::Unit |
         Value::Int(_) |
         Value::String(_) |
@@ -640,14 +635,13 @@ fn fold_constants(
             }
         }),
 
-        Value::Call(function, arguments) =>
-            fold_call(*function, arguments.to_vec(), values, functions),
+        Value::Call(function, arguments) => fold_call(*function, arguments.to_vec(), values, functions),
 
         Value::Phi(_) |
         Value::Arg(_) => None,
     };
     if let Some(value) = folded {
-        values[value_index] = value;
+        values[value_id] = value;
     }
 }
 
@@ -678,17 +672,9 @@ fn fold_call(
             Value::Function(fn_id) => functions[fn_id].clone(),
             _ => unreachable!(),
         };
-        // FIXME probably should store argument ids somewhere, instead of collecting them like that
-        let parameter_ids = function_cfg.definitions
-            .keys()
-            .filter_map(|value_index| match function_cfg.values[*value_index] {
-                Value::Arg(index) => Some((*value_index, index)),
-                _ => None,
-            })
-            .collect_vec();
-        for (parameter_value_index, argument_index) in parameter_ids {
-            function_cfg.values[parameter_value_index] =
-                values[arguments[argument_index]].clone();
+        for (parameter_value_id, argument_value_id) in function_cfg.parameters.iter().enumerate() {
+            function_cfg.values[*argument_value_id] =
+                values[arguments[parameter_value_id]].clone();
         }
 
         let result_block = function_cfg.definitions[&function_cfg.result].block;
@@ -700,232 +686,4 @@ fn fold_call(
         }
     }
     None
-}
-
-fn get_statement_operands<'a>(values: &'a ValueStorage, statement: &'a Statement)
-    -> Box<dyn Iterator<Item = ValueId> + 'a>
-{
-    match statement {
-        Statement::Comment(_) => Box::new(empty()),
-        Statement::Definition(value_index) => get_value_operands(&values[*value_index]),
-        Statement::CondJump(condition, _, _) => Box::new(once(*condition)),
-        Statement::Return(result) => Box::new(once(*result)),
-    }
-}
-
-fn replace_value_id(value: &mut Value, value_id: ValueId, replacement: ValueId) {
-    let operands: Box<dyn Iterator<Item = &mut ValueId>> = match value {
-        Value::Unit |
-        Value::Int(_) |
-        Value::String(_) |
-        Value::Function {..} |
-        Value::Arg(_) => Box::new(empty()),
-
-        Value::AddInt(left, right) |
-        Value::SubInt(left, right) |
-        Value::MulInt(left, right) |
-        Value::DivInt(left, right) |
-        Value::AddString(left, right) => Box::new(once(left).chain(once(right))),
-        Value::Phi(operands) => Box::new(operands.iter_mut()),
-        Value::Call(function, arguments) => Box::new(once(function).chain(arguments.iter_mut())),
-    };
-    for operand in operands {
-        if *operand == value_id {
-            *operand = replacement;
-        }
-    }
-}
-
-fn get_value_operands<'a>(value: &'a Value) -> Box<dyn Iterator<Item =ValueId> + 'a> {
-    match value {
-        Value::Unit |
-        Value::Int(_) |
-        Value::String(_) |
-        Value::Function {..} |
-        Value::Arg(_) => Box::new(empty()),
-
-        Value::AddInt(left, right) |
-        Value::SubInt(left, right) |
-        Value::MulInt(left, right) |
-        Value::DivInt(left, right) |
-        Value::AddString(left, right) => Box::new(once(*left).chain(once(*right))),
-
-        Value::Phi(phi) => Box::new(phi.iter().cloned()),
-        Value::Call(function, arguments) => Box::new(once(*function).chain(arguments.iter().cloned())),
-    }
-}
-
-fn normalize(value: Value) -> Value {
-    match &value {
-        Value::Unit |
-        Value::Int(_) |
-        Value::String(_) |
-        Value::Function {..} |
-        Value::SubInt(_, _) |
-        Value::DivInt(_, _) |
-        Value::AddString(_, _) |
-        Value::Call(_, _) |
-        Value::Arg(_) => value,
-
-        Value::AddInt(left, right) => Value::AddInt(*left.min(&right), *left.max(&right)),
-        Value::MulInt(left, right) => Value::MulInt(*left.min(&right), *left.max(&right)),
-
-        Value::Phi(Phi(operands)) => {
-            let sorted_operands = operands
-                .iter()
-                .cloned()
-                .sorted()
-                .collect_vec();
-            Value::Phi(Phi(sorted_operands))
-        },
-    }
-}
-
-#[derive(Copy, Clone)]
-enum Marker {
-    Initial,
-    Phi(ValueId),
-}
-
-macro_rules! test_frontend {
-    ($name: ident, $code: expr, $check: expr) => {
-        #[test]
-        fn $name() -> TestResult {
-            let code = typecheck!($code)?;
-            let cfg = FrontEnd::new(&location!())
-                .enable_warnings(false)
-                .include_comments(false)
-                .enable_cfp(true)
-                .enable_dce(true)
-                .build(&code);
-            let test_src_path = Path::new(file!());
-            let test_src_file_name = test_src_path
-                .file_name()
-                .and_then(OsStr::to_str)
-                .expect(&format!("failed to extract the file name from path: {}", test_src_path.display()));
-            let mut file = File::create(format!("{}_{}_cfg.dot", test_src_file_name, line!()))?;
-            graphviz_dot_write(&mut file, &cfg)?;
-            let check: fn(ControlFlowGraph) = $check;
-            check(cfg);
-            Ok(())
-        }
-    }
-}
-
-macro_rules! test_frontend_eval {
-    ($name: ident, $code: expr, $expected_result: expr) => {
-        test_frontend!{ $name, $code, |cfg| {
-            let value = crate::ir::eval::EvalContext::new(&cfg, &cfg.functions).eval();
-            assert_eq!(value, $expected_result);
-        }}
-    }
-}
-
-test_frontend_eval! {
-    generic,
-    "
-    let x = 47
-    let y = 29
-    let z = y
-    1
-    let r = if 0 {
-        let a = z
-        let b = a
-        z = 22
-        x + b + y
-        1
-    } else {
-        z = 33
-        1
-    }
-    z
-    r + 1
-    z + 1
-
-    z = 6
-    z + 7
-    z = 8
-    z + 9
-
-    let f = λ (g: λ (u:str, v:str) -> str, u:str, v:str) -> g u v
-    let s1 = f (λ (u:str, v:str) -> \"(\" + u + \"; \" + v + \")\") \"hello\" \"world\"
-    let s2 = f (λ (u:str, v:str) -> \"<\" + u + \"; \" + v + \">\") (\"bye, \" + \"world\") \"seeya\"
-    let result = s1 + s2
-    result
-    ",
-    Value::String(Rc::new("(hello; world)<bye, world; seeya>".to_owned()))
-}
-
-test_frontend_eval! {
-    block_removal,
-    "
-    let x = 0
-    let y = 999
-    if x {
-        x = 1
-    } else {
-        x = 2
-    }
-    if y {
-        x = 3
-    } else {
-        x = 4
-    }
-    x
-    ",
-    Value::Int(BigInt::from(3))
-}
-
-test_frontend_eval! {
-    block_removal2,
-    &"
-    let x = \"abc\"
-    let y = \"efg\"
-    let z = λ (a:str, b:str) -> {
-        let result = a + b
-        result
-    }
-    if 0 {
-        \"false\"
-    }
-    else {
-        let a = (z x y)
-        z a \"/test\"
-    }
-    let nn = 1
-    ".repeat(7),
-    Value::Unit
-}
-
-test_frontend_eval!{
-    marker_eval,
-    "
-    let a = 1
-    let b = 2
-    (a + 1) * (b - 1)
-    let f = λ (a: num, b: num) -> a + b
-    let g = λ (f: λ (a: num, b: num) -> num, a: num, b: num) → f a b + 1
-    g f 1 2
-    (a + 1) * (b - 1)
-    a = 10
-    g f 1 2
-    (a + 1) * (b - 1)
-    a = 10
-    ",
-    Value::Int(BigInt::from(10))
-}
-
-test_frontend!{
-    conditional_cfp,
-    "
-    let f = λ (a: num, b: num) -> a + b
-    let x = 0
-    if x {
-        x = f 3 4
-    } else {
-        x = f 5 6
-    }
-    x
-    ",
-    |cfg| assert_eq!(cfg.graph.edge_count(), 0)
 }

@@ -4,9 +4,8 @@ use std::ops::Deref;
 use std::ops::Index;
 use std::ops::IndexMut;
 
-use stable_vec::StableVec;
-
 use crate::ir::Value;
+use crate::utils::RetainIndices;
 
 pub(crate) struct Reused(bool);
 
@@ -20,54 +19,62 @@ impl Deref for Reused {
 
 #[derive(Clone)]
 pub(crate) struct ValueStorage {
-    by_value: HashMap<Value, ValueId>,
-    by_index: StableVec<Value>,
+    value_to_id: HashMap<Value, ValueId>,
+    values: Vec<Value>,
 }
 
 impl ValueStorage {
     pub(crate) fn new() -> Self {
         Self {
-            by_value: HashMap::new(),
-            by_index: StableVec::new(),
+            value_to_id: HashMap::new(),
+            values: Vec::new(),
         }
     }
 
     pub(crate) fn insert(&mut self, value: Value) -> (ValueId, Reused) {
-        match self.by_value.get(&value) {
+        match self.value_to_id.get(&value) {
             Some(index) => (*index, Reused(true)),
             None => {
-                let index = ValueId(self.by_index.push(value.clone()));
-                self.by_value.insert(value, index);
-                (index, Reused(false))
+                let index = self.values.len();
+                self.values.push(value.clone());
+                self.value_to_id.insert(value, ValueId(index));
+                (ValueId(index), Reused(false))
             }
         }
     }
 
-    pub(crate) fn iter(&self) -> impl Iterator<Item = &Value> {
-        self.by_index.iter()
+    pub(crate) fn iter(&self) -> impl Iterator<Item = (&Value, ValueId)> {
+        self.values
+            .iter()
+            .enumerate()
+            .map(|(index, value)| (value, ValueId(index)))
     }
 
-    pub(crate) fn indices(&self) -> impl Iterator<Item = &ValueId> {
-        self.by_value.values()
+    pub(crate) fn iter_mut(&mut self) -> impl Iterator<Item = (&mut Value, ValueId)> {
+        self.values
+            .iter_mut()
+            .enumerate()
+            .map(|(index, value)| (value, ValueId(index)))
     }
 
-    pub(crate) fn retain(&mut self, mut predicate: impl FnMut(ValueId) -> bool) {
-        self.by_value.retain(|_, index| predicate(*index));
-        self.by_index.retain_indices(|index| predicate(ValueId(index)));
+    pub(crate) fn retain(&mut self, mut predicate: impl FnMut(ValueId) -> bool, mut remap: impl FnMut(ValueId, ValueId)) {
+        self.value_to_id.retain(|_, index| predicate(*index));
+        self.values.retain_indices(|_, index| predicate(ValueId(index)), |_, from, to| remap(ValueId(from), ValueId(to)));
+        self.values.shrink_to_fit();
     }
 }
 
 impl Index<ValueId> for ValueStorage {
     type Output = Value;
 
-    fn index(&self, index: ValueId) -> &Self::Output {
-        &self.by_index[index.0]
+    fn index(&self, value_id: ValueId) -> &Self::Output {
+        &self.values[value_id.0]
     }
 }
 
 impl IndexMut<ValueId> for ValueStorage {
-    fn index_mut(&mut self, index: ValueId) -> &mut Self::Output {
-        &mut self.by_index[index.0]
+    fn index_mut(&mut self, value_id: ValueId) -> &mut Self::Output {
+        &mut self.values[value_id.0]
     }
 }
 
@@ -78,6 +85,6 @@ pub(crate) static UNDEFINED_VALUE: ValueId = ValueId(usize::max_value());
 
 impl fmt::Display for ValueId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt::Debug::fmt(self, f)
+        write!(f, "v{}", self.0)
     }
 }
