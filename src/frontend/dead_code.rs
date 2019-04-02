@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::collections::HashSet;
 use std::iter::FromIterator;
 use std::iter::once;
 use std::iter::repeat;
@@ -10,10 +9,14 @@ use petgraph::Direction;
 use petgraph::graph::NodeIndex;
 use petgraph::visit::EdgeRef;
 
-use crate::frontend::get_statement_operands;
-use crate::ir::{BasicBlock, FunctionMap, StatementLocation};
+use crate::ir::BasicBlock;
 use crate::ir::BasicBlockGraph;
+use crate::ir::FunctionMap;
+use crate::ir::get_statement_operands_deep;
+use crate::ir::get_statement_operands_mut;
+use crate::ir::get_value_operands_mut;
 use crate::ir::Statement;
+use crate::ir::StatementLocation;
 use crate::ir::Value;
 use crate::ir::value_storage::ValueId;
 use crate::ir::value_storage::ValueStorage;
@@ -31,8 +34,7 @@ pub(crate) fn remove_dead_code(
     remove_empty_blocks(graph);
     merge_consecutive_basic_blocks(entry_block, values, graph, &mut value_usage, definitions);
     remove_unused_definitions(&mut value_usage, values, graph, definitions);
-//    rename_idents(values, graph, definitions, program_result, &mut ident_usage);
-    remove_unused_values(&definitions, values, functions);
+    remove_unused_values(definitions, values, functions, graph, program_result);
 }
 
 fn compute_value_usage(
@@ -50,7 +52,7 @@ fn compute_value_usage(
     let used_values = graph
         .node_indices()
         .flat_map(|node| graph[node].iter())
-        .flat_map(|statement| get_statement_operands(&values, statement))
+        .flat_map(|statement| get_statement_operands_deep(&values, statement))
         .chain(once(program_result));
     for value_id in used_values {
         *value_usage.get_mut(&value_id).unwrap() += 1;
@@ -104,51 +106,11 @@ fn unuse(
     if *usage_count == 0 {
         let location = &definitions[&value_id];
         let statement = &graph[location.block][location.index];
-        for operand in get_statement_operands(&values, statement) {
+        for operand in get_statement_operands_deep(&values, statement) {
             unuse(operand, graph, values, value_usage, definitions);
         }
     }
 }
-
-//fn rename_idents(
-//    values: &mut ValueStorage,
-//    graph: &mut BasicBlockGraph,
-//    definitions: &mut HashMap<VarId, StatementLocation>,
-//    program_result: &mut VarId,
-//    ident_usage: &mut HashMap<VarId, usize>)
-//{
-//    let mut idgen = IdentGenerator::new();
-//    let ident_rename_map: HashMap<VarId, VarId> = HashMap::from_iter({
-//        definitions
-//            .iter()
-//            .sorted_by_key(|(var_id, _)| var_id)
-//            .map(|(ident, _)| (*ident, idgen.next_id()))
-//    });
-//    let blocks = graph
-//        .node_indices()
-//        .collect_vec();
-//    for block in blocks {
-//        for statement in graph[block].iter_mut() {
-//            for ident in get_statement_idents_mut(values, statement) {
-//                let renamed = ident_rename_map[&ident];
-//                *ident = renamed;
-//            };
-//        }
-//    }
-//
-//    let old_ident_usage = replace(ident_usage, HashMap::new());
-//    *ident_usage = HashMap::from_iter(
-//        old_ident_usage
-//            .into_iter()
-//            .map(|(from, usage)| (ident_rename_map[&from], usage)));
-//
-//    let old_definitions = replace(definitions, HashMap::new());
-//    *definitions = HashMap::from_iter(
-//        old_definitions
-//            .into_iter()
-//            .map(|(from, definition)| (ident_rename_map[&from], definition)));
-//    *program_result = ident_rename_map[program_result];
-//}
 
 fn remove_empty_blocks(graph: &mut BasicBlockGraph) {
     let blocks = graph
@@ -225,21 +187,42 @@ fn merge_consecutive_basic_blocks(
 }
 
 fn remove_unused_values(
-    definitions: &HashMap<ValueId, StatementLocation>,
+    definitions: &mut HashMap<ValueId, StatementLocation>,
     values: &mut ValueStorage,
-    functions: &mut FunctionMap)
+    functions: &mut FunctionMap,
+    graph: &mut BasicBlockGraph,
+    program_result: &mut ValueId)
 {
-    let values_used = definitions
-        .keys()
-        .collect::<HashSet<_>>();
-    for value_index in values.indices() {
-        if !values_used.contains(value_index) {
-            if let Value::Function(fn_id) = &values[*value_index] {
+    for (_, value_id) in values.iter() {
+        if !definitions.contains_key(&value_id) {
+            if let Value::Function(fn_id) = &values[value_id] {
                 functions.remove(fn_id);
             }
         }
     }
-    values.retain(|value_index| values_used.contains(&value_index));
+
+    let mut remap = HashMap::new();
+    let mut new_definitions = HashMap::new();
+    values.retain(|value_id| definitions.contains_key(&value_id), |from, to| {
+        remap.insert(from, to);
+        new_definitions.insert(to, definitions[&from]);
+    });
+    for (value, _) in values.iter_mut() {
+        for operand in get_value_operands_mut(value) {
+            *operand = remap[operand];
+        }
+    }
+    let blocks = graph.node_indices().collect_vec();
+    for block in blocks {
+        let basic_block = &mut graph[block];
+        for statement in basic_block.iter_mut() {
+            for operand in get_statement_operands_mut(statement) {
+                *operand = remap[operand];
+            }
+        }
+    }
+    *definitions = new_definitions;
+    *program_result = remap[program_result];
 }
 
 fn remove_statements(locations: Vec<StatementLocation>, graph: &mut BasicBlockGraph) {

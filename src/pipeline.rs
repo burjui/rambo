@@ -202,7 +202,7 @@ impl CompilerPass<(ExprRef, SourceFileRef), (ExprRef, ControlFlowGraph)> for IR 
 fn cfg_statements_count(cfg: &ControlFlowGraph) -> usize {
     let functions = cfg.values
         .iter()
-        .filter_map(|value| match value {
+        .filter_map(|(value, _)| match value {
             Value::Function(fn_id) => Some(&cfg.functions[fn_id]),
             _ => None,
         });
@@ -225,7 +225,7 @@ fn dump_cfg(cfg: &ControlFlowGraph, name: &str, stdout: &mut StandardStream) -> 
     }
     let functions = cfg.values
         .iter()
-        .filter_map(|value| match value {
+        .filter_map(|(value, _)| match value {
             Value::Function(fn_id) => Some((fn_id, &cfg.functions[fn_id])),
             _ => None,
         })

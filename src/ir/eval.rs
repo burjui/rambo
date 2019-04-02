@@ -13,7 +13,8 @@ use petgraph::graph::NodeIndex;
 use petgraph::prelude::Direction::Outgoing;
 use petgraph::visit::EdgeRef;
 
-use crate::ir::{ControlFlowGraph, FunctionMap};
+use crate::ir::ControlFlowGraph;
+use crate::ir::FunctionMap;
 use crate::ir::Statement;
 use crate::ir::Value;
 use crate::ir::value_storage::ValueId;
@@ -47,23 +48,33 @@ impl<'a> EvalContext<'a> {
         let mut result = &self.unit;
         let mut state = self.new_state(block);
         loop {
-            let statement = state.statements.next();
+            let basic_block = &self.cfg.graph[state.block];
+            let mut statement = None;
+            while statement.is_none() && state.statement_index < basic_block.next_index() {
+                statement = basic_block.get(state.statement_index);
+                state.statement_index += 1;
+            }
+
             if statement.is_none() {
                 let mut outgoing_edges = self.cfg.graph.edges_directed(state.block, Outgoing);
-                match outgoing_edges.next() {
-                    Some(edge) => state = self.new_state(edge.target()),
+                let outgoing_edge = outgoing_edges.next();
+                debug_assert_eq!(outgoing_edges.next(), None, "detected branching without branching instruction");
+                match outgoing_edge {
+                    Some(edge) => {
+                        state = self.new_state(edge.target());
+                        continue;
+                    },
                     None => break,
                 };
-                debug_assert_eq!(outgoing_edges.next(), None, "detected branching without branching instruction");
             }
 
             match statement {
                 Some(Statement::Comment(_)) => (),
 
-                Some(Statement::Definition(value_index)) => {
-                    let value = self.eval_value(&self.cfg.values[*value_index]);
-                    self.define(*value_index, value);
-                    result = &self.env[value_index].value;
+                Some(Statement::Definition(value_id)) => {
+                    let value = self.eval_value(&self.cfg.values[*value_id]);
+                    self.define(*value_id, value);
+                    result = &self.env[value_id].value;
                 }
 
                 Some(Statement::CondJump(var, then_block, else_block)) => {
@@ -90,10 +101,10 @@ impl<'a> EvalContext<'a> {
         result.clone()
     }
 
-    fn new_state(&self, block: NodeIndex) -> LocalEvalState<'a> {
+    fn new_state(&self, block: NodeIndex) -> LocalEvalState {
         LocalEvalState {
             block,
-            statements: Box::new(self.cfg.graph[block].iter()),
+            statement_index: 0,
         }
     }
 
@@ -219,9 +230,9 @@ impl IndexMut<ValueId> for EvalEnv {
     }
 }
 
-struct LocalEvalState<'a> {
+struct LocalEvalState {
     block: NodeIndex,
-    statements: Box<dyn Iterator<Item = &'a Statement> + 'a>,
+    statement_index: usize,
 }
 
 #[derive(Debug, Clone)]
