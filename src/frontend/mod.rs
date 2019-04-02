@@ -194,7 +194,7 @@ impl FrontEnd {
                 (block, self.read_variable(binding, block))
             }
 
-            TypedExpr::Conditional { condition, positive, negative, source, .. } => {
+            TypedExpr::Conditional { condition, true_branch, false_branch, source, .. } => {
                 self.comment(block, source.text());
                 let (block, condition) = self.process_expr(condition, block);
                 let condition_value = &self.values[condition];
@@ -203,9 +203,9 @@ impl FrontEnd {
                     return match condition_value {
                         Value::Int(n) => {
                             if n.is_zero() {
-                                self.process_expr(negative, block)
+                                self.process_expr(false_branch, block)
                             } else {
-                                self.process_expr(positive, block)
+                                self.process_expr(true_branch, block)
                             }
                         }
 
@@ -213,24 +213,24 @@ impl FrontEnd {
                     };
                 }
 
-                let positive_block = self.new_block();
-                let negative_block = self.new_block();
+                let true_branch_block = self.new_block();
+                let false_branch_block = self.new_block();
 
-                self.graph[block].push(Statement::CondJump(condition, positive_block, negative_block));
+                self.graph[block].push(Statement::CondJump(condition, true_branch_block, false_branch_block));
                 self.record_phi_and_undefined_usages(condition);
 
-                self.graph.add_edge(block, positive_block, ());
-                self.graph.add_edge(block, negative_block, ());
-                self.seal_block(positive_block);
-                self.seal_block(negative_block);
-                let (positive_exit_block, positive) = self.process_expr(positive, positive_block);
-                let (negative_exit_block, negative) = self.process_expr(negative, negative_block);
+                self.graph.add_edge(block, true_branch_block, ());
+                self.graph.add_edge(block, false_branch_block, ());
+                self.seal_block(true_branch_block);
+                self.seal_block(false_branch_block);
+                let (true_branch_exit_block, true_branch) = self.process_expr(true_branch, true_branch_block);
+                let (false_branch_exit_block, false_branch) = self.process_expr(false_branch, false_branch_block);
 
                 let exit = self.new_block();
-                self.graph.add_edge(positive_exit_block, exit, ());
-                self.graph.add_edge(negative_exit_block, exit, ());
+                self.graph.add_edge(true_branch_exit_block, exit, ());
+                self.graph.add_edge(false_branch_exit_block, exit, ());
                 self.seal_block(exit);
-                let result_phi = self.define_phi(exit, &[positive, negative]);
+                let result_phi = self.define_phi(exit, &[true_branch, false_branch]);
                 (exit, self.try_remove_trivial_phi(result_phi))
             }
 
