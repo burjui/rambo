@@ -12,7 +12,6 @@ use termcolor::ColorSpec;
 use termcolor::StandardStream;
 use termcolor::WriteColor;
 
-use crate::{riscv_backend, riscv_runner};
 use crate::frontend::FrontEnd;
 use crate::graphviz::graphviz_dot_write;
 use crate::ir::ControlFlowGraph;
@@ -22,7 +21,9 @@ use crate::ir::Value;
 use crate::lexer::Lexer;
 use crate::parser::Block;
 use crate::parser::Parser;
+use crate::riscv_backend;
 use crate::riscv_backend::RICSVImage;
+use crate::riscv_simulator;
 use crate::semantics::ExprRef;
 use crate::semantics::SemanticsChecker;
 use crate::source::SourceFile;
@@ -235,7 +236,7 @@ impl CompilerPass<RICSVImage, ()> for RISCVSimulator {
     const TITLE: &'static str = "Executing RISC-V code";
 
     fn apply(image: RICSVImage, _options: &PipelineOptions) -> Result<(), Box<dyn Error>> {
-        riscv_runner::run(&image);
+        riscv_simulator::run(&image);
 //        if options.print_passes {
 //            ...
 //        }

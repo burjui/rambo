@@ -66,7 +66,7 @@ macro_rules! matches {
     }
 }
 
-pub(crate) fn intersect<'a, T: Ord + Copy>(mut r1: &'a Range<T>, mut r2: &'a Range<T>) -> Option<Range<T>> {
+pub(crate) fn intersection<'a, T: Ord + Copy>(mut r1: &'a Range<T>, mut r2: &'a Range<T>) -> Option<Range<T>> {
     if r1.start > r2.start {
         swap(&mut r1, &mut r2);
     }
@@ -84,9 +84,8 @@ macro_rules! test_intersection {
         let range1: Range<u32> = $range1;
         let range2: Range<u32> = $range2;
         let expected: Option<Range<u32>> = $expected;
-        let intersection = intersect(&range1, &range2);
-        assert_eq!(&intersection, &expected);
-        assert_eq!(&intersection, &intersect(&range2, &range1));
+        assert_eq!(&intersection(&range1, &range2), &expected);
+        assert_eq!(&intersection(&range1, &range2), &intersection(&range2, &range1));
     }};
 }
 

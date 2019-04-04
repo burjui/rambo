@@ -44,7 +44,7 @@ mod tracking_allocator;
 
 mod riscv;
 mod riscv_backend;
-mod riscv_runner;
+mod riscv_simulator;
 
 type TrackingAllocator = tracking_allocator::TrackingAllocator<System>;
 

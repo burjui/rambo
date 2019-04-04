@@ -5,7 +5,7 @@ use std::mem::size_of_val;
 use petgraph::stable_graph::NodeIndex;
 
 use crate::ir::ControlFlowGraph;
-use crate::utils::intersect;
+use crate::utils::intersection;
 
 pub(crate) fn generate(cfg: &ControlFlowGraph) -> RICSVImage {
     Backend::new(cfg).generate()
@@ -31,7 +31,7 @@ impl RICSVImage {
     pub(crate) fn verify(&self) -> Result<(), ImageOverlapError> {
         let code_range = self.code_base_address .. (self.code_base_address + size_of_val(&self.code[..]) as u32);
         let data_range = self.data_base_address .. (self.data_base_address + size_of_val(&self.data[..]) as u32);
-        if intersect(&code_range, &data_range).is_none() {
+        if intersection(&code_range, &data_range).is_none() {
             Ok(())
         } else {
             Err(ImageOverlapError)
