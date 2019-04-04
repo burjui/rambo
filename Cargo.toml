@@ -22,6 +22,7 @@ elapsed = "0.1.2"
 once_cell = "0.1.8"
 number_prefix = "0.3.0"
 stable-vec = { git = "https://github.com/burjui/stable-vec", rev = "c660fc50bfb6d553bd56d74032ef77573d8b2803" }
+rvsim = "0.2.1"
 
 [profile.release]
 debug = true

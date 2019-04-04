@@ -19,19 +19,14 @@ use crate::pipeline::Load;
 use crate::pipeline::Parse;
 use crate::pipeline::Pipeline;
 use crate::pipeline::PipelineOptions;
+use crate::pipeline::RISCVBackend;
+use crate::pipeline::RISCVSimulator;
 use crate::pipeline::StandardStreamUtils;
 use crate::pipeline::VerifySemantics;
 use crate::utils::stdout;
 
 #[macro_use]
 mod utils;
-
-#[cfg(test)]
-#[macro_use]
-mod vm;
-
-#[cfg(test)]
-mod runtime;
 
 #[macro_use]
 mod ir;
@@ -46,6 +41,10 @@ mod unique_rc;
 mod graphviz;
 mod frontend;
 mod tracking_allocator;
+
+mod riscv;
+mod riscv_backend;
+mod riscv_runner;
 
 type TrackingAllocator = tracking_allocator::TrackingAllocator<System>;
 
@@ -149,7 +148,9 @@ fn process(path: String, options: &PipelineOptions) -> Result<(), Box<dyn Error>
         .map(Parse)?
         .map(VerifySemantics)?
         .map(IR)?
-        .map(EvaluateIR)
+        .map(EvaluateIR)?
+        .map(RISCVBackend)?
+        .map(RISCVSimulator)
         .map(|_| ()));
     println!("Execution time: {}", elapsed);
     println!("Memory usage: {}", match NumberPrefix::binary(ALLOCATOR.max_usage() as f32) {

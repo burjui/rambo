@@ -58,7 +58,6 @@ impl<'a> EvalContext<'a> {
             if statement.is_none() {
                 let mut outgoing_edges = self.cfg.graph.edges_directed(state.block, Outgoing);
                 let outgoing_edge = outgoing_edges.next();
-                debug_assert_eq!(outgoing_edges.next(), None, "detected branching without branching instruction");
                 match outgoing_edge {
                     Some(edge) => {
                         state = self.new_state(edge.target());

@@ -12,6 +12,7 @@ use termcolor::ColorSpec;
 use termcolor::StandardStream;
 use termcolor::WriteColor;
 
+use crate::{riscv_backend, riscv_runner};
 use crate::frontend::FrontEnd;
 use crate::graphviz::graphviz_dot_write;
 use crate::ir::ControlFlowGraph;
@@ -21,6 +22,7 @@ use crate::ir::Value;
 use crate::lexer::Lexer;
 use crate::parser::Block;
 use crate::parser::Parser;
+use crate::riscv_backend::RICSVImage;
 use crate::semantics::ExprRef;
 use crate::semantics::SemanticsChecker;
 use crate::source::SourceFile;
@@ -96,7 +98,9 @@ compiler_passes! {
     Parse,
     VerifySemantics,
     IR,
-    EvaluateIR
+    EvaluateIR,
+    RISCVBackend,
+    RISCVSimulator
 }
 
 pub(crate) trait CompilerPass<Input, Output> {
@@ -168,11 +172,11 @@ impl CompilerPass<(Block, SourceFileRef), (ExprRef, SourceFileRef)> for VerifySe
     }
 }
 
-impl CompilerPass<(ExprRef, SourceFileRef), (ExprRef, ControlFlowGraph)> for IR {
+impl CompilerPass<(ExprRef, SourceFileRef), ControlFlowGraph> for IR {
     const NAME: &'static str = "ir";
     const TITLE: &'static str = "Generating IR";
 
-    fn apply((hir, source_file): (ExprRef, SourceFileRef), options: &PipelineOptions) -> Result<(ExprRef, ControlFlowGraph), Box<dyn Error>> {
+    fn apply((hir, source_file): (ExprRef, SourceFileRef), options: &PipelineOptions) -> Result<ControlFlowGraph, Box<dyn Error>> {
         let frontend = FrontEnd::new("main")
             .enable_warnings(options.enable_warnings)
             .include_comments(options.cfg_include_comments)
@@ -195,7 +199,47 @@ impl CompilerPass<(ExprRef, SourceFileRef), (ExprRef, ControlFlowGraph)> for IR 
             let file = File::create(&format!("{}_cfg.dot", src_file_name))?;
             graphviz_dot_write(&mut BufWriter::new(file), &cfg)?;
         }
-        Ok((hir, cfg))
+        Ok(cfg)
+    }
+}
+
+impl CompilerPass<ControlFlowGraph, ControlFlowGraph> for EvaluateIR {
+    const NAME: &'static str = "eval_ir";
+    const TITLE: &'static str = "Evaluating IR";
+
+    fn apply(cfg: ControlFlowGraph, options: &PipelineOptions) -> Result<ControlFlowGraph, Box<dyn Error>> {
+        let value = EvalContext::new(&cfg, &cfg.functions).eval();
+        if options.print_passes {
+            writeln!(&mut stdout(), "{:?}", value)?;
+        }
+        Ok(cfg)
+    }
+}
+
+impl CompilerPass<ControlFlowGraph, RICSVImage> for RISCVBackend {
+    const NAME: &'static str = "rvgen";
+    const TITLE: &'static str = "Generating RISC-V code";
+
+    fn apply(cfg: ControlFlowGraph, _options: &PipelineOptions) -> Result<RICSVImage, Box<dyn Error>> {
+        let image = riscv_backend::generate(&cfg);
+        image.verify()?;
+//        if options.print_passes {
+//            writeln!(&mut stdout(), "{:?}", &image)?;
+//        }
+        Ok(image)
+    }
+}
+
+impl CompilerPass<RICSVImage, ()> for RISCVSimulator {
+    const NAME: &'static str = "rvsim";
+    const TITLE: &'static str = "Executing RISC-V code";
+
+    fn apply(image: RICSVImage, _options: &PipelineOptions) -> Result<(), Box<dyn Error>> {
+        riscv_runner::run(&image);
+//        if options.print_passes {
+//            ...
+//        }
+        Ok(())
     }
 }
 
@@ -239,20 +283,6 @@ fn dump_cfg(cfg: &ControlFlowGraph, name: &str, stdout: &mut StandardStream) -> 
         }
     }
     Ok(())
-}
-
-impl CompilerPass<(ExprRef, ControlFlowGraph), ExprRef> for EvaluateIR {
-    const NAME: &'static str = "eval_ir";
-    const TITLE: &'static str = "Evaluating IR";
-
-    fn apply(input: (ExprRef, ControlFlowGraph), options: &PipelineOptions) -> Result<ExprRef, Box<dyn Error>> {
-        let cfg = &input.1;
-        let value = EvalContext::new(cfg, &cfg.functions).eval();
-        if options.print_passes {
-            writeln!(&mut stdout(), "{:?}", value)?;
-        }
-        Ok(input.0)
-    }
 }
 
 pub(crate) trait StandardStreamUtils {

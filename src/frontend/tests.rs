@@ -174,9 +174,7 @@ test_frontend_eval! {
     }
     x
     ",
-    Value::Int(BigInt::from(3)),
-    ForbiddenPermutation::EnableCfp(false),
-    ForbiddenPermutation::EnableDce(false)
+    Value::Int(BigInt::from(3))
 }
 
 test_frontend_eval! {
@@ -197,8 +195,7 @@ test_frontend_eval! {
     }
     let nn = 1
     ".repeat(7),
-    Value::Unit,
-    ForbiddenPermutation::EnableDce(false)
+    Value::Unit
 }
 
 test_frontend_eval!{
