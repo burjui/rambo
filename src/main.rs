@@ -41,9 +41,9 @@ mod unique_rc;
 mod graphviz;
 mod frontend;
 mod tracking_allocator;
-
-mod riscv;
 mod riscv_backend;
+
+#[macro_use]
 mod riscv_simulator;
 
 type TrackingAllocator = tracking_allocator::TrackingAllocator<System>;

@@ -5,8 +5,6 @@ use std::ops::Range;
 
 use termcolor::ColorChoice;
 use termcolor::StandardStream;
-use std::io::{Cursor, Write};
-use std::io;
 
 macro_rules! error {
     ($format_string: expr $(, $argument: expr)*) => { Err(From::from(format!($format_string $(, $argument)*))) };
@@ -109,13 +107,4 @@ impl<T> RetainIndices<T> for Vec<T> {
             retain
         });
     }
-}
-
-pub(crate) fn write_u32(value: u32, cursor: &mut Cursor<&mut [u8]>) -> io::Result<()> {
-    cursor.write_all(&[
-        value as u8,
-        (value >> 8) as u8,
-        (value >> 16) as u8,
-        (value >> 24) as u8,
-    ])
 }

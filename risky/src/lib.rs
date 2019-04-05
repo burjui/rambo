@@ -1,141 +1,156 @@
 #![allow(clippy::unreadable_literal)]
 
+use std::collections::HashSet;
 use std::error::Error;
 use std::fmt;
-use std::ops::Range;
 use std::ops::BitAnd;
-use std::collections::HashSet;
+use std::ops::Range;
 
-macro_rules! instruction {
-    (R: $name: ident, $opcode: path, funct3 $funct3: literal, funct7 $funct7: literal) => {
-        pub(crate) fn $name(rd: u8, rs1: u8, rs2: u8) -> Result<u32> {
-            r_instruction($opcode, rd, $funct3, rs1, rs2, $funct7)
-        }
-    };
+pub mod instructions {
+    use crate::csr_instruction;
+    use crate::fence_instruction;
+    use crate::i_instruction;
+    use crate::u_instruction;
+    use crate::s_instruction;
+    use crate::b_instruction;
+    use crate::j_instruction;
+    use crate::r_instruction;
+    use crate::opcode;
+    use crate::parse_fence_mask;
+    use crate::shift_instruction;
+    use crate::Result;
 
-    (I: $name: ident, $opcode: path, funct3 $funct3: literal) => {
-        pub(crate) fn $name(rd: u8, rs1: u8, imm: u16) -> Result<u32> {
-            i_instruction($opcode, rd, $funct3, rs1, imm)
-        }
-    };
+    macro_rules! instruction {
+        (R: $name: ident, $opcode: path, funct3 $funct3: literal, funct7 $funct7: literal) => {
+            pub fn $name(rd: u8, rs1: u8, rs2: u8) -> Result<u32> {
+                r_instruction($opcode, rd, $funct3, rs1, rs2, $funct7)
+            }
+        };
 
-    (S: $name: ident, $opcode: path, funct3 $funct3: literal) => {
-        pub(crate) fn $name(imm: u16, rs1: u8, rs2: u8) -> Result<u32> {
-            s_instruction($opcode, imm, $funct3, rs1, rs2)
-        }
-    };
+        (I: $name: ident, $opcode: path, funct3 $funct3: literal) => {
+            pub fn $name(rd: u8, rs1: u8, imm: u16) -> Result<u32> {
+                i_instruction($opcode, rd, $funct3, rs1, imm)
+            }
+        };
 
-    (B: $name: ident, $opcode: path, funct3 $funct3: literal) => {
-        pub(crate) fn $name(imm: u16, rs1: u8, rs2: u8) -> Result<u32> {
-            b_instruction($opcode, imm, $funct3, rs1, rs2)
-        }
-    };
+        (S: $name: ident, $opcode: path, funct3 $funct3: literal) => {
+            pub fn $name(imm: u16, rs1: u8, rs2: u8) -> Result<u32> {
+                s_instruction($opcode, imm, $funct3, rs1, rs2)
+            }
+        };
 
-    (U: $name: ident, $opcode: path) => {
-        pub(crate) fn $name(rd: u8, imm: u32) -> Result<u32> {
-            u_instruction($opcode, rd, imm)
-        }
-    };
+        (B: $name: ident, $opcode: path, funct3 $funct3: literal) => {
+            pub fn $name(imm: u16, rs1: u8, rs2: u8) -> Result<u32> {
+                b_instruction($opcode, imm, $funct3, rs1, rs2)
+            }
+        };
 
-    (J: $name: ident, $opcode: path) => {
-        pub(crate) fn $name(rd: u8, imm: u32) -> Result<u32> {
-            j_instruction($opcode, rd, imm)
-        }
-    };
+        (U: $name: ident, $opcode: path) => {
+            pub fn $name(rd: u8, imm: u32) -> Result<u32> {
+                u_instruction($opcode, rd, imm)
+            }
+        };
+
+        (J: $name: ident, $opcode: path) => {
+            pub fn $name(rd: u8, imm: u32) -> Result<u32> {
+                j_instruction($opcode, rd, imm)
+            }
+        };
+    }
+
+    // RV32I Base Instruction Set
+
+    instruction!(U: lui, opcode::LUI);
+    instruction!(U: auipc, opcode::AUIPC);
+    instruction!(J: jal, opcode::JAL);
+    instruction!(I: jalr, opcode::JALR, funct3 0b000);
+    instruction!(B: beq, opcode::BRANCH, funct3 0b000);
+    instruction!(B: bne, opcode::BRANCH, funct3 0b001);
+    instruction!(B: blt, opcode::BRANCH, funct3 0b100);
+    instruction!(B: bge, opcode::BRANCH, funct3 0b101);
+    instruction!(B: bltu, opcode::BRANCH, funct3 0b110);
+    instruction!(B: bgeu, opcode::BRANCH, funct3 0b111);
+    instruction!(I: lb, opcode::LOAD, funct3 0b000);
+    instruction!(I: lh, opcode::LOAD, funct3 0b001);
+    instruction!(I: lw, opcode::LOAD, funct3 0b010);
+    instruction!(I: lbu, opcode::LOAD, funct3 0b100);
+    instruction!(I: lhu, opcode::LOAD, funct3 0b101);
+    instruction!(S: sb, opcode::STORE, funct3 0b000);
+    instruction!(S: sh, opcode::STORE, funct3 0b001);
+    instruction!(S: sw, opcode::STORE, funct3 0b010);
+    instruction!(I: addi, opcode::OP_IMM, funct3 0b000);
+    instruction!(I: slti, opcode::OP_IMM, funct3 0b010);
+    instruction!(I: sltiu, opcode::OP_IMM, funct3 0b011);
+    instruction!(I: xori, opcode::OP_IMM, funct3 0b100);
+    instruction!(I: ori, opcode::OP_IMM, funct3 0b110);
+    instruction!(I: andi, opcode::OP_IMM, funct3 0b111);
+    instruction!(R: add, opcode::OP, funct3 0b000, funct7 0b0000000);
+    instruction!(R: sub, opcode::OP, funct3 0b000, funct7 0b0100000);
+    instruction!(R: sll, opcode::OP, funct3 0b001, funct7 0b0000000);
+    instruction!(R: slt, opcode::OP, funct3 0b010, funct7 0b0000000);
+    instruction!(R: sltu, opcode::OP, funct3 0b011, funct7 0b0000000);
+    instruction!(R: xor, opcode::OP, funct3 0b100, funct7 0b0000000);
+    instruction!(R: srl, opcode::OP, funct3 0b101, funct7 0b0000000);
+    instruction!(R: sra, opcode::OP, funct3 0b101, funct7 0b0100000);
+    instruction!(R: or, opcode::OP, funct3 0b110, funct7 0b0000000);
+    instruction!(R: and, opcode::OP, funct3 0b111, funct7 0b0000000);
+    instruction!(I: csrrw, opcode::SYSTEM, funct3 0b001);
+    instruction!(I: csrrs, opcode::SYSTEM, funct3 0b010);
+    instruction!(I: csrrc, opcode::SYSTEM, funct3 0b011);
+
+    pub fn slli(rd: u8, rs1: u8, shamt: u8) -> Result<u32> {
+        shift_instruction(opcode::OP_IMM, rd, 0b001, rs1, shamt, 0b0000000)
+    }
+
+    pub fn srli(rd: u8, rs1: u8, shamt: u8) -> Result<u32> {
+        shift_instruction(opcode::OP_IMM, rd, 0b101, rs1, shamt, 0b0000000)
+    }
+
+    pub fn srai(rd: u8, rs1: u8, shamt: u8) -> Result<u32> {
+        shift_instruction(opcode::OP_IMM, rd, 0b101, rs1, shamt, 0b0100000)
+    }
+
+    pub fn fence(pred: &'static str, succ: &'static str) -> Result<u32> {
+        let pred = parse_fence_mask(pred)?;
+        let succ = parse_fence_mask(succ)?;
+        fence_instruction(0b000, pred, succ)
+    }
+
+    pub fn fence_i() -> Result<u32> {
+        fence_instruction(0b001, 0b0000, 0b0000)
+    }
+
+    pub fn ecall() -> Result<u32> {
+        i_instruction(opcode::SYSTEM, 0b00000, 0b000, 0b00000, 0b0000_0000_0000)
+    }
+
+    pub fn ebreak() -> Result<u32> {
+        i_instruction(opcode::SYSTEM, 0b00000, 0b000, 0b00000, 0b0000_0000_0001)
+    }
+
+    pub fn csrrwi(rd: u8, rs1: u8, csr: u16) -> Result<u32> {
+        csr_instruction(rd, 0b101, rs1, csr)
+    }
+
+    pub fn csrrsi(rd: u8, rs1: u8, csr: u16) -> Result<u32> {
+        csr_instruction(rd, 0b110, rs1, csr)
+    }
+
+    pub fn csrrci(rd: u8, rs1: u8, csr: u16) -> Result<u32> {
+        csr_instruction(rd, 0b111, rs1, csr)
+    }
+
+    // RV32M Standard Extension
+
+    instruction!(R: mul, opcode::OP, funct3 0b000, funct7 0b0000001);
+    instruction!(R: mulh, opcode::OP, funct3 0b001, funct7 0b0000001);
+    instruction!(R: mulhsu, opcode::OP, funct3 0b010, funct7 0b0000001);
+    instruction!(R: mulhu, opcode::OP, funct3 0b011, funct7 0b0000001);
+    instruction!(R: div, opcode::OP, funct3 0b100, funct7 0b0000001);
+    instruction!(R: divu, opcode::OP, funct3 0b101, funct7 0b0000001);
+    instruction!(R: rem, opcode::OP, funct3 0b110, funct7 0b0000001);
+    instruction!(R: remu, opcode::OP, funct3 0b111, funct7 0b0000001);
 }
-
-// RV32I Base Instruction Set
-
-instruction!(U: lui, opcode::LUI);
-instruction!(U: auipc, opcode::AUIPC);
-instruction!(J: jal, opcode::JAL);
-instruction!(I: jalr, opcode::JALR, funct3 0b000);
-instruction!(B: beq, opcode::BRANCH, funct3 0b000);
-instruction!(B: bne, opcode::BRANCH, funct3 0b001);
-instruction!(B: blt, opcode::BRANCH, funct3 0b100);
-instruction!(B: bge, opcode::BRANCH, funct3 0b101);
-instruction!(B: bltu, opcode::BRANCH, funct3 0b110);
-instruction!(B: bgeu, opcode::BRANCH, funct3 0b111);
-instruction!(I: lb, opcode::LOAD, funct3 0b000);
-instruction!(I: lh, opcode::LOAD, funct3 0b001);
-instruction!(I: lw, opcode::LOAD, funct3 0b010);
-instruction!(I: lbu, opcode::LOAD, funct3 0b100);
-instruction!(I: lhu, opcode::LOAD, funct3 0b101);
-instruction!(S: sb, opcode::STORE, funct3 0b000);
-instruction!(S: sh, opcode::STORE, funct3 0b001);
-instruction!(S: sw, opcode::STORE, funct3 0b010);
-instruction!(I: addi, opcode::OP_IMM, funct3 0b000);
-instruction!(I: slti, opcode::OP_IMM, funct3 0b010);
-instruction!(I: sltiu, opcode::OP_IMM, funct3 0b011);
-instruction!(I: xori, opcode::OP_IMM, funct3 0b100);
-instruction!(I: ori, opcode::OP_IMM, funct3 0b110);
-instruction!(I: andi, opcode::OP_IMM, funct3 0b111);
-instruction!(R: add, opcode::OP, funct3 0b000, funct7 0b0000000);
-instruction!(R: sub, opcode::OP, funct3 0b000, funct7 0b0100000);
-instruction!(R: sll, opcode::OP, funct3 0b001, funct7 0b0000000);
-instruction!(R: slt, opcode::OP, funct3 0b010, funct7 0b0000000);
-instruction!(R: sltu, opcode::OP, funct3 0b011, funct7 0b0000000);
-instruction!(R: xor, opcode::OP, funct3 0b100, funct7 0b0000000);
-instruction!(R: srl, opcode::OP, funct3 0b101, funct7 0b0000000);
-instruction!(R: sra, opcode::OP, funct3 0b101, funct7 0b0100000);
-instruction!(R: or, opcode::OP, funct3 0b110, funct7 0b0000000);
-instruction!(R: and, opcode::OP, funct3 0b111, funct7 0b0000000);
-instruction!(I: csrrw, opcode::SYSTEM, funct3 0b001);
-instruction!(I: csrrs, opcode::SYSTEM, funct3 0b010);
-instruction!(I: csrrc, opcode::SYSTEM, funct3 0b011);
-
-pub(crate) fn slli(rd: u8, rs1: u8, shamt: u8) -> Result<u32> {
-    shift_instruction(opcode::OP_IMM, rd, 0b001, rs1, shamt, 0b0000000)
-}
-
-pub(crate) fn srli(rd: u8, rs1: u8, shamt: u8) -> Result<u32> {
-    shift_instruction(opcode::OP_IMM, rd, 0b101, rs1, shamt, 0b0000000)
-}
-
-pub(crate) fn srai(rd: u8, rs1: u8, shamt: u8) -> Result<u32> {
-    shift_instruction(opcode::OP_IMM, rd, 0b101, rs1, shamt, 0b0100000)
-}
-
-pub(crate) fn fence(pred: &'static str, succ: &'static str) -> Result<u32> {
-    let pred = parse_fence_mask(pred)?;
-    let succ = parse_fence_mask(succ)?;
-    fence_instruction(0b000, pred, succ)
-}
-
-pub(crate) fn fence_i(rd: u8, rs1: u8, shamt: u8) -> Result<u32> {
-    fence_instruction(0b001, 0b0000, 0b0000)
-}
-
-pub(crate) fn ecall() -> Result<u32> {
-    i_instruction(opcode::SYSTEM, 0b00000, 0b000, 0b00000, 0b0000_0000_0000)
-}
-
-pub(crate) fn ebreak() -> Result<u32> {
-    i_instruction(opcode::SYSTEM, 0b00000, 0b000, 0b00000, 0b0000_0000_0001)
-}
-
-pub(crate) fn csrrwi(rd: u8, rs1: u8, csr: u16) -> Result<u32> {
-    csr_instruction(rd, 0b101, rs1, csr)
-}
-
-pub(crate) fn csrrsi(rd: u8, rs1: u8, csr: u16) -> Result<u32> {
-    csr_instruction(rd, 0b110, rs1, csr)
-}
-
-pub(crate) fn csrrci(rd: u8, rs1: u8, csr: u16) -> Result<u32> {
-    csr_instruction(rd, 0b111, rs1, csr)
-}
-
-// RV32M Standard Extension
-
-instruction!(R: mul, opcode::OP, funct3 0b000, funct7 0b0000001);
-instruction!(R: mulh, opcode::OP, funct3 0b001, funct7 0b0000001);
-instruction!(R: mulhsu, opcode::OP, funct3 0b010, funct7 0b0000001);
-instruction!(R: mulhu, opcode::OP, funct3 0b011, funct7 0b0000001);
-instruction!(R: div, opcode::OP, funct3 0b100, funct7 0b0000001);
-instruction!(R: divu, opcode::OP, funct3 0b101, funct7 0b0000001);
-instruction!(R: rem, opcode::OP, funct3 0b110, funct7 0b0000001);
-instruction!(R: remu, opcode::OP, funct3 0b111, funct7 0b0000001);
 
 // Implementation
 
@@ -172,10 +187,10 @@ mod opcode {
     );
 }
 
-pub(crate) type Result<T> = std::result::Result<T, RISCVError>;
+pub type Result<T> = std::result::Result<T, RISCVError>;
 
 #[derive(Debug)]
-pub(crate) enum RISCVError {
+pub enum RISCVError {
     OutOfRange {
         value: u32,
         range: Range<u32>,
@@ -197,7 +212,7 @@ impl fmt::Display for RISCVError {
         match self {
             RISCVError::OutOfRange { value, range, name } =>
                 write!(f, "{} = {} (0x{:08x}) is out of range: {} .. {} (0x{:08x} .. (0x{:08x}))",
-                    name, value, value, range.start, range.end, range.start, range.end),
+                       name, value, value, range.start, range.end, range.start, range.end),
             RISCVError::NotMultipleOfTwo { value, name } =>
                 write!(f, "{} = {} (0x{:08x}) is not a multiple of 2", name, value, value),
             RISCVError::FenceFlag { value, name, kind } =>
@@ -239,7 +254,7 @@ fn parse_fence_mask(s: &'static str) -> Result<u8> {
             'i' => 1 << 3,
             'o' => 1 << 2,
             'r' => 1 << 1,
-            'w' => 1 << 0,
+            'w' => 1,
             _ => return Err(RISCVError::FenceFlag {
                 value: s,
                 name: c,
@@ -325,9 +340,9 @@ fn j_instruction(opcode: u8, rd: u8, imm: u32) -> Result<u32> {
     check_register(rd)?;
     let imm =
         (imm >> 12) & 0b1111_1111 |
-        ((imm >> 11) & 0b1) << 8 |
-        ((imm >> 1) & 0b11_1111_1111) << 9 |
-        ((imm >> 20) & 0b1) << 19;
+            ((imm >> 11) & 0b1) << 8 |
+            ((imm >> 1) & 0b11_1111_1111) << 9 |
+            ((imm >> 20) & 0b1) << 19;
     check_imm_u(imm)?;
     Ok(u32::from(opcode) |
         (u32::from(rd) << 7) |
@@ -378,10 +393,9 @@ fn check_range<T: PartialOrd>(value: T, range: Range<T>, name: &'static str) -> 
 }
 
 fn check_multiple_of_two<T>(value: T, name: &'static str) -> Result<()>
-where
-    T: BitAnd + PartialEq,
-    u32: std::convert::From<T>,
-    u32: std::convert::From<T>,
+    where T: BitAnd + PartialEq,
+          u32: std::convert::From<T>,
+          u32: std::convert::From<T>,
 {
     let value = u32::from(value);
     if value & 0b1 == 0 {

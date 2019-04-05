@@ -12,6 +12,7 @@ pub(crate) fn generate(cfg: &ControlFlowGraph) -> RICSVImage {
 }
 
 pub(crate) struct RICSVImage {
+    pub(crate) ram_base_address: u32,
     pub(crate) code: Vec<u32>,
     pub(crate) code_base_address: u32,
     pub(crate) data: Vec<u8>,
@@ -19,8 +20,9 @@ pub(crate) struct RICSVImage {
 }
 
 impl RICSVImage {
-    fn empty() -> Self {
+    fn new(ram_base_address: u32) -> Self {
         Self {
+            ram_base_address,
             code: Vec::new(),
             code_base_address: 0,
             data: Vec::new(),
@@ -66,7 +68,7 @@ impl<'a> Backend<'a> {
     fn new(cfg: &'a ControlFlowGraph) -> Self {
         Self {
             cfg,
-            image: RICSVImage::empty(),
+            image: RICSVImage::new(0x0100_0000),
         }
     }
 
