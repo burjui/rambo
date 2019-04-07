@@ -17,14 +17,13 @@ use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::error::Error;
 use std::fmt;
-use std::fmt::Debug;
 use std::io;
 use std::io::Cursor;
 use std::io::Write;
-use std::mem::size_of;
-use std::mem::size_of_val;
-use std::slice::from_raw_parts;
 
+use byteorder::LittleEndian;
+use byteorder::ReadBytesExt;
+use byteorder::WriteBytesExt;
 use itertools::Itertools;
 use num_traits::cast::ToPrimitive;
 use petgraph::stable_graph::NodeIndex;
@@ -38,10 +37,12 @@ use crate::ir::Statement;
 use crate::ir::Value;
 use crate::ir::value_storage::ValueId;
 use crate::utils::{GenericResult, stderr};
-use crate::utils::read_u32;
 
 #[cfg(test)]
 mod tests;
+
+type InstructionByteOrder = LittleEndian;
+type DataByteOrder = LittleEndian;
 
 pub(crate) struct DumpCode(pub(crate) bool);
 
@@ -125,7 +126,7 @@ impl<'a> Backend<'a> {
         let mut next_block = None;
         for (index, statement) in basic_block.iter().enumerate() {
             next_block = self.generate_statement(statement)?;
-            if let Some(_) = next_block {
+            if next_block.is_some() {
                 assert_eq!(index, basic_block.len() - 1);
                 break;
             }
@@ -214,13 +215,13 @@ impl<'a> Backend<'a> {
                 let value = &self.cfg.values[value_id];
                 let address = match value {
                     Value::Unit => u32::max_value(),
-                    Value::Int(n) => self.allocate_data(n.to_u32()
+                    Value::Int(n) => self.allocate_u32(n.to_u32()
                         .unwrap_or_else(|| panic!("number out of range: {}", n)))?,
 
                     Value::String(_) |
                     Value::Function(_) => unimplemented!(),
 
-                    _ => self.allocate_data(u32::max_value())?,
+                    _ => self.allocate_u32(0)?,
                 };
                 self.values.insert(value_id, ValueState::new(address));
                 Ok(address)
@@ -228,13 +229,10 @@ impl<'a> Backend<'a> {
         }
     }
 
-    fn allocate_data<T: Debug>(&mut self, data: T) -> GenericResult<u32> {
+    fn allocate_u32(&mut self, data: u32) -> GenericResult<u32> {
         let offset = u32::try_from(self.image.data.len())?;
-        let address = self.image.ram_base_address + offset;
-        // TODO byteorder
-        let raw_data = unsafe { from_raw_parts(&data as *const T as *const u8, size_of::<T>()) };
-        self.image.data.write_all(raw_data)?;
-        Ok(address)
+        self.image.data.write_u32::<DataByteOrder>(data)?;
+        Ok(self.image.ram_base_address + offset)
     }
 
     fn load(&mut self, rd: u8, address: u32, width: AccessWidth) -> GenericResult<()> {
@@ -300,23 +298,6 @@ impl<'a> Backend<'a> {
 }
 
 enum AccessWidth { Byte, HalfWord, Word }
-
-#[derive(Debug)]
-enum DataAllocationError {
-    NotPrimitive(ValueId, Value),
-}
-
-impl fmt::Display for DataAllocationError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            DataAllocationError::NotPrimitive(value_id, value) =>
-                write!(f, "trying to allocate a non-primitive value {}: {:?}", value_id, value)
-        }
-    }
-}
-
-impl Error for DataAllocationError {}
-
 
 pub(crate) mod registers {
     macro_rules! reserved_registers {
@@ -396,7 +377,8 @@ impl Iterator for Decoder<'_> {
     type Item = Op;
 
     fn next(&mut self) -> Option<Self::Item> {
-        read_u32(&mut self.0)
+        self.0
+            .read_u32::<InstructionByteOrder>()
             .map(|instruction| Op::parse(instruction)
                 .unwrap_or_else(|| panic!("failed to parse instruction: 0x{:08x}", instruction)))
             .ok()
@@ -412,7 +394,8 @@ fn split_immediate_12_20(imm: u32) -> (u16, u32) {
 }
 
 pub(crate) fn push_code(writer: &mut impl Write, code: &[u32]) -> io::Result<()> {
-    // TODO byteorder
-    let raw_code = unsafe { from_raw_parts(&code[0] as *const u32 as *const u8, size_of_val(code)) };
-    writer.write_all(raw_code)
+    for instruction in code {
+        writer.write_u32::<InstructionByteOrder>(*instruction)?;
+    }
+    Ok(())
 }

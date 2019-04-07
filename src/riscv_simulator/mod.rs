@@ -99,7 +99,7 @@ fn dump_registers(cpu: &CpuState) -> io::Result<()> {
 
 fn dump_ram(ram: &[u8], base_address: u32) -> io::Result<()> {
     let stderr = &mut stderr();
-    for index in 0 .. ram.len() {
+    for (index, &byte) in ram.iter().enumerate() {
         if index % 4 == 0 {
             if index > 0 {
                 writeln!(stderr)?;
@@ -111,7 +111,7 @@ fn dump_ram(ram: &[u8], base_address: u32) -> io::Result<()> {
         stderr.set_color(ColorSpec::new()
             .set_fg(Some(Color::Black))
             .set_intense(true))?;
-        write!(stderr, "{:02x}", ram[index])?;
+        write!(stderr, "{:02x}", byte)?;
         stderr.reset()?;
     }
     writeln!(stderr, "\n")

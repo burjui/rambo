@@ -1,6 +1,4 @@
 use std::error::Error;
-use std::io;
-use std::io::Read;
 use std::mem::swap;
 use std::ops::Range;
 
@@ -123,13 +121,4 @@ impl<T> RetainIndices<T> for Vec<T> {
             retain
         });
     }
-}
-
-pub(crate) fn read_u32(cursor: &mut impl Read) -> io::Result<u32> {
-    let mut buffer = [0; 4];
-    cursor.read_exact(&mut buffer)?;
-    Ok(u32::from(buffer[0]) |
-        u32::from(buffer[1]) << 8 |
-        u32::from(buffer[2]) << 16 |
-        u32::from(buffer[3]) << 24)
 }
