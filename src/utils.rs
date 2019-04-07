@@ -1,10 +1,13 @@
-#[cfg(test)]
 use std::error::Error;
+use std::io;
+use std::io::Read;
 use std::mem::swap;
 use std::ops::Range;
 
 use termcolor::ColorChoice;
 use termcolor::StandardStream;
+
+pub(crate) type GenericResult<T> = std::result::Result<T, Box<dyn Error>>;
 
 macro_rules! error {
     ($format_string: expr $(, $argument: expr)*) => { Err(From::from(format!($format_string $(, $argument)*))) };
@@ -37,7 +40,7 @@ macro_rules! typecheck {
 }
 
 #[cfg(test)]
-pub(crate) fn typecheck(name: String, text: &str) -> Result<crate::semantics::ExprRef, Box<dyn std::error::Error>> {
+pub(crate) fn typecheck(name: String, text: &str) -> GenericResult<crate::semantics::ExprRef> {
     let file = crate::source::SourceFile::create(name, text);
     let lexer = crate::lexer::Lexer::new(file);
     let mut parser = crate::parser::Parser::new(lexer);
@@ -52,6 +55,12 @@ pub(crate) fn stdout() -> StandardStream {
     let is_tty = unsafe { libc::isatty(libc::STDOUT_FILENO as i32) } != 0;
     let color_choice = if is_tty { ColorChoice::Always } else { ColorChoice::Never };
     StandardStream::stdout(color_choice)
+}
+
+pub(crate) fn stderr() -> StandardStream {
+    let is_tty = unsafe { libc::isatty(libc::STDERR_FILENO as i32) } != 0;
+    let color_choice = if is_tty { ColorChoice::Always } else { ColorChoice::Never };
+    StandardStream::stderr(color_choice)
 }
 
 #[cfg(test)]
@@ -89,6 +98,13 @@ macro_rules! test_intersection {
     }};
 }
 
+#[test]
+fn range_intersection() {
+    test_intersection!(0..10, 10..20, None);
+    test_intersection!(5..15, 10..20, Some(10..15));
+    test_intersection!(10..20, 12..15, Some(12..15));
+}
+
 pub(crate) trait RetainIndices<T> {
     fn retain_indices(&mut self, predicate: impl FnMut(&T, usize) -> bool, remap: impl FnMut(&T, usize, usize));
 }
@@ -107,4 +123,13 @@ impl<T> RetainIndices<T> for Vec<T> {
             retain
         });
     }
+}
+
+pub(crate) fn read_u32(cursor: &mut impl Read) -> io::Result<u32> {
+    let mut buffer = [0; 4];
+    cursor.read_exact(&mut buffer)?;
+    Ok(u32::from(buffer[0]) |
+        u32::from(buffer[1]) << 8 |
+        u32::from(buffer[2]) << 16 |
+        u32::from(buffer[3]) << 24)
 }

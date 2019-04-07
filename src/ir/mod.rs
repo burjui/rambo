@@ -276,14 +276,13 @@ impl fmt::Debug for Value {
     }
 }
 
-pub(crate) fn get_statement_operands_deep<'a>(
+pub(crate) fn get_statement_value_operands<'a>(
     values: &'a ValueStorage,
     statement: &'a Statement) -> Box<dyn Iterator<Item = ValueId> + 'a>
 {
     match statement {
         Statement::Comment(_) => Box::new(empty()),
         Statement::Definition(value_id) => get_value_operands(&values[*value_id]),
-//            Box::new(once(*value_id).chain(get_value_operands(&values[*value_id]))),
         Statement::CondJump(condition, _, _) => Box::new(once(*condition)),
         Statement::Return(result) => Box::new(once(*result)),
     }

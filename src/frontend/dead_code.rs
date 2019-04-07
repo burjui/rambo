@@ -12,8 +12,8 @@ use petgraph::visit::EdgeRef;
 use crate::ir::BasicBlock;
 use crate::ir::BasicBlockGraph;
 use crate::ir::FunctionMap;
-use crate::ir::get_statement_operands_deep;
 use crate::ir::get_statement_operands_mut;
+use crate::ir::get_statement_value_operands;
 use crate::ir::get_value_operands_mut;
 use crate::ir::Statement;
 use crate::ir::StatementLocation;
@@ -52,7 +52,7 @@ fn compute_value_usage(
     let used_values = graph
         .node_indices()
         .flat_map(|node| graph[node].iter())
-        .flat_map(|statement| get_statement_operands_deep(&values, statement))
+        .flat_map(|statement| get_statement_value_operands(&values, statement))
         .chain(once(program_result));
     for value_id in used_values {
         *value_usage.get_mut(&value_id).unwrap() += 1;
@@ -106,7 +106,7 @@ fn unuse(
     if *usage_count == 0 {
         let location = &definitions[&value_id];
         let statement = &graph[location.block][location.index];
-        for operand in get_statement_operands_deep(&values, statement) {
+        for operand in get_statement_value_operands(&values, statement) {
             unuse(operand, graph, values, value_usage, definitions);
         }
     }

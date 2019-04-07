@@ -1,0 +1,57 @@
+use std::ffi::OsStr;
+use std::fs::File;
+use std::path::Path;
+
+use crate::frontend::FrontEnd;
+use crate::graphviz::graphviz_dot_write;
+use crate::riscv_backend;
+use crate::riscv_backend::DumpCode;
+use crate::riscv_backend::registers;
+use crate::riscv_backend::RICSVImage;
+use crate::riscv_simulator;
+use crate::riscv_simulator::DumpState;
+use crate::utils::GenericResult;
+
+macro_rules! test_backend{
+    ($name: ident, $code: expr, $check: expr) => {
+        #[test]
+        fn $name() -> GenericResult<()> {
+            let code = typecheck!($code)?;
+            let cfg = FrontEnd::new(&location!())
+                .enable_warnings(false)
+                .include_comments(false)
+                .enable_cfp(false)
+                .enable_dce(false)
+                .build(&code);
+            let test_src_path = Path::new(file!());
+            let test_src_file_name = test_src_path
+                .file_name()
+                .and_then(OsStr::to_str)
+                .expect(&format!("failed to extract the file name from path: {}", test_src_path.display()));
+            let mut file = File::create(format!("riscv_backend_{}_{}_cfg.dot", test_src_file_name, line!()))?;
+            graphviz_dot_write(&mut file, &cfg)?;
+            eprintln!();
+            let image = riscv_backend::generate(&cfg, DumpCode(false))?;
+            let check: fn(RICSVImage) -> GenericResult<()> = $check;
+            check(image)
+        }
+    }
+}
+
+test_backend!{
+    proper_spilling,
+    "
+    let a = 1
+    let b = 2
+    (a + 3) * (4 + 5)
+    (a + 6) / (7 * 8 + 9)
+    (a + 10) * 11 * (b - 12) / 13
+    (14 / 15) * (16 - 17)
+    (a + 18) * (b + 19)
+    ",
+    |image| {
+        let simulator = riscv_simulator::run(&image, DumpState::None)?;
+        assert_eq!(simulator.cpu.x[registers::RESULT as usize], 399);
+        Ok(())
+    }
+}

@@ -1,6 +1,8 @@
+use std::cell::UnsafeCell;
+use std::convert::TryFrom;
+use std::error::Error;
 use std::fmt;
 use std::io;
-use std::cell::UnsafeCell;
 use std::io::{Cursor, Read, Write};
 use std::ops::{Deref, DerefMut, Range};
 
@@ -13,47 +15,112 @@ use rvsim::Memory;
 use rvsim::MemoryAccess;
 use rvsim::Op;
 use rvsim::SimpleClock;
+use termcolor::{Color, ColorSpec, WriteColor};
 
-use crate::riscv_backend::RICSVImage;
-use crate::utils::intersection;
-
-macro_rules! assert_step {
-    ($simulator: ident, $op: pat) => ({
-        match $simulator.step() {
-            $op => (),
-            r => panic!("unexpected result: {:?}", r),
-        }
-    });
-}
-
-macro_rules! riscv_asm {
-    ($cursor: expr; $($op: ident $($args: expr),*;)+) => {{
-        use crate::riscv_simulator::write_u32;
-        let cursor: &mut Cursor<&mut [u8]> = $cursor;
-        $(write_u32($op($($args),*)?, cursor)?;)+
-    }};
-}
+use crate::riscv_backend::{registers, RICSVImage};
+use crate::utils::{intersection, stderr};
 
 #[cfg(test)]
 mod tests;
 
-pub(crate) fn run(_image: &RICSVImage) {
-    unimplemented!()
+#[derive(PartialOrd, PartialEq)]
+pub(crate) enum DumpState {
+    None,
+    Instructions,
+    Everything
 }
 
-pub(crate) fn write_u32(value: u32, cursor: &mut Cursor<&mut [u8]>) -> io::Result<()> {
-    cursor.write_all(&[
-        value as u8,
-        (value >> 8) as u8,
-        (value >> 16) as u8,
-        (value >> 24) as u8,
-    ])
+pub(crate) fn run(image: &RICSVImage, dump_state: DumpState) -> Result<Simulator, Box<dyn Error>> {
+    let mut dram = DRAM::new(&[
+        (image.code_base_address, u32::try_from(image.code.len())?, AccessMode::EXECUTE),
+        (image.ram_base_address, u32::try_from(image.data.len() + 10240)?, AccessMode::READ | AccessMode::WRITE),
+    ]);
+    dram.find_bank_mut(image.code_base_address).unwrap().write_all(&image.code)?;
+    dram.find_bank_mut(image.ram_base_address).unwrap().write_all(&image.data)?;
+
+    let mut simulator = Simulator::new(image.code_base_address, dram);
+    let stderr = &mut stderr();
+    loop {
+        let pc = simulator.cpu.pc;
+        match simulator.step() {
+            Ok(op) => {
+                if dump_state >= DumpState::Instructions {
+                    stderr.set_color(ColorSpec::new()
+                        .set_fg(Some(Color::White))
+                        .set_bold(true))?;
+                    write!(stderr, "[0x{:08}]", pc)?;
+                    stderr.reset()?;
+                    writeln!(stderr, " {:?}", op)?;
+                }
+
+                if dump_state >= DumpState::Everything {
+                    dump_registers(&simulator.cpu)?;
+
+                    let data_bank = simulator.dram.find_bank_mut(image.ram_base_address).unwrap();
+                    dump_ram(&data_bank[.. image.data.len()], image.ram_base_address)?;
+                }
+            },
+
+            Err((error, op)) => {
+                match error {
+                    CpuError::Ebreak => break,
+                    _ => return Err(format!("op: {:?}, error: {:?}", op, error).into()),
+                }
+            },
+        }
+    }
+    Ok(simulator)
 }
 
-struct Simulator {
-    clock: SimpleClock,
-    dram: DRAM,
-    cpu: CpuState,
+fn dump_registers(cpu: &CpuState) -> io::Result<()> {
+    const REGISTERS_PER_ROW: usize = 4;
+    const REGISTERS_PER_COLUMN: usize = registers::COUNT / REGISTERS_PER_ROW;
+
+    let stderr = &mut stderr();
+    for i in 0 .. registers::COUNT {
+        if i % REGISTERS_PER_ROW == 0 {
+            if i > 0 {
+                writeln!(stderr)?;
+            }
+        } else {
+            write!(stderr, "  |  ")?;
+        }
+
+        let register = (i % REGISTERS_PER_ROW) * REGISTERS_PER_COLUMN + i / REGISTERS_PER_ROW;
+        write!(stderr, "x{:<2}", register)?;
+        stderr.set_color(ColorSpec::new()
+            .set_fg(Some(Color::Black))
+            .set_intense(true))?;
+        write!(stderr, "  0x{:08x}", cpu.x[register])?;
+        stderr.reset()?;
+    }
+    writeln!(stderr, "\n")
+}
+
+fn dump_ram(ram: &[u8], base_address: u32) -> io::Result<()> {
+    let stderr = &mut stderr();
+    for index in 0 .. ram.len() {
+        if index % 4 == 0 {
+            if index > 0 {
+                writeln!(stderr)?;
+            }
+            write!(stderr, "[{:08x}] ", base_address + index as u32)?;
+        } else {
+            write!(stderr, " ")?;
+        }
+        stderr.set_color(ColorSpec::new()
+            .set_fg(Some(Color::Black))
+            .set_intense(true))?;
+        write!(stderr, "{:02x}", ram[index])?;
+        stderr.reset()?;
+    }
+    writeln!(stderr, "\n")
+}
+
+pub(crate) struct Simulator {
+    pub(crate) clock: SimpleClock,
+    pub(crate) dram: DRAM,
+    pub(crate) cpu: CpuState,
 }
 
 impl Simulator {
@@ -68,15 +135,11 @@ impl Simulator {
     fn step(&mut self) -> Result<Op, (CpuError, Option<Op>)> {
         Interp::new(&mut self.cpu, &mut self.dram, &mut self.clock).step()
     }
-
-    fn run(&mut self) -> (CpuError, Option<Op>) {
-        Interp::new(&mut self.cpu, &mut self.dram, &mut self.clock).run()
-    }
 }
 
 bitflags! {
     pub(crate) struct AccessMode: u32 {
-        const READ = 1 << 0;
+        const READ = 1;
         const WRITE = 1 << 1;
         const EXECUTE = 1 << 2;
     }
@@ -91,7 +154,7 @@ impl fmt::Display for AccessMode {
     }
 }
 
-struct DRAM(Box<[DRAMBank]>);
+pub(crate) struct DRAM(Box<[DRAMBank]>);
 
 impl DRAM {
     fn new(banks: &[(u32, u32, AccessMode)]) -> Self {
@@ -103,7 +166,11 @@ impl DRAM {
             .collect_vec()
             .into_boxed_slice();
         for adjacent_banks in banks.windows(2) {
-            assert!(intersection(&adjacent_banks[0].address_range, &adjacent_banks[1].address_range).is_none());
+            let address_range1 = &adjacent_banks[0].address_range;
+            let address_range2 = &adjacent_banks[1].address_range;
+            assert!(intersection(address_range1, address_range2).is_none(),
+                "bank address ranges intersect: 0x{:08x} .. 0x{:08x} and 0x{:08x} .. 0x{:08x}",
+                address_range1.start, address_range1.end, address_range2.start, address_range2.end);
         }
         Self(banks)
     }

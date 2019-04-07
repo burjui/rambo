@@ -98,7 +98,7 @@ macro_rules! test_frontend {
                     .file_name()
                     .and_then(OsStr::to_str)
                     .expect(&format!("failed to extract the file name from path: {}", test_src_path.display()));
-                let mut file = File::create(format!("{}_{}_cfg.dot", test_src_file_name, line!()))?;
+                let mut file = File::create(format!("frontend_{}_{}_cfg.dot", test_src_file_name, line!()))?;
                 graphviz_dot_write(&mut file, &cfg)?;
                 let check: fn(ControlFlowGraph) = $check;
                 check(cfg);

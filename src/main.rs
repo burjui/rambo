@@ -1,5 +1,8 @@
 #![warn(rust_2018_idioms)]
 
+#[macro_use]
+extern crate derive_deref;
+
 use std::alloc::System;
 use std::env::args as program_args;
 use std::error::Error;
@@ -41,6 +44,8 @@ mod unique_rc;
 mod graphviz;
 mod frontend;
 mod tracking_allocator;
+
+#[macro_use]
 mod riscv_backend;
 
 #[macro_use]
@@ -114,6 +119,13 @@ fn parse_command_line() -> Result<CommandLine, Box<dyn Error>> {
         print!("{}", spec.usage(&brief));
         std::process::exit(0);
     }
+
+    const MAXIMUM_VERBOSITY: usize = 3;
+    let verbosity = matches.opt_count(VERBOSE_OPTION);
+    if matches.opt_count(VERBOSE_OPTION) > MAXIMUM_VERBOSITY {
+        return Err(From::from(format!("maximum verbosity level ({}) exceeded", MAXIMUM_VERBOSITY)))
+    }
+
     let pipeline_options = PipelineOptions {
         max_pass_name: {
             let result: Result<String, Box<dyn Error>> = matches.opt_str(PASS_OPTION)
@@ -126,13 +138,12 @@ fn parse_command_line() -> Result<CommandLine, Box<dyn Error>> {
                 .unwrap_or_else(|| Ok(COMPILER_PASS_NAMES.iter().last().unwrap().to_string()));
             result?
         },
-        print_passes: matches.opt_present(VERBOSE_OPTION),
-        dump_intermediate: matches.opt_count(VERBOSE_OPTION) > 1,
         enable_warnings: !matches.opt_present(WARNINGS_OPTION),
         dump_cfg: matches.opt_present(DUMP_CFG_OPTION),
         cfg_include_comments: matches.opt_present(IR_COMMENTS_OPTION),
         enable_cfp: !matches.opt_present(NO_CFP_OPTION),
         enable_dce: !matches.opt_present(NO_DCE_OPTION),
+        verbosity: verbosity as u8,
     };
     let input_files = matches.free;
     Ok(CommandLine { program_name, input_files, pipeline_options })

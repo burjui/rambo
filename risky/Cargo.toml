@@ -1,6 +1,0 @@
-[package]
-name = "risky"
-version = "0.1.0"
-authors = ["Artem Borisovskiy <bytefu@gmail.com>"]
-edition = "2018"
-description = "RISC-V instruction encoding library"

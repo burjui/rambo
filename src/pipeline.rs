@@ -7,6 +7,7 @@ use std::io::Write;
 use std::path::Path;
 
 use itertools::Itertools;
+use number_prefix::NumberPrefix;
 use termcolor::Color;
 use termcolor::ColorSpec;
 use termcolor::StandardStream;
@@ -22,8 +23,9 @@ use crate::lexer::Lexer;
 use crate::parser::Block;
 use crate::parser::Parser;
 use crate::riscv_backend;
-use crate::riscv_backend::RICSVImage;
+use crate::riscv_backend::{DumpCode, RICSVImage};
 use crate::riscv_simulator;
+use crate::riscv_simulator::DumpState;
 use crate::semantics::ExprRef;
 use crate::semantics::SemanticsChecker;
 use crate::source::SourceFile;
@@ -33,13 +35,12 @@ use crate::utils::stdout;
 #[derive(Clone)]
 pub(crate) struct PipelineOptions {
     pub(crate) max_pass_name: String,
-    pub(crate) print_passes: bool,
-    pub(crate) dump_intermediate: bool,
     pub(crate) enable_warnings: bool,
     pub(crate) dump_cfg: bool,
     pub(crate) cfg_include_comments: bool,
     pub(crate) enable_cfp: bool,
     pub(crate) enable_dce: bool,
+    pub(crate) verbosity: u8,
 }
 
 pub(crate) struct Pipeline<'a, T> {
@@ -56,14 +57,14 @@ impl<'a, T> Pipeline<'a, T> {
         let Pipeline { input, options } = self;
         input.map(|input| {
             let stdout = &mut stdout();
-            if options.print_passes {
+            if options.verbosity >= 1 {
                 stdout.write_title("::", Pass::TITLE, Color::White)?;
                 stdout.set_color(ColorSpec::new()
                     .set_fg(Some(Color::Black))
                     .set_intense(true))?;
             }
-                let (elapsed, result) = elapsed::measure_time(|| Pass::apply(input, options));
-            if options.print_passes {
+            let (elapsed, result) = elapsed::measure_time(|| Pass::apply(input, options));
+            if options.verbosity >= 1 {
                 stdout.set_color(ColorSpec::new()
                     .set_fg(Some(Color::White)))?;
                 write!(stdout, "(")?;
@@ -130,7 +131,7 @@ impl CompilerPass<String, SourceFileRef> for Load {
         let source_file = SourceFile::load(&path)?;
         let line_count = source_file.lines().len();
         let stdout = &mut stdout();
-        if options.print_passes {
+        if options.verbosity >= 1 {
             writeln!(stdout, "{}, {} lines", Self::file_size_pretty(source_file.size()), line_count)?;
         }
         Ok(source_file)
@@ -147,10 +148,10 @@ impl CompilerPass<SourceFileRef, (Block, SourceFileRef)> for Parse {
         let ast = parser.parse()?;
         let stats = { parser.lexer_stats() };
         let stdout = &mut stdout();
-        if options.print_passes {
+        if options.verbosity >= 1 {
             writeln!(stdout, "{} lexemes", stats.lexeme_count)?;
         }
-        if options.dump_intermediate {
+        if options.verbosity >= 2 {
             writeln!(stdout, "{:?}", ast.statements.iter().format("\n"))?;
         }
         Ok((ast, source_file))
@@ -166,7 +167,7 @@ impl CompilerPass<(Block, SourceFileRef), (ExprRef, SourceFileRef)> for VerifySe
     {
         let checker = SemanticsChecker::new();
         let hir = checker.check_module(&ast)?;
-        if options.dump_intermediate {
+        if options.verbosity >= 2 {
             writeln!(&mut stdout(), "{:?}", hir)?;
         }
         Ok((hir, source_file))
@@ -185,10 +186,10 @@ impl CompilerPass<(ExprRef, SourceFileRef), ControlFlowGraph> for IR {
             .enable_dce(options.enable_dce);
         let cfg = frontend.build(&hir);
         let mut stdout = stdout();
-        if options.print_passes {
+        if options.verbosity >= 1 {
             writeln!(&mut stdout, "{} statements", cfg_statements_count(&cfg.borrow()))?;
         }
-        if options.dump_intermediate {
+        if options.verbosity >= 2 {
             dump_cfg(&cfg, &cfg.name, &mut stdout)?;
         }
         if options.dump_cfg {
@@ -210,7 +211,7 @@ impl CompilerPass<ControlFlowGraph, ControlFlowGraph> for EvaluateIR {
 
     fn apply(cfg: ControlFlowGraph, options: &PipelineOptions) -> Result<ControlFlowGraph, Box<dyn Error>> {
         let value = EvalContext::new(&cfg, &cfg.functions).eval();
-        if options.print_passes {
+        if options.verbosity >= 1 {
             writeln!(&mut stdout(), "{:?}", value)?;
         }
         Ok(cfg)
@@ -221,12 +222,18 @@ impl CompilerPass<ControlFlowGraph, RICSVImage> for RISCVBackend {
     const NAME: &'static str = "rvgen";
     const TITLE: &'static str = "Generating RISC-V code";
 
-    fn apply(cfg: ControlFlowGraph, _options: &PipelineOptions) -> Result<RICSVImage, Box<dyn Error>> {
-        let image = riscv_backend::generate(&cfg);
-        image.verify()?;
-//        if options.print_passes {
-//            writeln!(&mut stdout(), "{:?}", &image)?;
-//        }
+    fn apply(cfg: ControlFlowGraph, options: &PipelineOptions) -> Result<RICSVImage, Box<dyn Error>> {
+        let image = riscv_backend::generate(&cfg, DumpCode(options.verbosity >= 2))?;
+        if options.verbosity >= 1 {
+            let data_size_string = match NumberPrefix::binary(image.data.len() as f32) {
+                NumberPrefix::Standalone(usage) => format!("{} bytes", usage),
+                NumberPrefix::Prefixed(prefix, usage) =>  format!("{:.0} {}B", usage, prefix),
+            };
+            writeln!(&mut stdout(), "{} instructions, {} data", image.code.len() / 4, data_size_string)?;
+        }
+        if options.verbosity >= 2 {
+            writeln!(&mut stdout(), "{:?}", riscv_backend::decode(&image.code).format("\n"))?;
+        }
         Ok(image)
     }
 }
@@ -235,11 +242,13 @@ impl CompilerPass<RICSVImage, ()> for RISCVSimulator {
     const NAME: &'static str = "rvsim";
     const TITLE: &'static str = "Executing RISC-V code";
 
-    fn apply(image: RICSVImage, _options: &PipelineOptions) -> Result<(), Box<dyn Error>> {
-        riscv_simulator::run(&image);
-//        if options.print_passes {
-//            ...
-//        }
+    fn apply(image: RICSVImage, options: &PipelineOptions) -> Result<(), Box<dyn Error>> {
+        let dump_state = match options.verbosity {
+            2 => DumpState::Instructions,
+            3 => DumpState::Everything,
+            _ => DumpState::None,
+        };
+        riscv_simulator::run(&image, dump_state)?;
         Ok(())
     }
 }

@@ -1,12 +1,23 @@
 use std::error::Error;
 use std::io::Cursor;
 
+use risky::instructions::*;
+use rvsim::CpuError;
+use rvsim::Op;
+
+use crate::riscv_backend::push_code;
+use crate::riscv_simulator::AccessMode;
 use crate::riscv_simulator::DRAM;
 use crate::riscv_simulator::Simulator;
-use crate::riscv_simulator::AccessMode;
-use rvsim::Op;
-use rvsim::CpuError;
-use risky::instructions::*;
+
+macro_rules! assert_step {
+    ($simulator: ident, $op: pat) => ({
+        match $simulator.step() {
+            $op => (),
+            r => panic!("unexpected result: {:?}", r),
+        }
+    });
+}
 
 #[test]
 fn riscv_simulator() -> Result<(), Box<dyn Error>> {
@@ -28,16 +39,15 @@ fn riscv_simulator() -> Result<(), Box<dyn Error>> {
 
     let code_bank = simulator.dram.find_bank_mut(CODE_BASE).unwrap();
     let mut cursor = Cursor::new(&mut **code_bank);
-    let cursor = &mut cursor;
-    riscv_asm!(cursor;
-        lb 1, 1, 0;
-        lb 2, 2, 0;
-        add 1, 1, 2;
-        lui 2, 0x01000;
-        lh 2, 2, 0;
-        add 1, 1, 2;
-        ebreak;
-    );
+    push_code(&mut cursor, &[
+        lb(1, 1, 0)?,
+        lb(2, 2, 0)?,
+        add(1, 1, 2)?,
+        lui(2, 0x01000)?,
+        lh(2, 2, 0)?,
+        add(1, 1, 2)?,
+        ebreak()?,
+    ])?;
 
     assert_step!(simulator, Ok(Op::Lb { rd: 1, rs1: 1, i_imm: 0 }));
     assert_eq!(simulator.cpu.x[1], 3);
