@@ -1,6 +1,7 @@
 /target/
 /.idea
 /*.iml
+/.vscode
 /test-data/
 /test-data-big/
 /TODO.md
