@@ -1,7 +1,7 @@
 use std::cell::UnsafeCell;
 use std::error::Error;
 use std::io::{Cursor, Read, Write};
-use std::io;
+use std::{io, fmt};
 use std::ops::{Deref, DerefMut, Range};
 
 use bitflags::bitflags;
@@ -14,22 +14,79 @@ use rvsim::MemoryAccess;
 use rvsim::Op;
 use rvsim::SimpleClock;
 
-use crate::utils::intersection;
+use crate::utils::{intersection, write_u32};
+use crate::riscv::{add, ebreak, lb};
+
+macro_rules! assert_step {
+    ($simulator: ident, $op: pat) => ({
+        match $simulator.step() {
+            $op => (),
+            _ => panic!("unexpected result"),
+        }
+    });
+}
 
 #[test]
 fn riscv_simulator() -> Result<(), Box<dyn Error>> {
-    let mut dram = DRAM::new(&[
-        (0, 1024, AccessMode::EXECUTE),
-    ]);
-    let code_bank = dram.find_bank_mut(0).unwrap();
-    code_bank.write_all(&[0x73, 0x00, 0x10, 0x00])?; // EBREAK
-    let mut clock = SimpleClock::new();
-    let mut cpu_state = CpuState::new(0);
-    let mut interpreter = Interp::new(&mut cpu_state, &mut dram, &mut clock);
-    let (err, op) = interpreter.run();
-    assert_eq!(err, CpuError::Ebreak);
-    assert_eq!(op, Some(Op::Ebreak));
+    const CODE_BASE: u32 = 0;
+    const CODE_SIZE: u32 = 1024;
+    const DATA_BASE: u32 = 0x01000000;
+    const DATA_SIZE: u32 = 1024;
+
+    let mut simulator = Simulator::new(0, DRAM::new(&[
+        (CODE_BASE, CODE_SIZE, AccessMode::EXECUTE),
+        (DATA_BASE, DATA_SIZE, AccessMode::READ),
+    ]));
+    let code_bank = simulator.dram.find_bank_mut(CODE_BASE).unwrap();
+    let mut cursor = Cursor::new(&mut **code_bank);
+    let cursor = &mut cursor;
+    write_u32(lb(1, 1, 0)?, cursor)?;
+    write_u32(lb(2, 2, 0)?, cursor)?;
+    write_u32(add(1, 1, 2)?, cursor)?;
+    write_u32(ebreak()?, cursor)?;
+
+    let data_bank = simulator.dram.find_bank_mut(DATA_BASE).unwrap();
+    data_bank[0] = 3;
+    data_bank[1] = 5;
+
+    simulator.cpu.x[1] = DATA_BASE + 0;
+    simulator.cpu.x[2] = DATA_BASE + 1;
+
+    assert_step!(simulator, Ok(Op::Lb { rd: 1, rs1: 1, i_imm: 0 }));
+    assert_eq!(simulator.cpu.x[1], 3);
+
+    assert_step!(simulator, Ok(Op::Lb { rd: 2, rs1: 2, i_imm: 0 }));
+    assert_eq!(simulator.cpu.x[2], 5);
+
+    assert_step!(simulator, Ok(Op::Add { rd: 1, rs1: 1, rs2: 2 }));
+    assert_eq!(simulator.cpu.x[1], 8);
+
+    assert_step!(simulator, Err((CpuError::Ebreak, Some(Op::Ebreak))));
     Ok(())
+}
+
+struct Simulator {
+    clock: SimpleClock,
+    dram: DRAM,
+    cpu: CpuState,
+}
+
+impl Simulator {
+    fn new(pc: u32, dram: DRAM) -> Self {
+        Self {
+            clock: SimpleClock::new(),
+            dram,
+            cpu: CpuState::new(pc),
+        }
+    }
+
+    fn step(&mut self) -> Result<Op, (CpuError, Option<Op>)> {
+        Interp::new(&mut self.cpu, &mut self.dram, &mut self.clock).step()
+    }
+
+    fn run(&mut self) -> (CpuError, Option<Op>) {
+        Interp::new(&mut self.cpu, &mut self.dram, &mut self.clock).run()
+    }
 }
 
 bitflags! {
@@ -37,6 +94,15 @@ bitflags! {
         const READ = 1 << 0;
         const WRITE = 1 << 1;
         const EXECUTE = 1 << 2;
+    }
+}
+
+impl fmt::Display for AccessMode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}{}{}",
+               if self.contains(Self::READ) { "r" } else { "" },
+               if self.contains(Self::WRITE) { "w" } else { "" },
+               if self.contains(Self::EXECUTE) { "x" } else { "" })
     }
 }
 
@@ -58,14 +124,20 @@ impl DRAM {
     }
 
     fn find_bank_mut(&mut self, address: u32) -> Option<&mut DRAMBank> {
-        let index = match self.0.binary_search_by_key(&address, |bank| bank.address_range.start) {
-            Ok(index) => index,
-            Err(index) => index,
-        };
-        if index < self.0.len() {
-            let bank = &mut self.0[index];
-            if address >= bank.address_range.start && address < bank.address_range.end {
-                return Some(bank)
+        let mut start = 0;
+        let mut end = self.0.len();
+        while start != end {
+            let mid = start + (end - start) / 2;
+            let bank = &mut self.0[mid];
+            if address < bank.address_range.start {
+                end = mid;
+            } else if address >= bank.address_range.end {
+                start = mid;
+            } else {
+                return Some(&mut self.0[mid]);
+            }
+            if mid == start {
+                break;
             }
         }
         None
@@ -81,7 +153,8 @@ impl Memory for DRAM {
                     MemoryAccess::Store(_) => bank.access_mode.contains(AccessMode::WRITE),
                     MemoryAccess::Exec(_) => bank.access_mode.contains(AccessMode::EXECUTE),
                 };
-                access_granted && Memory::access(&mut **bank, address, access)
+                let base_address = bank.address_range.start;
+                access_granted && Memory::access(&mut **bank, address - base_address, access)
             },
 
             None => false,
