@@ -159,59 +159,59 @@ impl SemanticsChecker {
                     source: source.clone()
                 }))
             },
-            Expr::Conditional { source, condition, true_branch, false_branch } => {
+            Expr::Conditional { source, condition, then_branch, else_branch } => {
                 let condition_typed = self.check_expr(condition)?;
                 let condition_type = condition_typed.type_();
                 if condition_type != Type::Int {
                     return error!("a condition can only be of type `num': {:?}", condition.source())
                 }
 
-                let (true_branch_statements, true_branch_source) = match true_branch.deref() {
+                let (then_branch_statements, then_branch_source) = match then_branch.deref() {
                     Expr::Block(ASTBlock { source, statements }) => (statements, source),
                     _ => unreachable!()
                 };
-                let true_branch = if true_branch_statements.is_empty() {
-                    warning!("empty true branch: {:?}", true_branch_source);
-                    TypedExpr::Unit(true_branch_source.clone())
+                let then_branch = if then_branch_statements.is_empty() {
+                    warning!("empty true branch: {:?}", then_branch_source);
+                    TypedExpr::Unit(then_branch_source.clone())
                 } else {
-                    let additional_statement = if false_branch.is_none() {
-                        vec![Statement::Expr(Expr::Unit(true_branch_source.clone()))]
+                    let additional_statement = if else_branch.is_none() {
+                        vec![Statement::Expr(Expr::Unit(then_branch_source.clone()))]
                     } else {
                         vec![]
                     };
-                    let statements = true_branch_statements.iter().chain(additional_statement.iter());
-                    self.check_block(statements, true_branch_source.clone())?
+                    let statements = then_branch_statements.iter().chain(additional_statement.iter());
+                    self.check_block(statements, then_branch_source.clone())?
                 };
-                let true_branch_type = true_branch.type_();
+                let then_branch_type = then_branch.type_();
 
-                let false_branch = match false_branch {
-                    Some(false_branch) => {
-                        let (false_branch_statements, false_branch_source) = match false_branch.deref() {
+                let else_branch = match else_branch {
+                    Some(else_branch) => {
+                        let (else_branch_statements, else_branch_source) = match else_branch.deref() {
                             Expr::Block(ASTBlock { source, statements }) => (statements, source),
                             _ => unreachable!()
                         };
-                        if false_branch_statements.is_empty() {
-                            warning!("empty false branch: {:?}", false_branch_source);
-                            TypedExpr::Unit(false_branch_source.clone())
+                        if else_branch_statements.is_empty() {
+                            warning!("empty false branch: {:?}", else_branch_source);
+                            TypedExpr::Unit(else_branch_source.clone())
                         } else {
-                            self.check_block(false_branch_statements.iter(), false_branch_source.clone())?
+                            self.check_block(else_branch_statements.iter(), else_branch_source.clone())?
                         }
                     }
 
                     None => TypedExpr::Unit(source.clone())
                 };
-                let false_branch_type = false_branch.type_();
+                let else_branch_type = else_branch.type_();
 
-                if true_branch_type != false_branch_type {
+                if then_branch_type != else_branch_type {
                     return error!("branch types don't match: `{:?}' and `{:?}'",
-                                  true_branch_type, false_branch_type);
+                                  then_branch_type, else_branch_type);
                 }
 
                 Ok(self.new_expr(TypedExpr::Conditional {
                     condition: condition_typed,
-                    true_branch: self.new_expr(true_branch),
-                    false_branch: self.new_expr(false_branch),
-                    type_: true_branch_type,
+                    then_branch: self.new_expr(then_branch),
+                    else_branch: self.new_expr(else_branch),
+                    type_: then_branch_type,
                     source: source.clone()
                 }))
             },
@@ -370,8 +370,8 @@ pub(crate) enum TypedExpr {
     Assign(BindingRef, ExprRef, Source),
     Conditional {
         condition: ExprRef,
-        true_branch: ExprRef,
-        false_branch: ExprRef,
+        then_branch: ExprRef,
+        else_branch: ExprRef,
         type_: Type,
         source: Source
     },
@@ -394,8 +394,8 @@ impl Debug for TypedExpr {
             TypedExpr::Assign(binding, value, _) => write!(formatter, "({} = {:?})", &binding.name, value),
             TypedExpr::Lambda(lambda, _) => lambda.fmt(formatter),
             TypedExpr::Application { function, arguments, .. } => write!(formatter, "({:?} @ {:?})", function, arguments),
-            TypedExpr::Conditional { condition, true_branch, false_branch, .. } =>
-                write!(formatter, "(if ({:?}) {:?} else {:?})", condition, true_branch, false_branch),
+            TypedExpr::Conditional { condition, then_branch, else_branch, .. } =>
+                write!(formatter, "(if ({:?}) {:?} else {:?})", condition, then_branch, else_branch),
             TypedExpr::Block(statements, _) => write!(formatter, "{{\n{:?}\n}}", statements.iter().format("\n")),
         }
     }

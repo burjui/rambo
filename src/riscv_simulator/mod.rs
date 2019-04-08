@@ -18,6 +18,7 @@ use rvsim::SimpleClock;
 use termcolor::{Color, ColorSpec, WriteColor};
 
 use crate::riscv_backend::{registers, RICSVImage};
+use crate::riscv_decoder;
 use crate::utils::{intersection, stderr};
 
 #[cfg(test)]
@@ -42,15 +43,24 @@ pub(crate) fn run(image: &RICSVImage, dump_state: DumpState) -> Result<Simulator
     let stderr = &mut stderr();
     loop {
         let pc = simulator.cpu.pc;
+        if dump_state >= DumpState::Everything {
+            if let Some(comments) = image.comments.get(&(pc - image.code_base_address)) {
+                for comment in comments {
+                    writeln!(stderr, "// {}", comment)?;
+                }
+            }
+        }
+
         match simulator.step() {
             Ok(op) => {
                 if dump_state >= DumpState::Instructions {
                     stderr.set_color(ColorSpec::new()
                         .set_fg(Some(Color::White))
                         .set_bold(true))?;
-                    write!(stderr, "[0x{:08}]", pc)?;
+                    write!(stderr, "[0x{:08x}]", pc)?;
                     stderr.reset()?;
-                    writeln!(stderr, " {:?}", op)?;
+                    writeln!(stderr, " {:?}", riscv_decoder::Op(op))?;
+                    stderr.flush()?;
                 }
 
                 if dump_state >= DumpState::Everything {

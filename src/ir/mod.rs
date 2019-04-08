@@ -94,6 +94,7 @@ pub(crate) struct ControlFlowGraph {
     pub(crate) name: String,
     pub(crate) graph: BasicBlockGraph,
     pub(crate) entry_block: NodeIndex,
+    pub(crate) exit_block: NodeIndex,
     pub(crate) definitions: HashMap<ValueId, StatementLocation>,
     pub(crate) values: ValueStorage,
     pub(crate) functions: FunctionMap,
@@ -189,8 +190,8 @@ impl fmt::Debug for Statement {
         match self {
             Statement::Comment(comment) => writeln!(f, "// {}", comment.split(|c| c == '\n').format("\n// ")),
             Statement::Definition(value_id) => write!(f, "define {}", value_id),
-            Statement::CondJump(condition, true_branch, false_branch) =>
-                write!(f, "condjump {}, {}, {}", condition, true_branch.index(), false_branch.index()),
+            Statement::CondJump(condition, then_branch, else_branch) =>
+                write!(f, "condjump {}, {}, {}", condition, then_branch.index(), else_branch.index()),
             Statement::Return(value_id) => write!(f, "return {}", value_id)
         }
     }
@@ -200,8 +201,8 @@ pub(crate) fn fmt_statement(sink: &mut impl Write, statement: &Statement, values
     match statement {
         Statement::Comment(comment) => writeln!(sink, "// {}", comment.split(|c| c == '\n').format("\n// ")),
         Statement::Definition(value_id) => write!(sink, "{} ← {:?}", value_id, &values[*value_id]),
-        Statement::CondJump(value_id, true_branch, false_branch) =>
-            write!(sink, "condjump {}, {}, {}", value_id, true_branch.index(), false_branch.index()),
+        Statement::CondJump(value_id, then_branch, else_branch) =>
+            write!(sink, "condjump {}, {}, {}", value_id, then_branch.index(), else_branch.index()),
         Statement::Return(value_id) => write!(sink, "return {}", value_id)
     }
 }

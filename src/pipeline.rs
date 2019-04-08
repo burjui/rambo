@@ -13,6 +13,7 @@ use termcolor::ColorSpec;
 use termcolor::StandardStream;
 use termcolor::WriteColor;
 
+use crate::{riscv_backend, riscv_decoder};
 use crate::frontend::FrontEnd;
 use crate::graphviz::graphviz_dot_write;
 use crate::ir::ControlFlowGraph;
@@ -22,7 +23,6 @@ use crate::ir::Value;
 use crate::lexer::Lexer;
 use crate::parser::Block;
 use crate::parser::Parser;
-use crate::riscv_backend;
 use crate::riscv_backend::{DumpCode, RICSVImage};
 use crate::riscv_simulator;
 use crate::riscv_simulator::DumpState;
@@ -232,7 +232,7 @@ impl CompilerPass<ControlFlowGraph, RICSVImage> for RISCVBackend {
             writeln!(&mut stdout(), "{} instructions, {} data", image.code.len() / 4, data_size_string)?;
         }
         if options.verbosity >= 2 {
-            writeln!(&mut stdout(), "{:?}", riscv_backend::decode(&image.code).format("\n"))?;
+            writeln!(&mut stdout(), "{:?}", riscv_decoder::decode(&image.code).format("\n"))?;
         }
         Ok(image)
     }

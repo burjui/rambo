@@ -4,4 +4,4 @@
 /test-data/
 /test-data-big/
 /TODO.md
-/ir_cfg.dot
+/*.dot

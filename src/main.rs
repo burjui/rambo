@@ -28,11 +28,10 @@ use crate::pipeline::StandardStreamUtils;
 use crate::pipeline::VerifySemantics;
 use crate::utils::stdout;
 
-#[macro_use]
-mod utils;
-
-#[macro_use]
-mod ir;
+#[macro_use] mod utils;
+#[macro_use] mod ir;
+#[macro_use] mod riscv_backend;
+#[macro_use] mod riscv_simulator;
 
 mod source;
 mod lexer;
@@ -44,12 +43,8 @@ mod unique_rc;
 mod graphviz;
 mod frontend;
 mod tracking_allocator;
-
-#[macro_use]
-mod riscv_backend;
-
-#[macro_use]
-mod riscv_simulator;
+mod riscv_decoder;
+mod riscv;
 
 type TrackingAllocator = tracking_allocator::TrackingAllocator<System>;
 

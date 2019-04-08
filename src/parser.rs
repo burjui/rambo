@@ -80,8 +80,8 @@ pub(crate) enum Expr {
     Conditional {
         source: Source,
         condition: Box<Expr>,
-        true_branch: Box<Expr>,
-        false_branch: Option<Box<Expr>>
+        then_branch: Box<Expr>,
+        else_branch: Option<Box<Expr>>
     },
     Block(Block)
 }
@@ -198,12 +198,12 @@ impl Parser {
             }
             condition
         };
-        let true_branch = if condition_is_parenthesized {
+        let then_branch = if condition_is_parenthesized {
             self.parse_block_or_expr()?
         } else {
             self.parse_block()?
         };
-        let false_branch = if self.lexeme.token == Token::Id && self.lexeme.text() == "else" {
+        let else_branch = if self.lexeme.token == Token::Id && self.lexeme.text() == "else" {
             self.read_lexeme()?;
             Some(self.parse_block_or_expr()?)
         } else {
@@ -212,8 +212,8 @@ impl Parser {
         Ok(Expr::Conditional {
             source: start.extend(&self.previous_lexeme_source),
             condition,
-            true_branch: Box::new(true_branch),
-            false_branch: false_branch.map(Box::new)
+            then_branch: Box::new(then_branch),
+            else_branch: else_branch.map(Box::new)
         })
     }
 
