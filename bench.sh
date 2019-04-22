@@ -22,6 +22,6 @@ shift
 shift
 
 cargo build $MODE
-for i in x.rambo y.rambo z.rambo str.rambo; do
+for i in x.rambo y.rambo z.rambo; do #str.rambo; do
 	./target/$TARGET/rambo "$SRC_DIR/$i" $@
 done

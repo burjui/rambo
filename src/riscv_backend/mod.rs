@@ -295,7 +295,7 @@ impl<'a> Backend<'a> {
                         }));
                 if let Some(phi) = phi {
                     let phi_address = self.allocate_value(phi)?.unwrap();
-                    self.store(register, phi_address, AccessWidth::Word)?;
+                    self.store_u32(register, phi_address)?;
                 }
                 self.comment(&format!("{}: {:?} -> x{}", value_id, self.cfg.values[*value_id], register))?;
                 Ok(None)
@@ -532,41 +532,31 @@ impl<'a> Backend<'a> {
         Ok(self.ram_base_address + offset)
     }
 
-    fn load(&mut self, rd: u8, address: u32, width: AccessWidth) -> GenericResult<()> {
-        let load = match width {
-            AccessWidth::Byte => lb,
-            AccessWidth::HalfWord => lh,
-            AccessWidth::Word => lw,
-        };
+    fn load_u32(&mut self, rd: u8, address: u32) -> GenericResult<()> {
         let offset = i32::try_from(address - self.data_start_address)?;
         let result = match self.check_offset(offset)? {
             Offset::Short => self.push_code(&[
-                load(rd, registers::GLOBAL_POINTER, offset as i16)?,
+                lw(rd, registers::GLOBAL_POINTER, offset as i16)?,
             ]),
 
             Offset::Long => self.push_code(&[
                 lui(rd, address as i32)?,
-                load(rd, rd, (address & 0xFFF) as i16)?,
+                lw(rd, rd, (address & 0xFFF) as i16)?,
             ]),
         };
         result.map(|_| ())
     }
 
-    fn store(&mut self, register: u8, address: u32, width: AccessWidth) -> GenericResult<()> {
-        let store = match width {
-            AccessWidth::Byte => sb,
-            AccessWidth::HalfWord => sh,
-            AccessWidth::Word => sw,
-        };
+    fn store_u32(&mut self, register: u8, address: u32) -> GenericResult<()> {
         let offset = i32::try_from(address - self.ram_base_address)?;
         let result = match self.check_offset(offset)? {
             Offset::Short => self.push_code(&[
-                store(registers::GLOBAL_POINTER, offset as i16, register)?,
+                sw(registers::GLOBAL_POINTER, offset as i16, register)?,
             ]),
 
             Offset::Long => self.push_code(&[
                 lui(registers::TMP0, address as i32)?,
-                store(registers::TMP0, (address & 0xFFF) as i16, register)?,
+                sw(registers::TMP0, (address & 0xFFF) as i16, register)?,
             ]),
         };
         result.map(|_| ())
@@ -599,7 +589,7 @@ impl<'a> Backend<'a> {
         if let Some(previous_user) = previous_user {
             if previous_user != value_id {
                 if let Some(address) = self.value_addresses.get(&previous_user) {
-                    self.store(register, *address, AccessWidth::Word)?;
+                    self.store_u32(register, *address)?;
                 }
             }
         }
@@ -610,7 +600,7 @@ impl<'a> Backend<'a> {
                 ])?;
             }
         } else if let Some(address) = self.value_addresses.get(&value_id) {
-            self.load(register, *address, AccessWidth::Word)?;
+            self.load_u32(register, *address)?;
         }
         Ok(register)
     }
@@ -679,8 +669,6 @@ impl IntoIterator for CommentVec {
         self.0.into_iter()
     }
 }
-
-enum AccessWidth { Byte, HalfWord, Word }
 
 enum Offset { Short, Long }
 
