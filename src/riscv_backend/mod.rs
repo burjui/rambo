@@ -85,7 +85,6 @@ struct Backend<'a> {
     stderr: StandardStream,
     phis: HashMap<ValueId, BTreeSet<(NodeIndex, ValueId)>>,
     function_offsets: HashMap<FnId, u32>,
-    function_ids: HashMap<ValueId, FnId>,
     function_used_registers: HashMap<FnId, Box<[u8]>>,
 }
 
@@ -112,7 +111,6 @@ impl<'a> Backend<'a> {
             stderr: stderr(),
             phis: HashMap::new(),
             function_offsets: HashMap::new(),
-            function_ids: HashMap::new(),
             function_used_registers: HashMap::new(),
         }
     }
@@ -121,21 +119,13 @@ impl<'a> Backend<'a> {
         for block in self.cfg.graph.node_indices() {
             for statement in self.cfg.graph[block].iter() {
                 if let Statement::Definition(value_id) = statement {
-                    match &self.cfg.values[*value_id] {
-                        Value::Phi(Phi(operands)) => {
-                            for operand in operands {
-                                self.phis
-                                    .entry(*operand)
-                                    .or_insert_with(BTreeSet::new)
-                                    .insert((block, *value_id));
-                            }
-                        },
-
-                        Value::Function(fn_id) => {
-                            self.function_ids.insert(*value_id, *fn_id);
+                    if let Value::Phi(Phi(operands)) = &self.cfg.values[*value_id] {
+                        for operand in operands {
+                            self.phis
+                                .entry(*operand)
+                                .or_insert_with(BTreeSet::new)
+                                .insert((block, *value_id));
                         }
-
-                        _ => (),
                     }
                 }
             }
@@ -764,7 +754,7 @@ impl RegisterAllocator {
         if self.values.get_by_left(&value_id) == Some(&register) {
             return Ok((Some(register), None));
         }
-        let result = match self.states[register as usize] {
+        match self.states[register as usize] {
             Allocation::None => {
                 let previous_user = None;
                 let source = self.associate(value_id, register, previous_user);
@@ -798,8 +788,7 @@ impl RegisterAllocator {
                     Err(RegisterAllocationError)
                 }
             },
-        };
-        result
+        }
     }
 
     fn associate(&mut self, value_id: ValueId, register: u8, previous_user: Option<ValueId>) -> Option<u8> {
