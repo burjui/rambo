@@ -19,8 +19,6 @@ image: "rust:latest"
 
 # Use cargo to test the project
 test:cargo:
-  variables:
-    RUSTUP_TOOLCHAIN: beta
   script:
   - rustc --version && cargo --version      # Print version info for debugging
   - cargo test --all --verbose
