@@ -15,9 +15,11 @@ use rvsim::Memory;
 use rvsim::MemoryAccess;
 use rvsim::Op;
 use rvsim::SimpleClock;
-use termcolor::{Color, ColorSpec, WriteColor};
+use termcolor::{Color, ColorSpec, StandardStream, WriteColor};
 
-use crate::riscv_backend::{registers, RICSVImage};
+use crate::riscv::registers;
+use crate::riscv::registers::REGISTER_COUNT;
+use crate::riscv_backend::RICSVImage;
 use crate::riscv_decoder;
 use crate::utils::{intersection, stderr};
 
@@ -32,19 +34,52 @@ pub(crate) enum DumpState {
 }
 
 pub(crate) fn run(image: &RICSVImage, dump_state: DumpState) -> Result<Simulator, Box<dyn Error>> {
+    const RAM_SIZE: u32 = 10240;
     let mut dram = DRAM::new(&[
         (image.code_base_address, u32::try_from(image.code.len())?, AccessMode::EXECUTE),
-        (image.ram_base_address, u32::try_from(image.data.len() + 10240)?, AccessMode::READ | AccessMode::WRITE),
+        (image.ram_base_address, u32::try_from(image.data.len())? + RAM_SIZE, AccessMode::READ | AccessMode::WRITE),
     ]);
     dram.find_bank_mut(image.code_base_address).unwrap().write_all(&image.code)?;
     dram.find_bank_mut(image.ram_base_address).unwrap().write_all(&image.data)?;
 
-    let mut simulator = Simulator::new(image.code_base_address, dram);
     let stderr = &mut stderr();
+    let mut simulator = Simulator::new(image.code_base_address, dram);
+    simulator.cpu.x[registers::STACK_POINTER as usize] = image.ram_base_address + RAM_SIZE - 4;
+    simulator.cpu.x[registers::FRAME_POINTER as usize] = simulator.cpu.x[registers::STACK_POINTER as usize];
+    simulator.cpu.x[registers::GLOBAL_POINTER as usize] = image.ram_base_address;
+
+    let dump_simulator_state = |stderr: &mut StandardStream, simulator: &mut Simulator| -> Result<(), Box<dyn Error>> {
+        let write_title = |stderr: &mut StandardStream, title: &str| -> io::Result<()> {
+            stderr.set_color(ColorSpec::new()
+                .set_fg(Some(Color::Yellow))
+                .set_intense(false))?;
+            writeln!(stderr, "{}:", title)?;
+            stderr.reset()
+        };
+
+        dump_registers(&simulator.cpu)?;
+
+        write_title(stderr, "RAM")?;
+        let data_bank = simulator.dram.find_bank_mut(image.ram_base_address).unwrap();
+        dump_ram(&data_bank[.. image.data.len()], image.ram_base_address)?;
+
+        write_title(stderr, "STACK")?;
+        let stack_pointer = simulator.cpu.x[registers::STACK_POINTER as usize];
+        let stack_offset = simulator.cpu.x[registers::STACK_POINTER as usize] - image.ram_base_address;
+        dump_ram(&data_bank[stack_offset as usize .. RAM_SIZE as usize], stack_pointer)?;
+
+        Ok(())
+    };
+
     loop {
         let pc = simulator.cpu.pc;
+
         if dump_state >= DumpState::Everything {
-            if let Some(comments) = image.comments.get(&(pc - image.code_base_address)) {
+            dump_simulator_state(stderr, &mut simulator)?;
+        }
+
+        if dump_state >= DumpState::Instructions {
+            if let Some(comments) = image.comments.find(pc) {
                 for comment in comments {
                     writeln!(stderr, "// {}", comment)?;
                 }
@@ -62,13 +97,6 @@ pub(crate) fn run(image: &RICSVImage, dump_state: DumpState) -> Result<Simulator
                     writeln!(stderr, " {:?}", riscv_decoder::Op(op))?;
                     stderr.flush()?;
                 }
-
-                if dump_state >= DumpState::Everything {
-                    dump_registers(&simulator.cpu)?;
-
-                    let data_bank = simulator.dram.find_bank_mut(image.ram_base_address).unwrap();
-                    dump_ram(&data_bank[.. image.data.len()], image.ram_base_address)?;
-                }
             },
 
             Err((error, op)) => {
@@ -79,15 +107,16 @@ pub(crate) fn run(image: &RICSVImage, dump_state: DumpState) -> Result<Simulator
             },
         }
     }
+
     Ok(simulator)
 }
 
 fn dump_registers(cpu: &CpuState) -> io::Result<()> {
     const REGISTERS_PER_ROW: usize = 4;
-    const REGISTERS_PER_COLUMN: usize = registers::COUNT / REGISTERS_PER_ROW;
+    const REGISTERS_PER_COLUMN: usize = REGISTER_COUNT / REGISTERS_PER_ROW;
 
     let stderr = &mut stderr();
-    for i in 0 .. registers::COUNT {
+    for i in 0 .. REGISTER_COUNT {
         if i % REGISTERS_PER_ROW == 0 {
             if i > 0 {
                 writeln!(stderr)?;

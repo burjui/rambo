@@ -77,6 +77,9 @@ impl fmt::Debug for Op {
             rvsim::Op::Sub { rd, rs1, rs2 } => write!(f, "sub x{}, x{}, x{}", rd, rs1, rs2),
             rvsim::Op::Sra { rd, rs1, rs2 } => write!(f, "sra x{}, x{}, x{}", rd, rs1, rs2),
             rvsim::Op::Fence { pred, succ } => write!(f, "fence {}, {}", pred, succ),
+            rvsim::Op::FenceI => write!(f, "fence.i"),
+            rvsim::Op::Ecall => write!(f, "ecall"),
+            rvsim::Op::Ebreak => write!(f, "ebreak"),
             rvsim::Op::Csrrw { rd, rs1, csr } => write!(f, "csrrw x{}, x{}, {}", rd, rs1, csr),
             rvsim::Op::Csrrs { rd, rs1, csr } => write!(f, "csrrs x{}, x{}, {}", rd, rs1, csr),
             rvsim::Op::Csrrc { rd, rs1, csr } => write!(f, "csrrc x{}, x{}, {}", rd, rs1, csr),
@@ -154,9 +157,6 @@ impl fmt::Debug for Op {
             rvsim::Op::FcvtDWu { rd, rs1, rm } => write!(f, "fcvt.d.wu x{}, x{}, {}", rd, rs1, rm),
             rvsim::Op::FcvtSD { rd, rs1, rm } => write!(f, "fcvt.s.d x{}, x{}, {}", rd, rs1, rm),
             rvsim::Op::FcvtDS { rd, rs1, rm } => write!(f, "fcvt.d.s x{}, x{}, {}", rd, rs1, rm),
-
-
-            _ => fmt::Debug::fmt(&self.0, f),
         }
     }
 }

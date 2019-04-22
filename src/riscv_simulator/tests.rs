@@ -5,7 +5,7 @@ use risky::instructions::*;
 use rvsim::CpuError;
 use rvsim::Op;
 
-use crate::riscv_backend::push_code;
+use crate::riscv_backend::write_code;
 use crate::riscv_simulator::AccessMode;
 use crate::riscv_simulator::DRAM;
 use crate::riscv_simulator::Simulator;
@@ -39,11 +39,11 @@ fn riscv_simulator() -> Result<(), Box<dyn Error>> {
 
     let code_bank = simulator.dram.find_bank_mut(CODE_BASE).unwrap();
     let mut cursor = Cursor::new(&mut **code_bank);
-    push_code(&mut cursor, &[
+    write_code(&mut cursor, &[
         lb(1, 1, 0)?,
         lb(2, 2, 0)?,
         add(1, 1, 2)?,
-        lui(2, 0x01000)?,
+        lui(2, 0x01000000)?,
         lh(2, 2, 0)?,
         add(1, 1, 2)?,
         ebreak()?,
