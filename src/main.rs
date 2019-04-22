@@ -43,8 +43,6 @@ mod unique_rc;
 mod graphviz;
 mod frontend;
 mod tracking_allocator;
-mod riscv_decoder;
-mod riscv;
 
 type TrackingAllocator = tracking_allocator::TrackingAllocator<System>;
 

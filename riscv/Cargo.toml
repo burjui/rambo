@@ -1,0 +1,9 @@
+[package]
+name = "riscv"
+version = "0.1.0"
+authors = ["Artem Borisovskiy <bytefu@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+byteorder = "1.3.1"
+rvsim = "0.2.1"

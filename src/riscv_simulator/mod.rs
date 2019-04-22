@@ -8,6 +8,8 @@ use std::ops::{Deref, DerefMut, Range};
 
 use bitflags::bitflags;
 use itertools::Itertools;
+use riscv::registers;
+use riscv::registers::REGISTER_COUNT;
 use rvsim::CpuError;
 use rvsim::CpuState;
 use rvsim::Interp;
@@ -17,10 +19,7 @@ use rvsim::Op;
 use rvsim::SimpleClock;
 use termcolor::{Color, ColorSpec, StandardStream, WriteColor};
 
-use crate::riscv::registers;
-use crate::riscv::registers::REGISTER_COUNT;
 use crate::riscv_backend::RICSVImage;
-use crate::riscv_decoder;
 use crate::utils::{intersection, stderr};
 
 #[cfg(test)]
@@ -94,7 +93,7 @@ pub(crate) fn run(image: &RICSVImage, dump_state: DumpState) -> Result<Simulator
                         .set_bold(true))?;
                     write!(stderr, "[0x{:08x}]", pc)?;
                     stderr.reset()?;
-                    writeln!(stderr, " {:?}", riscv_decoder::Op(op))?;
+                    writeln!(stderr, " {:?}", riscv::decoder::Op(op))?;
                     stderr.flush()?;
                 }
             },

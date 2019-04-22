@@ -17,6 +17,9 @@ use num_traits::cast::ToPrimitive;
 use petgraph::Direction;
 use petgraph::stable_graph::NodeIndex;
 use petgraph::visit::EdgeRef;
+use riscv::{DataByteOrder, InstructionByteOrder, registers};
+use riscv::decoder::decode;
+use riscv::registers::REGISTER_COUNT;
 use risky::instructions::*;
 use smallvec::SmallVec;
 use termcolor::{Color, ColorSpec, StandardStream, WriteColor};
@@ -26,9 +29,6 @@ use crate::ir::FnId;
 use crate::ir::Statement;
 use crate::ir::Value;
 use crate::ir::value_storage::ValueId;
-use crate::riscv::{DataByteOrder, InstructionByteOrder, registers};
-use crate::riscv::registers::REGISTER_COUNT;
-use crate::riscv_decoder::decode;
 use crate::utils::{GenericResult, stderr};
 
 #[cfg(test)]

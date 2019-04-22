@@ -1,11 +1,12 @@
 use std::fmt;
 use std::io::Cursor;
+use std::ops::Deref;
 
 use byteorder::ReadBytesExt;
 
-use crate::riscv::InstructionByteOrder;
+use crate::InstructionByteOrder;
 
-pub(crate) struct Decoder<'a>(Cursor<&'a [u8]>);
+pub struct Decoder<'a>(Cursor<&'a [u8]>);
 
 impl Iterator for Decoder<'_> {
     type Item = (Op, u64);
@@ -23,15 +24,22 @@ impl Iterator for Decoder<'_> {
     }
 }
 
-pub(crate) fn decode(code: &[u8]) -> Decoder<'_> {
+pub fn decode(code: &[u8]) -> Decoder<'_> {
     Decoder(Cursor::new(code))
 }
 
-#[derive(Deref)]
-pub(crate) struct Op(pub(crate) rvsim::Op);
+pub struct Op(pub rvsim::Op);
+
+impl Deref for Op {
+    type Target = rvsim::Op;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
 
 impl Op {
-    pub(crate) fn parse(instruction: u32) -> Option<Self> {
+    pub fn parse(instruction: u32) -> Option<Self> {
         rvsim::Op::parse(instruction).map(Self)
     }
 }
