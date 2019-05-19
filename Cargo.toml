@@ -9,15 +9,15 @@ edition = '2018'
 name = "rambo"
 
 [dependencies]
-getopts = "0.2.18"
+getopts = "0.2.19"
 itertools = "0.8.0"
 num-bigint = "0.2.2"
 num-traits = "0.2.6"
 petgraph = "0.4.13"
 termcolor = "1.0.4"
-libc = "0.2.50"
+libc = "0.2.55"
 elapsed = "0.1.2"
-once_cell = "0.1.8"
+once_cell = "0.2.0"
 number_prefix = "0.3.0"
 stable-vec = "0.3.2"
 bitflags = "1.0.4"
