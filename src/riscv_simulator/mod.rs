@@ -58,9 +58,11 @@ pub(crate) fn run(image: &RICSVImage, dump_state: DumpState) -> Result<Simulator
 
         dump_registers(&simulator.cpu)?;
 
-        write_title(stderr, "RAM")?;
         let data_bank = simulator.dram.find_bank_mut(image.ram_base_address).unwrap();
-        dump_ram(&data_bank[.. image.data.len()], image.ram_base_address)?;
+        if !image.data.is_empty() {
+            write_title(stderr, "RAM")?;
+            dump_ram(&data_bank[.. image.data.len()], image.ram_base_address)?;
+        }
 
         write_title(stderr, "STACK")?;
         let stack_pointer = simulator.cpu.x[registers::STACK_POINTER as usize];
@@ -101,7 +103,7 @@ pub(crate) fn run(image: &RICSVImage, dump_state: DumpState) -> Result<Simulator
             Err((error, op)) => {
                 match error {
                     CpuError::Ebreak => break,
-                    _ => return Err(format!("op: {:?}, error: {:?}", op, error).into()),
+                    _ => return Err(format!("[0x{:08x}] op: {:?}, error: {:?}", pc, op.map(riscv::decoder::Op), error).into()),
                 }
             },
         }

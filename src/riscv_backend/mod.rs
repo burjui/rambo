@@ -14,6 +14,7 @@ use bimap::BiMap;
 use byteorder::WriteBytesExt;
 use itertools::Itertools;
 use num_traits::cast::ToPrimitive;
+use num_traits::identities::Zero;
 use petgraph::Direction;
 use petgraph::stable_graph::NodeIndex;
 use petgraph::visit::EdgeRef;
@@ -34,12 +35,21 @@ use crate::utils::{GenericResult, stderr};
 #[cfg(test)]
 mod tests;
 
-#[derive(Deref)]
+#[derive(Deref, Copy, Clone)]
 pub(crate) struct DumpCode(pub(crate) bool);
 
-pub(crate) fn generate(cfg: &ControlFlowGraph, dump_code: DumpCode) -> GenericResult<RICSVImage> {
+#[derive(Deref)]
+pub(crate) struct EnableImmediateIntegers(pub(crate) bool);
+
+pub(crate) fn generate(
+    cfg: &ControlFlowGraph,
+    dump_code: DumpCode,
+    enable_immediate_integers: EnableImmediateIntegers,
+) -> GenericResult<RICSVImage> {
     let data_start_address = 0xD000_0000;
-    let (image, _) = Backend::new(cfg, 0x0000_0000, data_start_address, data_start_address, dump_code).generate()?;
+    let backend = Backend::new(cfg, 0x0000_0000, data_start_address, data_start_address,
+                               dump_code, enable_immediate_integers);
+    let (image, _) = backend.generate()?;
     Ok(image)
 }
 
@@ -78,6 +88,7 @@ struct Backend<'a> {
     data: Vec<u8>,
     comments: CommentVec,
     dump_code: bool,
+    enable_immediate_integers: bool,
     registers: RegisterAllocator,
     value_addresses: HashMap<ValueId, u32>,
     no_spill: SmallVec<[u8; REGISTER_COUNT]>,
@@ -93,14 +104,16 @@ impl<'a> Backend<'a> {
            code_base_address: u32,
            ram_base_address: u32,
            data_start_address: u32,
-           DumpCode(dump_code): DumpCode) -> Self
-    {
+           DumpCode(dump_code): DumpCode,
+           EnableImmediateIntegers(enable_immediate_integers): EnableImmediateIntegers,
+    ) -> Self {
         Self {
             cfg,
             code_base_address,
             ram_base_address,
             data_start_address,
             dump_code,
+            enable_immediate_integers,
             code: Vec::new(),
             data: Vec::new(),
             comments: CommentVec::new(),
@@ -145,7 +158,9 @@ impl<'a> Backend<'a> {
                     self.code_base_address + fn_offset,
                     self.ram_base_address + fn_data_address,
                     self.ram_base_address,
-                    DumpCode(self.dump_code));
+                    DumpCode(self.dump_code),
+                    EnableImmediateIntegers(self.enable_immediate_integers),
+                );
                 backend.function_id = Some(*fn_id);
                 backend.dump_code = false;
 
@@ -229,24 +244,25 @@ impl<'a> Backend<'a> {
                 self.stderr.reset()?;
             }
 
-            writeln!(self.stderr, "---- DATA DUMP: {} ----", &self.cfg.name)?;
-
-            for (index, &byte) in self.data.iter().enumerate() {
-                if index % 4 == 0 {
-                    if index > 0 {
-                        writeln!(self.stderr)?;
+            if !self.data.is_empty() {
+                writeln!(self.stderr, "---- DATA DUMP: {} ----", &self.cfg.name)?;
+                for (index, &byte) in self.data.iter().enumerate() {
+                    if index % 4 == 0 {
+                        if index > 0 {
+                            writeln!(self.stderr)?;
+                        }
+                        write!(self.stderr, "[{:08x}] ", self.ram_base_address + index as u32)?;
+                    } else {
+                        write!(self.stderr, " ")?;
                     }
-                    write!(self.stderr, "[{:08x}] ", self.ram_base_address + index as u32)?;
-                } else {
-                    write!(self.stderr, " ")?;
+                    self.stderr.set_color(ColorSpec::new()
+                        .set_fg(Some(Color::Black))
+                        .set_intense(true))?;
+                    write!(self.stderr, "{:02x}", byte)?;
+                    self.stderr.reset()?;
                 }
-                self.stderr.set_color(ColorSpec::new()
-                    .set_fg(Some(Color::Black))
-                    .set_intense(true))?;
-                write!(self.stderr, "{:02x}", byte)?;
-                self.stderr.reset()?;
+                writeln!(self.stderr, "\n")?;
             }
-            writeln!(self.stderr, "\n")?;
         }
 
         let image = RICSVImage {
@@ -374,7 +390,7 @@ impl<'a> Backend<'a> {
                     ])?;
                     for (i, register) in saved_registers.iter().enumerate() {
                         self.push_code(&[
-                            lw(*register, registers::STACK_POINTER, -i16::try_from(i * 4)?)?
+                            lw(*register, registers::STACK_POINTER, -i16::try_from(i * 4).unwrap()).unwrap()
                         ])?;
                     }
 
@@ -406,7 +422,7 @@ impl<'a> Backend<'a> {
                 // FIXME this does not conform to the standard ABI.
                 let register = self.allocate_register(value_id, target)?;
                 self.push_code(&[
-                    lw(register, registers::FRAME_POINTER, -i16::try_from(*index * 4)?)?,
+                    lw(register, registers::FRAME_POINTER, -i16::try_from(*index * 4).unwrap()).unwrap(),
                 ])?;
                 Ok(register)
             },
@@ -455,8 +471,8 @@ impl<'a> Backend<'a> {
                 if self.function_id.is_some() {
                     self.comment("Restore link and frame")?;
                     self.push_code(&[
-                        lw(registers::LINK, registers::STACK_POINTER, 0)?,
-                        lw(registers::FRAME_POINTER, registers::STACK_POINTER, -4)?,
+                        lw(registers::LINK, registers::STACK_POINTER, 0).unwrap(),
+                        lw(registers::FRAME_POINTER, registers::STACK_POINTER, -4).unwrap(),
                     ])?;
                 }
 
@@ -469,6 +485,36 @@ impl<'a> Backend<'a> {
 
             value => unimplemented!("value {}: {:?}", value_id, value),
         }
+    }
+
+    fn generate_immediate_int_value(&mut self, register: u8, value_id: ValueId) -> GenericResult<()> {
+        let value = &self.cfg.values[value_id];
+        match value {
+            Value::Int(n) => {
+                let value = n
+                    .to_i32()
+                    .unwrap_or_else(|| panic!("number out of range: {}", n));
+                let value = self.i_immediate(value)?;
+                if value.upper == 0 {
+                    self.push_code(&[
+                        addi(register, registers::ZERO, value.lower).unwrap(),
+                    ])?;
+                } else if value.lower == 0 {
+                    self.push_code(&[
+                        lui(register, value.upper).unwrap(),
+                    ])?;
+                } else {
+                    self.push_code(&[
+                        lui(register, value.upper).unwrap(),
+                        addi(register, register, value.lower).unwrap(),
+                    ])?;
+                }
+                Ok(())
+            },
+
+            _ => panic!("generate_immediate_integer() called on non-integer value {}: {:?}", value_id, value),
+        }
+
     }
 
     fn generate_binary(
@@ -496,10 +542,14 @@ impl<'a> Backend<'a> {
                 let value = &self.cfg.values[value_id];
                 let address = match value {
                     Value::Int(n) => {
-                        let value = n
-                            .to_u32()
-                            .ok_or_else(|| format!("number out of range: {}", n))?;
-                        Some(self.allocate_u32(value)?)
+                        if self.enable_immediate_integers {
+                            None
+                        } else {
+                            let value = n
+                                .to_i32()
+                                .unwrap_or_else(|| panic!("number out of range: {}", n));
+                            Some(self.allocate_u32(value as u32)?)
+                        }
                     },
 
                     Value::String(_) => unimplemented!("allocate_value(): Value::String"),
@@ -533,31 +583,45 @@ impl<'a> Backend<'a> {
     }
 
     fn load_u32(&mut self, rd: u8, address: u32) -> GenericResult<()> {
-        let offset = i32::try_from(address - self.data_start_address)?;
-        let result = match self.check_offset(offset)? {
-            Offset::Short => self.push_code(&[
-                lw(rd, registers::GLOBAL_POINTER, offset as i16)?,
-            ]),
-
-            Offset::Long => self.push_code(&[
-                lui(rd, address as i32)?,
-                lw(rd, rd, (address & 0xFFF) as i16)?,
-            ]),
+        let location = self.i_immediate((address - self.data_start_address) as i32)?;
+        let result = if location.upper == 0 {
+            self.push_code(&[
+                lw(rd, registers::GLOBAL_POINTER, location.lower).unwrap(),
+            ])
+        } else {
+            let location = self.i_immediate(address as i32)?;
+            if location.upper == 0 {
+                self.push_code(&[
+                    lw(rd, registers::ZERO, location.lower).unwrap(),
+                ])
+            } else {
+                self.push_code(&[
+                    lui(rd, location.upper).unwrap(),
+                    lw(rd, rd, location.lower).unwrap(),
+                ])
+            }
         };
         result.map(|_| ())
     }
 
     fn store_u32(&mut self, register: u8, address: u32) -> GenericResult<()> {
-        let offset = i32::try_from(address - self.ram_base_address)?;
-        let result = match self.check_offset(offset)? {
-            Offset::Short => self.push_code(&[
-                sw(registers::GLOBAL_POINTER, offset as i16, register)?,
-            ]),
-
-            Offset::Long => self.push_code(&[
-                lui(registers::TMP0, address as i32)?,
-                sw(registers::TMP0, (address & 0xFFF) as i16, register)?,
-            ]),
+        let location = self.i_immediate((address - self.data_start_address) as i32)?;
+        let result = if location.upper == 0 {
+            self.push_code(&[
+                sw(registers::GLOBAL_POINTER, location.lower, register).unwrap(),
+            ])
+        } else {
+            let location = self.i_immediate(address as i32)?;
+            if location.upper == 0 {
+                self.push_code(&[
+                    sw(registers::ZERO, location.lower, register).unwrap(),
+                ])
+            } else {
+                self.push_code(&[
+                    lui(registers::TMP0, location.upper).unwrap(),
+                    sw(registers::TMP0, location.lower, register).unwrap(),
+                ])
+            }
         };
         result.map(|_| ())
     }
@@ -585,6 +649,14 @@ impl<'a> Backend<'a> {
     }
 
     fn allocate_register(&mut self, value_id: ValueId, target: Option<u8>) -> GenericResult<u8> {
+        if self.enable_immediate_integers {
+            if let Value::Int(n) = &self.cfg.values[value_id] {
+                if n.is_zero() {
+                    return Ok(registers::ZERO);
+                }
+            }
+        }
+
         let (register, source, previous_user) = self.registers.allocate(value_id, target, &*self.no_spill)?;
         if let Some(previous_user) = previous_user {
             if previous_user != value_id {
@@ -593,6 +665,7 @@ impl<'a> Backend<'a> {
                 }
             }
         }
+
         if let Some(source) = source {
             if source != register {
                 self.push_code(&[
@@ -601,7 +674,12 @@ impl<'a> Backend<'a> {
             }
         } else if let Some(address) = self.value_addresses.get(&value_id) {
             self.load_u32(register, *address)?;
+        } else if self.enable_immediate_integers {
+            if let Value::Int(_) = &self.cfg.values[value_id] {
+                self.generate_immediate_int_value(register, value_id)?;
+            }
         }
+
         Ok(register)
     }
 
@@ -612,25 +690,44 @@ impl<'a> Backend<'a> {
     }
 
     fn patch_jump(&mut self, patch_offset: u32, rd: u8, offset: i32) -> GenericResult<()> {
-        self.patch_at(patch_offset, &match self.check_offset(offset)? {
-            Offset::Short => [
+        self.patch_at(patch_offset, &match self.check_jump_offset(offset)? {
+            JumpOffset::Short => [
                 nop()?,
                 jal(rd, offset)?,
             ],
 
-            Offset::Long => [
-                auipc(registers::TMP0, offset)?,
+            JumpOffset::Long => [
+                auipc(registers::TMP0, offset - ((1 << 20) - 1))?,
                 jalr(rd, registers::TMP0, offset as i16)?,
             ],
         }).map_err(Into::into)
     }
 
-    fn check_offset(&self, offset: i32) -> Result<Offset, TryFromIntError> {
-        // FIXME "- 4" part is probably not portable, check the compressed format manual
+    fn check_jump_offset(&self, offset: i32) -> Result<JumpOffset, TryFromIntError> {
         if -(1 << 20) <= offset && offset < 1 << 20 {
-            Ok(Offset::Short)
+            Ok(JumpOffset::Short)
         } else {
-            Ok(Offset::Long)
+            Ok(JumpOffset::Long)
+        }
+    }
+
+    fn i_immediate(&self, value: i32) -> Result<ImmediateI, TryFromIntError> {
+        if -(1 << 11) <= value && value < 1 << 11 {
+            Ok(ImmediateI {
+                upper: 0,
+                lower: i16::try_from(value)?,
+            })
+        } else {
+            let value = value as u32;
+            let value_rounded = value & !((1 << 12) - 1);
+            let offset = value - value_rounded;
+            let (upper, lower) = if offset < (1 << 11) {
+                (value_rounded as i32, i16::try_from(offset)?)
+            } else {
+                let value_rounded = value_rounded + (1 << 12);
+                (value_rounded as i32, -i16::try_from(value_rounded - value)?)
+            };
+            Ok(ImmediateI { upper, lower })
         }
     }
 }
@@ -670,7 +767,14 @@ impl IntoIterator for CommentVec {
     }
 }
 
-enum Offset { Short, Long }
+enum JumpOffset { Short, Long }
+
+struct ImmediateI {
+    upper: i32,
+    lower: i16,
+}
+
+// TODO ImmediateI complexity
 
 #[derive(Copy, Clone, PartialEq)]
 enum Allocation { None, Temporary, Permanent }

@@ -231,7 +231,7 @@ dependencies = [
  "once_cell 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "petgraph 0.4.13 (registry+https://github.com/rust-lang/crates.io-index)",
  "riscv 0.1.0",
- "risky 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "risky 0.2.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "rvsim 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "smallvec 0.6.9 (registry+https://github.com/rust-lang/crates.io-index)",
  "stable-vec 0.3.2 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -377,7 +377,7 @@ dependencies = [
 
 [[package]]
 name = "risky"
-version = "0.2.0"
+version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
@@ -556,7 +556,7 @@ dependencies = [
 "checksum redox_syscall 0.1.54 (registry+https://github.com/rust-lang/crates.io-index)" = "12229c14a0f65c4f1cb046a3b52047cdd9da1f4b30f8a39c5063c8bae515e252"
 "checksum regex 1.1.6 (registry+https://github.com/rust-lang/crates.io-index)" = "8f0a0bcab2fd7d1d7c54fa9eae6f43eddeb9ce2e7352f8518a814a4f65d60c58"
 "checksum regex-syntax 0.6.6 (registry+https://github.com/rust-lang/crates.io-index)" = "dcfd8681eebe297b81d98498869d4aae052137651ad7b96822f09ceb690d0a96"
-"checksum risky 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)" = "b63a960927588005331ca022e9e4c289810b39d26144f14a7652d394095a0d29"
+"checksum risky 0.2.3 (registry+https://github.com/rust-lang/crates.io-index)" = "e21326bfc70324a8eaf20744da83dc53431d0463a86e8d18288d6dfd9c278b89"
 "checksum rustc_version 0.2.3 (registry+https://github.com/rust-lang/crates.io-index)" = "138e3e0acb6c9fb258b19b67cb8abd63c00679d2851805ea151465464fe9030a"
 "checksum rvsim 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)" = "53d3e35e567a43cffb0532131aa8660d3f737d582724927c0be720518bc09900"
 "checksum scopeguard 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)" = "b42e15e59b18a828bbf5c58ea01debb36b9b096346de35d941dcb89009f24a0d"

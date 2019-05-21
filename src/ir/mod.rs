@@ -239,7 +239,7 @@ impl Hash for Phi {
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub(crate) enum Value {
     Unit,
-    Int(BigInt),
+    Int(BigInt), // TODO i32
     String(Rc<String>),
     Function(FnId),
     AddInt(ValueId, ValueId),

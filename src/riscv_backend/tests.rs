@@ -7,6 +7,7 @@ use crate::frontend::FrontEnd;
 use crate::graphviz::graphviz_dot_write;
 use crate::riscv_backend;
 use crate::riscv_backend::DumpCode;
+use crate::riscv_backend::EnableImmediateIntegers;
 use crate::riscv_backend::registers;
 use crate::riscv_backend::RICSVImage;
 use crate::riscv_simulator;
@@ -14,7 +15,34 @@ use crate::riscv_simulator::DumpState;
 use crate::utils::GenericResult;
 use crate::utils::stderr;
 
-macro_rules! test_backend{
+struct BackEndPermutation(usize);
+
+impl BackEndPermutation {
+    const PARAMETER_COUNT: usize = 3;
+    const PERMUTATION_COUNT: usize = 1 << Self::PARAMETER_COUNT;
+
+    fn new() -> Self {
+        Self(0)
+    }
+
+    fn is_empty(&self) -> bool {
+        self.0 >= Self::PERMUTATION_COUNT
+    }
+
+    fn next(&mut self) {
+        self.0 += 1;
+    }
+
+    fn enable_immediate_integers(&self) -> bool {
+        self.parameter(0)
+    }
+
+    fn parameter(&self, index: usize) -> bool {
+        self.0 & (1 << index) != 0
+    }
+}
+
+macro_rules! test_backend {
     ($name: ident, $code: expr, $check: expr) => {
         #[test]
         fn $name() -> GenericResult<()> {
@@ -38,9 +66,16 @@ macro_rules! test_backend{
             if *dump_code {
                 writeln!(stderr)?;
             }
-            let image = riscv_backend::generate(&cfg, dump_code)?;
-            let check: fn(RICSVImage) -> GenericResult<()> = $check;
-            check(image)
+
+            let mut backend_permutation = BackEndPermutation::new();
+            while !backend_permutation.is_empty() {
+                let enable_immediate_integers = EnableImmediateIntegers(backend_permutation.enable_immediate_integers());
+                let image = riscv_backend::generate(&cfg, dump_code, enable_immediate_integers)?;
+                let check: fn(RICSVImage) -> GenericResult<()> = $check;
+                check(image)?;
+                backend_permutation.next();
+            }
+            Ok(())
         }
     }
 }

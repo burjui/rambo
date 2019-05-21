@@ -8,6 +8,7 @@ use std::path::Path;
 
 use itertools::Itertools;
 use number_prefix::NumberPrefix;
+use riscv::registers;
 use termcolor::Color;
 use termcolor::ColorSpec;
 use termcolor::StandardStream;
@@ -23,7 +24,7 @@ use crate::lexer::Lexer;
 use crate::parser::Block;
 use crate::parser::Parser;
 use crate::riscv_backend;
-use crate::riscv_backend::{DumpCode, RICSVImage};
+use crate::riscv_backend::{DumpCode, EnableImmediateIntegers, RICSVImage};
 use crate::riscv_simulator;
 use crate::riscv_simulator::DumpState;
 use crate::semantics::ExprRef;
@@ -40,6 +41,7 @@ pub(crate) struct PipelineOptions {
     pub(crate) cfg_include_comments: bool,
     pub(crate) enable_cfp: bool,
     pub(crate) enable_dce: bool,
+    pub(crate) enable_immediate_integers: bool,
     pub(crate) verbosity: u8,
 }
 
@@ -224,7 +226,11 @@ impl CompilerPass<ControlFlowGraph, RICSVImage> for RISCVBackend {
     const TITLE: &'static str = "Generating RISC-V code";
 
     fn apply(cfg: ControlFlowGraph, options: &PipelineOptions) -> Result<RICSVImage, Box<dyn Error>> {
-        let image = riscv_backend::generate(&cfg, DumpCode(options.verbosity >= 2))?;
+        let image = riscv_backend::generate(
+            &cfg,
+            DumpCode(options.verbosity >= 2),
+            EnableImmediateIntegers(options.enable_immediate_integers),
+        )?;
         if options.verbosity >= 1 {
             let data_size_string = match NumberPrefix::binary(image.data.len() as f32) {
                 NumberPrefix::Standalone(usage) => format!("{} bytes", usage),
@@ -246,7 +252,11 @@ impl CompilerPass<RICSVImage, ()> for RISCVSimulator {
             3 => DumpState::Everything,
             _ => DumpState::None,
         };
-        riscv_simulator::run(&image, dump_state)?;
+        let state = riscv_simulator::run(&image, dump_state)?;
+        if options.verbosity >= 1 {
+            writeln!(&mut stdout(), "result at x{} = 0x{:08x} ({})",
+                     registers::RETURN_VALUE0, state.cpu.x[registers::RETURN_VALUE0 as usize], state.cpu.x[registers::RETURN_VALUE0 as usize])?;
+        }
         Ok(())
     }
 }

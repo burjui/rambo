@@ -90,6 +90,7 @@ fn parse_command_line() -> Result<CommandLine, Box<dyn Error>> {
     static PASS_OPTION: &str = "p";
     static NO_CFP_OPTION: &str = "no-cfp";
     static NO_DCE_OPTION: &str = "no-dce";
+    static NO_IMMINT_OPTION: &str = "no-immint";
     static VERBOSE_OPTION: &str = "v";
 
     let args: Vec<String> = program_args().collect();
@@ -100,6 +101,7 @@ fn parse_command_line() -> Result<CommandLine, Box<dyn Error>> {
     spec.optflag("", IR_COMMENTS_OPTION, "comment the generated IR");
     spec.optflag("", NO_CFP_OPTION, "disable constant folding and propagation");
     spec.optflag("", NO_DCE_OPTION, "disable dead code elimination");
+    spec.optflag("", NO_IMMINT_OPTION, "disable do not emit integers as immediates, load from memory instead");
     spec.optflagmulti(VERBOSE_OPTION, "verbose", "print individual passes;\nuse twice to dump intermediate results");
 
     let pass_name_list: String = COMPILER_PASS_NAMES.join(", ");
@@ -136,6 +138,7 @@ fn parse_command_line() -> Result<CommandLine, Box<dyn Error>> {
         cfg_include_comments: matches.opt_present(IR_COMMENTS_OPTION),
         enable_cfp: !matches.opt_present(NO_CFP_OPTION),
         enable_dce: !matches.opt_present(NO_DCE_OPTION),
+        enable_immediate_integers: !matches.opt_present(NO_IMMINT_OPTION),
         verbosity: verbosity as u8,
     };
     let input_files = matches.free;
