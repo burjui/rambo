@@ -13,14 +13,14 @@ use petgraph::graph::NodeIndex;
 use petgraph::prelude::Direction::Outgoing;
 use petgraph::visit::EdgeRef;
 
-use crate::ir::ControlFlowGraph;
 use crate::ir::FunctionMap;
+use crate::ir::IRModule;
 use crate::ir::Statement;
 use crate::ir::Value;
 use crate::ir::value_storage::ValueId;
 
 pub(crate) struct EvalContext<'a> {
-    cfg: &'a ControlFlowGraph,
+    module: &'a IRModule,
     functions: &'a FunctionMap,
     env: EvalEnv,
     stack: Vec<Value>,
@@ -29,9 +29,9 @@ pub(crate) struct EvalContext<'a> {
 }
 
 impl<'a> EvalContext<'a> {
-    pub(crate) fn new(cfg: &'a ControlFlowGraph, functions: &'a FunctionMap) -> Self {
+    pub(crate) fn new(module: &'a IRModule, functions: &'a FunctionMap) -> Self {
         Self {
-            cfg,
+            module,
             functions,
             env: EvalEnv::new(),
             stack: Vec::new(),
@@ -41,14 +41,14 @@ impl<'a> EvalContext<'a> {
     }
 
     pub(crate) fn eval(mut self) -> Value {
-        self.eval_impl(self.cfg.entry_block)
+        self.eval_impl(self.module.entry_block)
     }
 
     fn eval_impl(&mut self, block: NodeIndex) -> Value {
         let mut result = &self.unit;
         let mut state = self.new_state(block);
         loop {
-            let basic_block = &self.cfg.graph[state.block];
+            let basic_block = &self.module.cfg[state.block];
             let mut statement = None;
             while statement.is_none() && state.statement_index < basic_block.next_index() {
                 statement = basic_block.get(state.statement_index);
@@ -56,7 +56,7 @@ impl<'a> EvalContext<'a> {
             }
 
             if statement.is_none() {
-                let mut outgoing_edges = self.cfg.graph.edges_directed(state.block, Outgoing);
+                let mut outgoing_edges = self.module.cfg.edges_directed(state.block, Outgoing);
                 let outgoing_edge = outgoing_edges.next();
                 match outgoing_edge {
                     Some(edge) => {
@@ -71,7 +71,7 @@ impl<'a> EvalContext<'a> {
                 Some(Statement::Comment(_)) => (),
 
                 Some(Statement::Definition(value_id)) => {
-                    let value = self.eval_value(&self.cfg.values[*value_id]);
+                    let value = self.eval_value(&self.module.values[*value_id]);
                     self.define(*value_id, value);
                     result = &self.env[value_id].value;
                 }
@@ -138,7 +138,7 @@ impl<'a> EvalContext<'a> {
                     _ => unreachable!("`{}' is not a function: {:?}", function, value),
                 };
                 let function_cfg = &self.functions[fn_id];
-                let mut function_context = EvalContext::new(function_cfg, &self.cfg.functions);
+                let mut function_context = EvalContext::new(function_cfg, &self.module.functions);
                 for argument in arguments.iter() {
                     let runtime_value = self.env[argument].clone();
                     let value = runtime_value.value.clone();

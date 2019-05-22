@@ -15,10 +15,10 @@ use termcolor::StandardStream;
 use termcolor::WriteColor;
 
 use crate::frontend::FrontEnd;
-use crate::graphviz::graphviz_dot_write;
-use crate::ir::ControlFlowGraph;
+use crate::graphviz::graphviz_dot_write_cfg;
 use crate::ir::eval::EvalContext;
 use crate::ir::fmt_statement;
+use crate::ir::IRModule;
 use crate::ir::Value;
 use crate::lexer::Lexer;
 use crate::parser::Block;
@@ -177,23 +177,23 @@ impl CompilerPass<(Block, SourceFileRef), (ExprRef, SourceFileRef)> for VerifySe
     }
 }
 
-impl CompilerPass<(ExprRef, SourceFileRef), ControlFlowGraph> for IR {
+impl CompilerPass<(ExprRef, SourceFileRef), IRModule> for IR {
     const NAME: &'static str = "ir";
     const TITLE: &'static str = "Generating IR";
 
-    fn apply((hir, source_file): (ExprRef, SourceFileRef), options: &PipelineOptions) -> Result<ControlFlowGraph, Box<dyn Error>> {
+    fn apply((hir, source_file): (ExprRef, SourceFileRef), options: &PipelineOptions) -> Result<IRModule, Box<dyn Error>> {
         let frontend = FrontEnd::new("main")
             .enable_warnings(options.enable_warnings)
             .include_comments(options.cfg_include_comments)
             .enable_cfp(options.enable_cfp)
             .enable_dce(options.enable_dce);
-        let cfg = frontend.build(&hir);
+        let module = frontend.build(&hir);
         let mut stdout = stdout();
         if options.verbosity >= 1 {
-            writeln!(&mut stdout, "{} statements", cfg_statements_count(&cfg.borrow()))?;
+            writeln!(&mut stdout, "{} statements", unit_statements_count(&module.borrow()))?;
         }
         if options.verbosity >= 2 {
-            dump_cfg(&cfg, &cfg.name, &mut stdout)?;
+            dump_module(&module, &module.name, &mut stdout)?;
         }
         if options.dump_cfg {
             let src_path = Path::new(source_file.name());
@@ -202,32 +202,32 @@ impl CompilerPass<(ExprRef, SourceFileRef), ControlFlowGraph> for IR {
                 .and_then(OsStr::to_str)
                 .unwrap_or_else(|| panic!("failed to extract the file name from path: {}", src_path.display()));
             let file = File::create(&format!("{}_cfg.dot", src_file_name))?;
-            graphviz_dot_write(&mut BufWriter::new(file), &cfg)?;
+            graphviz_dot_write_cfg(&mut BufWriter::new(file), &module)?;
         }
-        Ok(cfg)
+        Ok(module)
     }
 }
 
-impl CompilerPass<ControlFlowGraph, ControlFlowGraph> for EvaluateIR {
+impl CompilerPass<IRModule, IRModule> for EvaluateIR {
     const NAME: &'static str = "eval_ir";
     const TITLE: &'static str = "Evaluating IR";
 
-    fn apply(cfg: ControlFlowGraph, options: &PipelineOptions) -> Result<ControlFlowGraph, Box<dyn Error>> {
-        let value = EvalContext::new(&cfg, &cfg.functions).eval();
+    fn apply(module: IRModule, options: &PipelineOptions) -> Result<IRModule, Box<dyn Error>> {
+        let value = EvalContext::new(&module, &module.functions).eval();
         if options.verbosity >= 1 {
             writeln!(&mut stdout(), "{:?}", value)?;
         }
-        Ok(cfg)
+        Ok(module)
     }
 }
 
-impl CompilerPass<ControlFlowGraph, RICSVImage> for RISCVBackend {
+impl CompilerPass<IRModule, RICSVImage> for RISCVBackend {
     const NAME: &'static str = "rvgen";
     const TITLE: &'static str = "Generating RISC-V code";
 
-    fn apply(cfg: ControlFlowGraph, options: &PipelineOptions) -> Result<RICSVImage, Box<dyn Error>> {
+    fn apply(module: IRModule, options: &PipelineOptions) -> Result<RICSVImage, Box<dyn Error>> {
         let image = riscv_backend::generate(
-            &cfg,
+            &module,
             DumpCode(options.verbosity >= 2),
             EnableImmediateIntegers(options.enable_immediate_integers),
         )?;
@@ -267,43 +267,43 @@ impl CompilerPass<RICSVImage, ()> for RISCVSimulator {
     }
 }
 
-fn cfg_statements_count(cfg: &ControlFlowGraph) -> usize {
-    let functions = cfg.values
+fn unit_statements_count(module: &IRModule) -> usize {
+    let functions = module.values
         .iter()
         .filter_map(|(value, _)| match value {
-            Value::Function(fn_id) => Some(&cfg.functions[fn_id]),
+            Value::Function(fn_id) => Some(&module.functions[fn_id]),
             _ => None,
         });
-    cfg.graph
+    module.cfg
         .node_indices()
-        .map(|block| cfg.graph[block].len())
-        .chain(functions.map(|function_cfg| cfg_statements_count(&function_cfg.borrow())))
+        .map(|block| module.cfg[block].len())
+        .chain(functions.map(|function_cfg| unit_statements_count(&function_cfg.borrow())))
         .sum()
 }
 
-fn dump_cfg(cfg: &ControlFlowGraph, name: &str, stdout: &mut StandardStream) -> std::io::Result<()> {
+fn dump_module(module: &IRModule, name: &str, stdout: &mut StandardStream) -> std::io::Result<()> {
     writeln!(stdout, "// {}", name)?;
-    for block in cfg.graph.node_indices() {
+    for block in module.cfg.node_indices() {
         writeln!(stdout, "{}_{}:", name, block.index())?;
-        for statement in cfg.graph[block].iter() {
+        for statement in module.cfg[block].iter() {
             write!(stdout, "    ")?;
-            fmt_statement(stdout, statement, &cfg.values)?;
+            fmt_statement(stdout, statement, &module.values)?;
             writeln!(stdout)?;
         }
     }
-    let functions = cfg.values
+    let functions = module.values
         .iter()
         .filter_map(|(value, _)| match value {
-            Value::Function(fn_id) => Some((fn_id, &cfg.functions[fn_id])),
+            Value::Function(fn_id) => Some((fn_id, &module.functions[fn_id])),
             _ => None,
         })
         .collect_vec();
     if !functions.is_empty() {
         writeln!(stdout)?;
-        for (id, cfg) in functions {
-            writeln!(stdout, "// {}", cfg.name)?;
+        for (id, module) in functions {
+            writeln!(stdout, "// {}", module.name)?;
             let name = id.to_string();
-            dump_cfg(cfg, &name, stdout)?;
+            dump_module(module, &name, stdout)?;
         }
     }
     Ok(())

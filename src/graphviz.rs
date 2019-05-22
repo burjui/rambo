@@ -9,11 +9,11 @@ use std::str::Chars;
 use itertools::Itertools;
 use petgraph::graph::NodeIndex;
 
-use crate::ir::BasicBlockGraph;
 use crate::ir::ControlFlowGraph;
 use crate::ir::FnId;
 use crate::ir::Ident;
 use crate::ir::IdentGenerator;
+use crate::ir::IRModule;
 use crate::ir::Phi;
 use crate::ir::Statement;
 use crate::ir::Value;
@@ -22,21 +22,21 @@ use crate::ir::value_storage::ValueStorage;
 
 define_ident!{ ClusterId "cluster" }
 
-pub(crate) fn graphviz_dot_write(output: &mut impl io::Write, cfg: &ControlFlowGraph) -> io::Result<()> {
+pub(crate) fn graphviz_dot_write_cfg(output: &mut impl io::Write, unit: &IRModule) -> io::Result<()> {
     writeln!(output, "digraph {{")?;
     writeln!(output, "node [ ")?;
     writeln_attribute(output, "fontname", NODE_FONT)?;
     writeln_attribute(output, "fontsize", NODE_FONT_SIZE)?;
     writeln!(output, "]\n")?;
     let mut cluster_idgen = IdentGenerator::new();
-    let label = CfgLabel::Ordinary(&cfg.name);
-    write_cfg(output, cfg, label, &mut cluster_idgen)?;
+    let label = CfgLabel::Ordinary(&unit.name);
+    write_cfg(output, unit, label, &mut cluster_idgen)?;
     writeln!(output, "}}")
 }
 
 fn write_cfg(
     output: &mut impl io::Write,
-    cfg: &ControlFlowGraph,
+    unit: &IRModule,
     label: CfgLabel<'_>,
     cluster_idgen: &mut IdentGenerator<ClusterId>)
     -> io::Result<()>
@@ -44,13 +44,13 @@ fn write_cfg(
     let cluster_id = cluster_idgen.next_id();
     writeln!(output, "subgraph {} {{", cluster_id)?;
     writeln_cluster_label(output, label)?;
-    for block in cfg.graph.node_indices() {
+    for block in unit.cfg.node_indices() {
         let block_id = BlockId::new(cluster_id, block);
-        write_block(output, block, block_id, &cfg.graph, &cfg.values)?;
+        write_block(output, block, block_id, &unit.cfg, &unit.values)?;
     }
-    let edges = cfg.graph
+    let edges = unit.cfg
         .edge_indices()
-        .map(|edge| cfg.graph.edge_endpoints(edge).unwrap())
+        .map(|edge| unit.cfg.edge_endpoints(edge).unwrap())
         .collect_vec();
     for (source, target) in edges {
         let source_id = BlockId::new(cluster_id, source);
@@ -59,15 +59,15 @@ fn write_cfg(
     }
     writeln!(output, "}}")?;
 
-    let functions = cfg.values
+    let functions = unit.values
         .iter()
         .filter_map(|(value, _)| match value {
-            Value::Function(fn_id) => Some((*fn_id, &cfg.functions[fn_id])),
+            Value::Function(fn_id) => Some((*fn_id, &unit.functions[fn_id])),
             _ => None,
         });
-    for (id, cfg) in functions {
+    for (id, module) in functions {
         writeln!(output)?;
-        write_cfg(output, cfg, CfgLabel::Function(id), cluster_idgen)?;
+        write_cfg(output, module, CfgLabel::Function(id), cluster_idgen)?;
     }
     Ok(())
 }
@@ -94,7 +94,7 @@ fn write_block(
     output: &mut impl io::Write,
     block: NodeIndex,
     block_id: BlockId,
-    graph: &BasicBlockGraph,
+    cfg: &ControlFlowGraph,
     values: &ValueStorage)
     -> io::Result<()>
 {
@@ -102,7 +102,7 @@ fn write_block(
     writeln_attribute(output, "shape", "box")?;
     writeln_node_xlabel_attribute(output, &block.index().to_string())?;
     let label_end = write_html_attribute_start(output, "label")?;
-    write_basic_block(output, graph[block].iter(), values)?;
+    write_basic_block(output, cfg[block].iter(), values)?;
     label_end.write(output)?;
     writeln!(output, "\n]")
 }

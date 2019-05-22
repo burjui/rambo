@@ -8,8 +8,8 @@ use std::rc::Rc;
 use num_bigint::BigInt;
 
 use crate::frontend::FrontEnd;
-use crate::graphviz::graphviz_dot_write;
-use crate::ir::ControlFlowGraph;
+use crate::graphviz::graphviz_dot_write_cfg;
+use crate::ir::IRModule;
 use crate::ir::Value;
 use crate::utils::TestResult;
 
@@ -87,7 +87,7 @@ macro_rules! test_frontend {
                     continue;
                 }
 
-                let cfg = FrontEnd::new(&location!())
+                let module = FrontEnd::new(&location!())
                     .enable_warnings(false)
                     .include_comments(frontend_permutation.include_comments())
                     .enable_cfp(frontend_permutation.enable_cfp())
@@ -99,9 +99,9 @@ macro_rules! test_frontend {
                     .and_then(OsStr::to_str)
                     .expect(&format!("failed to extract the file name from path: {}", test_src_path.display()));
                 let mut file = File::create(format!("frontend_{}_{}_cfg.dot", test_src_file_name, line!()))?;
-                graphviz_dot_write(&mut file, &cfg)?;
-                let check: fn(ControlFlowGraph) = $check;
-                check(cfg);
+                graphviz_dot_write_cfg(&mut file, &module)?;
+                let check: fn(IRModule) = $check;
+                check(module);
 
                 frontend_permutation.next();
             }
@@ -113,8 +113,8 @@ macro_rules! test_frontend {
 macro_rules! test_frontend_eval {
     ($name: ident, $code: expr, $expected_result: expr $(, $forbidden_permutation: expr)*) => {
         test_frontend!{ $name, $code,
-            |cfg| {
-                let value = crate::ir::eval::EvalContext::new(&cfg, &cfg.functions).eval();
+            |module| {
+                let value = crate::ir::eval::EvalContext::new(&module, &module.functions).eval();
                 assert_eq!(value, $expected_result);
             }
             $(, $forbidden_permutation)*
@@ -228,6 +228,6 @@ test_frontend!{
     }
     x
     ",
-    |cfg| assert_eq!(cfg.graph.edge_count(), 0),
+    |module| assert_eq!(module.cfg.edge_count(), 0),
     ForbiddenPermutation::EnableCfp(false)
 }

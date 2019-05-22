@@ -4,7 +4,7 @@ use std::io::Write;
 use std::path::Path;
 
 use crate::frontend::FrontEnd;
-use crate::graphviz::graphviz_dot_write;
+use crate::graphviz::graphviz_dot_write_cfg;
 use crate::riscv_backend;
 use crate::riscv_backend::DumpCode;
 use crate::riscv_backend::EnableImmediateIntegers;
@@ -47,7 +47,7 @@ macro_rules! test_backend {
         #[test]
         fn $name() -> GenericResult<()> {
             let code = typecheck!($code)?;
-            let cfg = FrontEnd::new(&location!())
+            let module = FrontEnd::new(&location!())
                 .enable_warnings(false)
                 .include_comments(true)
                 .enable_cfp(false)
@@ -59,7 +59,7 @@ macro_rules! test_backend {
                 .and_then(OsStr::to_str)
                 .expect(&format!("failed to extract the file name from path: {}", test_src_path.display()));
             let mut file = File::create(format!("riscv_backend_{}_{}_cfg.dot", test_src_file_name, line!()))?;
-            graphviz_dot_write(&mut file, &cfg)?;
+            graphviz_dot_write_cfg(&mut file, &module)?;
 
             let stderr = &mut stderr();
             let dump_code = DumpCode(false);
@@ -70,7 +70,7 @@ macro_rules! test_backend {
             let mut backend_permutation = BackEndPermutation::new();
             while !backend_permutation.is_empty() {
                 let enable_immediate_integers = EnableImmediateIntegers(backend_permutation.enable_immediate_integers());
-                let image = riscv_backend::generate(&cfg, dump_code, enable_immediate_integers)?;
+                let image = riscv_backend::generate(&module, dump_code, enable_immediate_integers)?;
                 let check: fn(RICSVImage) -> GenericResult<()> = $check;
                 check(image)?;
                 backend_permutation.next();

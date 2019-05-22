@@ -10,7 +10,7 @@ use petgraph::graph::NodeIndex;
 use petgraph::visit::EdgeRef;
 
 use crate::ir::BasicBlock;
-use crate::ir::BasicBlockGraph;
+use crate::ir::ControlFlowGraph;
 use crate::ir::FunctionMap;
 use crate::ir::get_statement_operands_mut;
 use crate::ir::get_statement_value_operands;
@@ -25,22 +25,22 @@ pub(crate) fn remove_dead_code(
     entry_block: NodeIndex,
     program_result: &mut ValueId,
     values: &mut ValueStorage,
-    graph: &mut BasicBlockGraph,
+    cfg: &mut ControlFlowGraph,
     definitions: &mut HashMap<ValueId, StatementLocation>,
     functions: &mut FunctionMap)
 {
-    let mut value_usage = compute_value_usage(*program_result, values, graph, definitions);
-    remove_unused_definitions(&mut value_usage, values, graph, definitions);
-    remove_empty_blocks(graph);
-    merge_consecutive_basic_blocks(entry_block, values, graph, &mut value_usage, definitions);
-    remove_unused_definitions(&mut value_usage, values, graph, definitions);
-    remove_unused_values(definitions, values, functions, graph, program_result);
+    let mut value_usage = compute_value_usage(*program_result, values, cfg, definitions);
+    remove_unused_definitions(&mut value_usage, values, cfg, definitions);
+    remove_empty_blocks(cfg);
+    merge_consecutive_basic_blocks(entry_block, values, cfg, &mut value_usage, definitions);
+    remove_unused_definitions(&mut value_usage, values, cfg, definitions);
+    remove_unused_values(definitions, values, functions, cfg, program_result);
 }
 
 fn compute_value_usage(
     program_result: ValueId,
     values: &mut ValueStorage,
-    graph: &mut BasicBlockGraph,
+    cfg: &mut ControlFlowGraph,
     definitions: &mut HashMap<ValueId, StatementLocation>)
     -> HashMap<ValueId, usize>
 {
@@ -49,9 +49,9 @@ fn compute_value_usage(
             .keys()
             .cloned()
             .zip(repeat(0)));
-    let used_values = graph
+    let used_values = cfg
         .node_indices()
-        .flat_map(|node| graph[node].iter())
+        .flat_map(|node| cfg[node].iter())
         .flat_map(|statement| get_statement_value_operands(&values, statement))
         .chain(once(program_result));
     for value_id in used_values {
@@ -63,7 +63,7 @@ fn compute_value_usage(
 fn remove_unused_definitions(
     value_usage: &mut HashMap<ValueId, usize>,
     values: &mut ValueStorage,
-    graph: &mut BasicBlockGraph,
+    cfg: &mut ControlFlowGraph,
     definitions: &mut HashMap<ValueId, StatementLocation>)
 {
     let unused_values = value_usage
@@ -74,7 +74,7 @@ fn remove_unused_definitions(
         })
         .collect_vec();
     for value_id in unused_values {
-        unuse(value_id, graph, values, value_usage, definitions);
+        unuse(value_id, cfg, values, value_usage, definitions);
     }
 
     let (unused_values, dead_code): (Vec<_>, Vec<_>) = value_usage
@@ -88,12 +88,12 @@ fn remove_unused_definitions(
         definitions.remove(&value_id);
         value_usage.remove(&value_id);
     }
-    remove_statements(dead_code, graph);
+    remove_statements(dead_code, cfg);
 }
 
 fn unuse(
     value_id: ValueId,
-    graph: &BasicBlockGraph,
+    cfg: &ControlFlowGraph,
     values: &ValueStorage,
     value_usage: &mut HashMap<ValueId, usize>,
     definitions: &mut HashMap<ValueId, StatementLocation>)
@@ -105,38 +105,38 @@ fn unuse(
 
     if *usage_count == 0 {
         let location = &definitions[&value_id];
-        let statement = &graph[location.block][location.index];
+        let statement = &cfg[location.block][location.index];
         for operand in get_statement_value_operands(&values, statement) {
-            unuse(operand, graph, values, value_usage, definitions);
+            unuse(operand, cfg, values, value_usage, definitions);
         }
     }
 }
 
-fn remove_empty_blocks(graph: &mut BasicBlockGraph) {
-    let blocks = graph
+fn remove_empty_blocks(cfg: &mut ControlFlowGraph) {
+    let blocks = cfg
         .node_indices()
         .collect_vec();
     for block in blocks {
-        let is_empty = graph[block]
+        let is_empty = cfg[block]
             .iter()
             .find(|statement| !matches!(statement, Statement::Comment(_)))
             .is_none();
         if is_empty {
-            let sources = graph
+            let sources = cfg
                 .edges_directed(block, Direction::Incoming)
                 .map(|edge| edge.source())
                 .collect_vec();
-            let targets = graph
+            let targets = cfg
                 .edges_directed(block, Direction::Outgoing)
                 .map(|edge| edge.target())
                 .collect_vec();
             if sources.len() == 1 && targets.len() == 1 {
                 let source = sources[0];
                 let target = targets[0];
-                if graph.find_edge(source, target).is_none() {
-                    graph.add_edge(source, target, ());
+                if cfg.find_edge(source, target).is_none() {
+                    cfg.add_edge(source, target, ());
                 }
-                graph.remove_node(block);
+                cfg.remove_node(block);
             }
         }
     }
@@ -145,27 +145,27 @@ fn remove_empty_blocks(graph: &mut BasicBlockGraph) {
 fn merge_consecutive_basic_blocks(
     block: NodeIndex,
     values: &ValueStorage,
-    graph: &mut BasicBlockGraph,
+    cfg: &mut ControlFlowGraph,
     value_usage: &mut HashMap<ValueId, usize>,
     definitions: &mut HashMap<ValueId, StatementLocation>)
 {
-    let successors = graph
+    let successors = cfg
         .edges_directed(block, Direction::Outgoing)
         .map(|edge| edge.target())
         .collect_vec();
     for successor in &successors {
-        merge_consecutive_basic_blocks(*successor, values, graph, value_usage, definitions);
+        merge_consecutive_basic_blocks(*successor, values, cfg, value_usage, definitions);
     }
     if successors.len() == 1 {
         let successor = successors[0];
-        if graph.edges_directed(successor, Direction::Incoming).count() == 1 {
-            if let Some(Statement::CondJump(condition, _, _)) = graph[block].find_last() {
-                unuse(*condition, graph, values, value_usage, definitions);
-                graph[block].pop();
+        if cfg.edges_directed(successor, Direction::Incoming).count() == 1 {
+            if let Some(Statement::CondJump(condition, _, _)) = cfg[block].find_last() {
+                unuse(*condition, cfg, values, value_usage, definitions);
+                cfg[block].pop();
             }
 
-            let successor_basic_block = replace(&mut graph[successor], BasicBlock::new());
-            let basic_block = &mut graph[block];
+            let successor_basic_block = replace(&mut cfg[successor], BasicBlock::new());
+            let basic_block = &mut cfg[block];
             for statement in successor_basic_block.into_iter() {
                 if let Statement::Definition(value_id) = statement {
                     let definition = definitions.get_mut(&value_id).unwrap();
@@ -174,14 +174,14 @@ fn merge_consecutive_basic_blocks(
                 }
             }
 
-            let targets = graph
+            let targets = cfg
                 .edges_directed(successor, Direction::Outgoing)
                 .map(|edge| edge.target())
                 .collect_vec();
             for target in targets {
-                graph.add_edge(block, target, ());
+                cfg.add_edge(block, target, ());
             }
-            graph.remove_node(successor);
+            cfg.remove_node(successor);
         }
     }
 }
@@ -190,7 +190,7 @@ fn remove_unused_values(
     definitions: &mut HashMap<ValueId, StatementLocation>,
     values: &mut ValueStorage,
     functions: &mut FunctionMap,
-    graph: &mut BasicBlockGraph,
+    cfg: &mut ControlFlowGraph,
     program_result: &mut ValueId)
 {
     for (_, value_id) in values.iter() {
@@ -212,9 +212,9 @@ fn remove_unused_values(
             *operand = remap[operand];
         }
     }
-    let blocks = graph.node_indices().collect_vec();
+    let blocks = cfg.node_indices().collect_vec();
     for block in blocks {
-        let basic_block = &mut graph[block];
+        let basic_block = &mut cfg[block];
         for statement in basic_block.iter_mut() {
             for operand in get_statement_operands_mut(statement) {
                 *operand = remap[operand];
@@ -225,8 +225,8 @@ fn remove_unused_values(
     *program_result = remap[program_result];
 }
 
-fn remove_statements(locations: Vec<StatementLocation>, graph: &mut BasicBlockGraph) {
+fn remove_statements(locations: Vec<StatementLocation>, cfg: &mut ControlFlowGraph) {
     for location in locations {
-        graph[location.block].remove(location.index);
+        cfg[location.block].remove(location.index);
     }
 }

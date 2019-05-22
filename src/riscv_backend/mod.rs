@@ -25,7 +25,7 @@ use risky::instructions::*;
 use smallvec::SmallVec;
 use termcolor::{Color, ColorSpec, StandardStream, WriteColor};
 
-use crate::ir::{ControlFlowGraph, Phi};
+use crate::ir::{IRModule, Phi};
 use crate::ir::FnId;
 use crate::ir::Statement;
 use crate::ir::Value;
@@ -42,12 +42,12 @@ pub(crate) struct DumpCode(pub(crate) bool);
 pub(crate) struct EnableImmediateIntegers(pub(crate) bool);
 
 pub(crate) fn generate(
-    cfg: &ControlFlowGraph,
+    module: &IRModule,
     dump_code: DumpCode,
     enable_immediate_integers: EnableImmediateIntegers,
 ) -> GenericResult<RICSVImage> {
     let data_start_address = 0xD000_0000;
-    let backend = Backend::new(cfg, 0x0000_0000, data_start_address, data_start_address,
+    let backend = Backend::new(module, 0x0000_0000, data_start_address, data_start_address,
                                dump_code, enable_immediate_integers);
     let (image, _) = backend.generate()?;
     Ok(image)
@@ -80,7 +80,7 @@ impl Ord for PhiValue {
 }
 
 struct Backend<'a> {
-    cfg: &'a ControlFlowGraph,
+    module: &'a IRModule,
     code_base_address: u32,
     ram_base_address: u32,
     data_start_address: u32,
@@ -100,7 +100,7 @@ struct Backend<'a> {
 }
 
 impl<'a> Backend<'a> {
-    fn new(cfg: &'a ControlFlowGraph,
+    fn new(module: &'a IRModule,
            code_base_address: u32,
            ram_base_address: u32,
            data_start_address: u32,
@@ -108,7 +108,7 @@ impl<'a> Backend<'a> {
            EnableImmediateIntegers(enable_immediate_integers): EnableImmediateIntegers,
     ) -> Self {
         Self {
-            cfg,
+            module,
             code_base_address,
             ram_base_address,
             data_start_address,
@@ -129,10 +129,10 @@ impl<'a> Backend<'a> {
     }
 
     fn generate(mut self) -> GenericResult<(RICSVImage, Box<[u8]>)> {
-        for block in self.cfg.graph.node_indices() {
-            for statement in self.cfg.graph[block].iter() {
+        for block in self.module.cfg.node_indices() {
+            for statement in self.module.cfg[block].iter() {
                 if let Statement::Definition(value_id) = statement {
-                    if let Value::Phi(Phi(operands)) = &self.cfg.values[*value_id] {
+                    if let Value::Phi(Phi(operands)) = &self.module.values[*value_id] {
                         for operand in operands {
                             self.phis
                                 .entry(*operand)
@@ -144,12 +144,12 @@ impl<'a> Backend<'a> {
             }
         }
 
-        self.comment(&format!("---- START {}", &self.cfg.name))?;
+        self.comment(&format!("---- START {}", &self.module.name))?;
         let jump_over_functions_offset = self.push_code(&jump_placeholder()?)?;
         let after_jump_over_functions_offset = self.current_code_offset()?;
 
         if self.function_id.is_none() {
-            let functions = self.cfg.functions
+            let functions = self.module.functions
                 .iter()
                 .sorted_by_key(|(fn_id, _)| *fn_id)
                 .collect_vec();
@@ -187,7 +187,7 @@ impl<'a> Backend<'a> {
             self.code.clear();
         }
 
-        let mut next_block = self.generate_block(self.cfg.entry_block)?;
+        let mut next_block = self.generate_block(self.module.entry_block)?;
         while let Some(block) = next_block {
             next_block = self.generate_block(block)?;
         }
@@ -229,11 +229,11 @@ impl<'a> Backend<'a> {
             ])?;
         }
 
-        self.comment(&format!("---- END {}", &self.cfg.name))?;
+        self.comment(&format!("---- END {}", &self.module.name))?;
 
         if self.dump_code {
             self.stderr.reset()?;
-            writeln!(self.stderr, "---- CODE DUMP: {} ----", &self.cfg.name)?;
+            writeln!(self.stderr, "---- CODE DUMP: {} ----", &self.module.name)?;
             for (op, offset) in decode(&self.code) {
                 let offset = u32::try_from(offset)?;
                 if let Some(comments) = self.comments.find(offset) {
@@ -249,7 +249,7 @@ impl<'a> Backend<'a> {
             }
 
             if !self.data.is_empty() {
-                writeln!(self.stderr, "---- DATA DUMP: {} ----", &self.cfg.name)?;
+                writeln!(self.stderr, "---- DATA DUMP: {} ----", &self.module.name)?;
                 for (index, &byte) in self.data.iter().enumerate() {
                     if index % 4 == 0 {
                         if index > 0 {
@@ -285,7 +285,7 @@ impl<'a> Backend<'a> {
 
     fn generate_block(&mut self, block: NodeIndex) -> GenericResult<Option<NodeIndex>> {
         let mut next_block = Some(block);
-        let basic_block = &self.cfg.graph[block];
+        let basic_block = &self.module.cfg[block];
         let basic_block_length = basic_block.len();
         for (index, statement) in basic_block.iter().enumerate() {
             next_block = self.generate_statement(block, statement)?;
@@ -302,7 +302,7 @@ impl<'a> Backend<'a> {
             },
 
             Statement::Definition(value_id) => {
-                self.comment(&format!("define {:?}", self.cfg.values[*value_id]))?;
+                self.comment(&format!("define {:?}", self.module.values[*value_id]))?;
                 let register = self.generate_value(*value_id, None)?;
                 let phi = self.phis
                     .get(&value_id)
@@ -317,7 +317,7 @@ impl<'a> Backend<'a> {
                     let phi_address = self.allocate_value(phi)?.unwrap();
                     self.store_u32(register, phi_address)?;
                 }
-                self.comment(&format!("{}: {:?} -> x{}", value_id, self.cfg.values[*value_id], register))?;
+                self.comment(&format!("{}: {:?} -> x{}", value_id, self.module.values[*value_id], register))?;
                 Ok(None)
             },
 
@@ -363,11 +363,11 @@ impl<'a> Backend<'a> {
                 let else_next_block = else_next_block.unwrap_or(*else_branch);
                 // Check if they converge
                 let successors = (
-                    self.cfg.graph
+                    self.module.cfg
                         .edges_directed(then_next_block, Direction::Outgoing)
                         .next()
                         .map(|edge| edge.target()),
-                    self.cfg.graph.edges_directed(else_next_block, Direction::Outgoing)
+                    self.module.cfg.edges_directed(else_next_block, Direction::Outgoing)
                         .next()
                         .map(|edge| edge.target()),
                 );
@@ -409,7 +409,7 @@ impl<'a> Backend<'a> {
 
     fn generate_value(&mut self, value_id: ValueId, target: Option<u8>) -> GenericResult<u8> {
         self.allocate_value(value_id)?;
-        match &self.cfg.values[value_id] {
+        match &self.module.values[value_id] {
             Value::Unit => Ok(registers::ZERO),
 
             Value::Int(_) |
@@ -492,7 +492,7 @@ impl<'a> Backend<'a> {
     }
 
     fn generate_immediate(&mut self, register: u8, value_id: ValueId) -> GenericResult<()> {
-        let value = &self.cfg.values[value_id];
+        let value = &self.module.values[value_id];
         let value_i32 = match value {
             Value::Int(value) => {
                 value
@@ -551,7 +551,7 @@ impl<'a> Backend<'a> {
             Some(address) => Ok(Some(*address)),
 
             None => {
-                let value = &self.cfg.values[value_id];
+                let value = &self.module.values[value_id];
                 let address = match value {
                     Value::Int(n) => {
                         if self.enable_immediate_integers {
@@ -666,7 +666,7 @@ impl<'a> Backend<'a> {
 
     fn allocate_register(&mut self, value_id: ValueId, target: Option<u8>) -> GenericResult<u8> {
         if self.enable_immediate_integers {
-            if let Value::Int(n) = &self.cfg.values[value_id] {
+            if let Value::Int(n) = &self.module.values[value_id] {
                 if n.is_zero() {
                     return Ok(registers::ZERO);
                 }
@@ -691,7 +691,7 @@ impl<'a> Backend<'a> {
         } else if let Some(address) = self.value_addresses.get(&value_id) {
             self.load_u32(register, *address)?;
         } else if self.enable_immediate_integers {
-            if let Value::Int(_) | Value::Function(_) = &self.cfg.values[value_id] {
+            if let Value::Int(_) | Value::Function(_) = &self.module.values[value_id] {
                 self.generate_immediate(register, value_id)?;
             }
         }

@@ -65,15 +65,15 @@ impl DerefMut for BasicBlock {
 }
 
 #[derive(Clone)]
-pub(crate) struct BasicBlockGraph(StableDiGraph<BasicBlock, ()>);
+pub(crate) struct ControlFlowGraph(StableDiGraph<BasicBlock, ()>);
 
-impl BasicBlockGraph {
+impl ControlFlowGraph {
     pub(crate) fn new() -> Self {
         Self(StableDiGraph::new())
     }
 }
 
-impl Deref for BasicBlockGraph {
+impl Deref for ControlFlowGraph {
     type Target = StableDiGraph<BasicBlock, ()>;
 
     fn deref(&self) -> &Self::Target {
@@ -81,18 +81,18 @@ impl Deref for BasicBlockGraph {
     }
 }
 
-impl DerefMut for BasicBlockGraph {
+impl DerefMut for ControlFlowGraph {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
 }
 
-pub(crate) type FunctionMap = HashMap<FnId, ControlFlowGraph>;
+pub(crate) type FunctionMap = HashMap<FnId, IRModule>;
 
 #[derive(Clone)]
-pub(crate) struct ControlFlowGraph {
+pub(crate) struct IRModule {
     pub(crate) name: String,
-    pub(crate) graph: BasicBlockGraph,
+    pub(crate) cfg: ControlFlowGraph,
     pub(crate) entry_block: NodeIndex,
     pub(crate) exit_block: NodeIndex,
     pub(crate) definitions: HashMap<ValueId, StatementLocation>,

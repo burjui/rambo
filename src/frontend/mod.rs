@@ -22,12 +22,12 @@ use petgraph::visit::EdgeRef;
 
 use crate::frontend::dead_code::remove_dead_code;
 use crate::ir::BasicBlock;
-use crate::ir::BasicBlockGraph;
 use crate::ir::ControlFlowGraph;
 use crate::ir::FnId;
 use crate::ir::FunctionMap;
 use crate::ir::get_value_operands;
 use crate::ir::IdentGenerator;
+use crate::ir::IRModule;
 use crate::ir::normalize;
 use crate::ir::Phi;
 use crate::ir::replace_value_id;
@@ -51,7 +51,7 @@ pub(crate) struct FrontEnd {
     include_comments: bool,
     enable_cfp: bool,
     enable_dce: bool,
-    graph: BasicBlockGraph,
+    cfg: ControlFlowGraph,
     function_idgen: IdentGenerator<FnId>,
     variables: HashMap<BindingRef, HashMap<NodeIndex, ValueId>>,
     variables_read: HashSet<BindingRef>,
@@ -75,7 +75,7 @@ impl FrontEnd {
             include_comments: false,
             enable_cfp: false,
             enable_dce: false,
-            graph: BasicBlockGraph::new(),
+            cfg: ControlFlowGraph::new(),
             function_idgen: IdentGenerator::new(),
             variables: HashMap::new(),
             variables_read: HashSet::new(),
@@ -115,7 +115,7 @@ impl FrontEnd {
         self
     }
 
-    pub(crate) fn build(mut self, code: &ExprRef) -> ControlFlowGraph {
+    pub(crate) fn build(mut self, code: &ExprRef) -> IRModule {
         let (exit_block, mut program_result) = self.process_expr(code, self.entry_block);
         self.push_return(exit_block, program_result);
         self.assert_no_undefined_variables();
@@ -131,12 +131,12 @@ impl FrontEnd {
 
         if self.enable_dce {
             remove_dead_code(self.entry_block, &mut program_result, &mut self.values,
-                             &mut self.graph, &mut self.definitions, &mut self.functions);
+                             &mut self.cfg, &mut self.definitions, &mut self.functions);
         }
 
-        ControlFlowGraph {
+        IRModule {
             name: self.name,
-            graph: self.graph,
+            cfg: self.cfg,
             entry_block: self.entry_block,
             exit_block,
             definitions: self.definitions,
@@ -217,19 +217,19 @@ impl FrontEnd {
                 let then_branch_block = self.new_block();
                 let else_branch_block = self.new_block();
 
-                self.graph[block].push(Statement::CondJump(condition, then_branch_block, else_branch_block));
+                self.cfg[block].push(Statement::CondJump(condition, then_branch_block, else_branch_block));
                 self.record_phi_and_undefined_usages(condition);
 
-                self.graph.add_edge(block, then_branch_block, ());
-                self.graph.add_edge(block, else_branch_block, ());
+                self.cfg.add_edge(block, then_branch_block, ());
+                self.cfg.add_edge(block, else_branch_block, ());
                 self.seal_block(then_branch_block);
                 self.seal_block(else_branch_block);
                 let (then_branch_exit_block, then_branch) = self.process_expr(then_branch, then_branch_block);
                 let (else_branch_exit_block, else_branch) = self.process_expr(else_branch, else_branch_block);
 
                 let exit = self.new_block();
-                self.graph.add_edge(then_branch_exit_block, exit, ());
-                self.graph.add_edge(else_branch_exit_block, exit, ());
+                self.cfg.add_edge(then_branch_exit_block, exit, ());
+                self.cfg.add_edge(else_branch_exit_block, exit, ());
                 self.seal_block(exit);
                 let result_phi = self.define_phi(exit, &[then_branch, else_branch]);
                 (exit, self.try_remove_trivial_phi(result_phi))
@@ -340,7 +340,7 @@ impl FrontEnd {
                 _ => (),
             }
 
-            let mut predecessors = self.graph
+            let mut predecessors = self.cfg
                 .edges_directed(block, Direction::Incoming)
                 .map(|edge| edge.source());
             let first_predecessor = predecessors.next();
@@ -384,7 +384,7 @@ impl FrontEnd {
     }
 
     fn add_phi_operands(&mut self, variable: &BindingRef, phi: ValueId) -> ValueId {
-        let predecessors = self.graph
+        let predecessors = self.cfg
             .edges_directed(self.definitions[&phi].block, Direction::Incoming)
             .map(|edge| edge.source())
             .collect_vec();
@@ -458,7 +458,7 @@ impl FrontEnd {
             if self.enable_cfp {
                 fold_constants(block, &self.definitions, &mut self.values, &self.functions, value_id);
             }
-            let basic_block = &mut self.graph[block];
+            let basic_block = &mut self.cfg[block];
             let statement_index = basic_block.push(Statement::Definition(value_id));
             let location = StatementLocation::new(block, statement_index);
             self.definitions.insert(value_id, location);
@@ -477,7 +477,7 @@ impl FrontEnd {
     }
 
     fn push_return(&mut self, block: NodeIndex, value_id: ValueId) {
-        self.graph[block].push(Statement::Return(value_id));
+        self.cfg[block].push(Statement::Return(value_id));
     }
 
     fn record_phi_and_undefined_usages(&mut self, value_id: ValueId) {
@@ -518,12 +518,12 @@ impl FrontEnd {
 
     fn comment(&mut self, block: NodeIndex, comment: &str) {
         if self.include_comments {
-            self.graph[block].push(Statement::Comment(comment.to_owned()));
+            self.cfg[block].push(Statement::Comment(comment.to_owned()));
         }
     }
 
     fn new_block(&mut self) -> NodeIndex {
-        self.graph.add_node(BasicBlock::new())
+        self.cfg.add_node(BasicBlock::new())
     }
 
     fn reset_markers(&mut self) {
