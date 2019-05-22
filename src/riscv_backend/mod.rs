@@ -149,9 +149,13 @@ impl<'a> Backend<'a> {
         let after_jump_over_functions_offset = self.current_code_offset()?;
 
         if self.function_id.is_none() {
-            for (fn_id, fn_cfg) in &self.cfg.functions {
+            let functions = self.cfg.functions
+                .iter()
+                .sorted_by_key(|(fn_id, _)| *fn_id)
+                .collect_vec();
+            for (&fn_id, fn_cfg) in &functions {
                 let fn_offset = self.current_code_offset()?;
-                self.function_offsets.insert(*fn_id, fn_offset);
+                self.function_offsets.insert(fn_id, fn_offset);
                 let fn_data_address = self.current_data_offset()?;
                 let mut backend = Backend::new(
                     fn_cfg,
@@ -161,11 +165,11 @@ impl<'a> Backend<'a> {
                     DumpCode(self.dump_code),
                     EnableImmediateIntegers(self.enable_immediate_integers),
                 );
-                backend.function_id = Some(*fn_id);
+                backend.function_id = Some(fn_id);
                 backend.dump_code = false;
 
                 let (fn_image, used_registers) = backend.generate()?;
-                self.function_used_registers.insert(*fn_id, used_registers);
+                self.function_used_registers.insert(fn_id, used_registers);
                 self.code.extend(fn_image.code);
                 self.data.extend(fn_image.data);
                 self.comments.extend(fn_image.comments);
@@ -487,34 +491,42 @@ impl<'a> Backend<'a> {
         }
     }
 
-    fn generate_immediate_int_value(&mut self, register: u8, value_id: ValueId) -> GenericResult<()> {
+    fn generate_immediate(&mut self, register: u8, value_id: ValueId) -> GenericResult<()> {
         let value = &self.cfg.values[value_id];
-        match value {
-            Value::Int(n) => {
-                let value = n
+        let value_i32 = match value {
+            Value::Int(value) => {
+                value
                     .to_i32()
-                    .unwrap_or_else(|| panic!("number out of range: {}", n));
-                let value = self.i_immediate(value)?;
-                if value.upper == 0 {
-                    self.push_code(&[
-                        addi(register, registers::ZERO, value.lower).unwrap(),
-                    ])?;
-                } else if value.lower == 0 {
-                    self.push_code(&[
-                        lui(register, value.upper).unwrap(),
-                    ])?;
-                } else {
-                    self.push_code(&[
-                        lui(register, value.upper).unwrap(),
-                        addi(register, register, value.lower).unwrap(),
-                    ])?;
-                }
-                Ok(())
+                    .unwrap_or_else(|| panic!("number out of range: {}", value))
             },
 
-            _ => panic!("generate_immediate_integer() called on non-integer value {}: {:?}", value_id, value),
-        }
+            Value::Function(fn_id) => {
+                let fn_offset = self.function_offsets[fn_id];
+                (self.code_base_address + fn_offset) as i32
+            },
 
+            _ => panic!("cannot generate an immediate from value {}: {:?}", value_id, value),
+        };
+        self.generate_immediate_i32(register, value_i32)
+    }
+
+    fn generate_immediate_i32(&mut self, register: u8, value: i32) -> GenericResult<()> {
+        let value = self.i_immediate(value)?;
+        if value.upper == 0 {
+            self.push_code(&[
+                addi(register, registers::ZERO, value.lower).unwrap(),
+            ])?;
+        } else if value.lower == 0 {
+            self.push_code(&[
+                lui(register, value.upper).unwrap(),
+            ])?;
+        } else {
+            self.push_code(&[
+                lui(register, value.upper).unwrap(),
+                addi(register, register, value.lower).unwrap(),
+            ])?;
+        }
+        Ok(())
     }
 
     fn generate_binary(
@@ -555,8 +567,12 @@ impl<'a> Backend<'a> {
                     Value::String(_) => unimplemented!("allocate_value(): Value::String"),
 
                     Value::Function(fn_id) => {
-                        let value = self.code_base_address + self.function_offsets[fn_id];
-                        Some(self.allocate_u32(value)?)
+                        if self.enable_immediate_integers {
+                            None
+                        } else {
+                            let address = self.code_base_address + self.function_offsets[fn_id];
+                            Some(self.allocate_u32(address)?)
+                        }
                     },
 
                     Value::Phi(_) => Some(self.allocate_u32(0xDEAD_BEEF)?),
@@ -583,7 +599,7 @@ impl<'a> Backend<'a> {
     }
 
     fn load_u32(&mut self, rd: u8, address: u32) -> GenericResult<()> {
-        let location = self.i_immediate((address - self.data_start_address) as i32)?;
+        let location = self.i_immediate(i32::try_from(address - self.data_start_address).unwrap())?;
         let result = if location.upper == 0 {
             self.push_code(&[
                 lw(rd, registers::GLOBAL_POINTER, location.lower).unwrap(),
@@ -675,8 +691,8 @@ impl<'a> Backend<'a> {
         } else if let Some(address) = self.value_addresses.get(&value_id) {
             self.load_u32(register, *address)?;
         } else if self.enable_immediate_integers {
-            if let Value::Int(_) = &self.cfg.values[value_id] {
-                self.generate_immediate_int_value(register, value_id)?;
+            if let Value::Int(_) | Value::Function(_) = &self.cfg.values[value_id] {
+                self.generate_immediate(register, value_id)?;
             }
         }
 
@@ -695,10 +711,9 @@ impl<'a> Backend<'a> {
                 nop()?,
                 jal(rd, offset)?,
             ],
-
-            JumpOffset::Long => [
-                auipc(registers::TMP0, offset - ((1 << 20) - 1))?,
-                jalr(rd, registers::TMP0, offset as i16)?,
+            JumpOffset::Long(offset) => [
+                auipc(registers::TMP0, offset.upper)?,
+                jalr(rd, registers::TMP0, offset.lower)?,
             ],
         }).map_err(Into::into)
     }
@@ -707,7 +722,7 @@ impl<'a> Backend<'a> {
         if -(1 << 20) <= offset && offset < 1 << 20 {
             Ok(JumpOffset::Short)
         } else {
-            Ok(JumpOffset::Long)
+            Ok(JumpOffset::Long(self.i_immediate(offset)?))
         }
     }
 
@@ -767,14 +782,12 @@ impl IntoIterator for CommentVec {
     }
 }
 
-enum JumpOffset { Short, Long }
+enum JumpOffset { Short, Long(ImmediateI) }
 
 struct ImmediateI {
     upper: i32,
     lower: i16,
 }
-
-// TODO ImmediateI complexity
 
 #[derive(Copy, Clone, PartialEq)]
 enum Allocation { None, Temporary, Permanent }
