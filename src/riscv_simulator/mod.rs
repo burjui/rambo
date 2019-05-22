@@ -33,29 +33,23 @@ pub(crate) enum DumpState {
 }
 
 pub(crate) fn run(image: &RICSVImage, dump_state: DumpState) -> Result<Simulator, Box<dyn Error>> {
-    const RAM_SIZE: u32 = 10240;
+    const STACK_SIZE: u32 = 1024;
+    let ram_size = STACK_SIZE + u32::try_from(image.data.len()).unwrap();
+
     let mut dram = DRAM::new(&[
         (image.code_base_address, u32::try_from(image.code.len())?, AccessMode::EXECUTE),
-        (image.ram_base_address, u32::try_from(image.data.len())? + RAM_SIZE, AccessMode::READ | AccessMode::WRITE),
+        (image.ram_base_address, u32::try_from(image.data.len())? + ram_size, AccessMode::READ | AccessMode::WRITE),
     ]);
     dram.find_bank_mut(image.code_base_address).unwrap().write_all(&image.code)?;
     dram.find_bank_mut(image.ram_base_address).unwrap().write_all(&image.data)?;
 
     let stderr = &mut stderr();
     let mut simulator = Simulator::new(image.code_base_address, dram);
-    simulator.cpu.x[registers::STACK_POINTER as usize] = image.ram_base_address + RAM_SIZE - 4;
+    simulator.cpu.x[registers::STACK_POINTER as usize] = image.ram_base_address + ram_size - 4;
     simulator.cpu.x[registers::FRAME_POINTER as usize] = simulator.cpu.x[registers::STACK_POINTER as usize];
     simulator.cpu.x[registers::GLOBAL_POINTER as usize] = image.ram_base_address;
 
     let dump_simulator_state = |stderr: &mut StandardStream, simulator: &mut Simulator| -> Result<(), Box<dyn Error>> {
-        let write_title = |stderr: &mut StandardStream, title: &str| -> io::Result<()> {
-            stderr.set_color(ColorSpec::new()
-                .set_fg(Some(Color::Yellow))
-                .set_intense(false))?;
-            writeln!(stderr, "{}:", title)?;
-            stderr.reset()
-        };
-
         dump_registers(&simulator.cpu)?;
 
         let data_bank = simulator.dram.find_bank_mut(image.ram_base_address).unwrap();
@@ -64,29 +58,24 @@ pub(crate) fn run(image: &RICSVImage, dump_state: DumpState) -> Result<Simulator
             dump_ram(&data_bank[.. image.data.len()], image.ram_base_address)?;
         }
 
-        write_title(stderr, "STACK")?;
-        let stack_pointer = simulator.cpu.x[registers::STACK_POINTER as usize];
-        let stack_offset = simulator.cpu.x[registers::STACK_POINTER as usize] - image.ram_base_address;
-        dump_ram(&data_bank[stack_offset as usize .. RAM_SIZE as usize], stack_pointer)?;
-
+        dump_stack(&simulator.cpu, &data_bank, image.ram_base_address, ram_size)?;
         Ok(())
     };
 
     loop {
-        let pc = simulator.cpu.pc;
-
         if dump_state >= DumpState::Everything {
             dump_simulator_state(stderr, &mut simulator)?;
         }
 
         if dump_state >= DumpState::Instructions {
-            if let Some(comments) = image.comments.find(pc) {
+            if let Some(comments) = image.comments.find(simulator.cpu.pc) {
                 for comment in comments {
                     writeln!(stderr, "// {}", comment)?;
                 }
             }
         }
 
+        let pc = simulator.cpu.pc;
         match simulator.step() {
             Ok(op) => {
                 if dump_state >= DumpState::Instructions {
@@ -103,9 +92,18 @@ pub(crate) fn run(image: &RICSVImage, dump_state: DumpState) -> Result<Simulator
             Err((error, op)) => {
                 match error {
                     CpuError::Ebreak => break,
-                    _ => return Err(format!("[0x{:08x}] op: {:?}, error: {:?}", pc, op.map(riscv::decoder::Op), error).into()),
+                    _ => {
+                        dump_registers(&simulator.cpu)?;
+                        let data_bank = simulator.dram.find_bank_mut(image.ram_base_address).unwrap();
+                        dump_stack(&simulator.cpu, &data_bank, image.ram_base_address, ram_size)?;
+                        return Err(format!("[0x{:08x}] op: {:?}, error: {:?}", pc, op.map(riscv::decoder::Op), error).into())
+                    },
                 }
             },
+        }
+
+        if simulator.cpu.x[registers::STACK_POINTER as usize] < image.ram_base_address + ram_size - STACK_SIZE {
+            return Err("stack overflow".into());
         }
     }
 
@@ -137,6 +135,14 @@ fn dump_registers(cpu: &CpuState) -> io::Result<()> {
     writeln!(stderr, "\n")
 }
 
+fn dump_stack(cpu: &CpuState, ram: &DRAMBank, ram_base_address: u32, ram_size: u32) -> io::Result<()> {
+    let stderr = &mut stderr();
+    write_title(stderr, "STACK")?;
+    let stack_pointer = cpu.x[registers::STACK_POINTER as usize];
+    let stack_offset = stack_pointer - ram_base_address;
+    dump_ram(&ram[stack_offset as usize .. ram_size as usize], stack_pointer)
+}
+
 fn dump_ram(ram: &[u8], base_address: u32) -> io::Result<()> {
     let stderr = &mut stderr();
     for (index, &byte) in ram.iter().enumerate() {
@@ -155,6 +161,14 @@ fn dump_ram(ram: &[u8], base_address: u32) -> io::Result<()> {
         stderr.reset()?;
     }
     writeln!(stderr, "\n")
+}
+
+fn write_title(stderr: &mut StandardStream, title: &str) -> io::Result<()> {
+    stderr.set_color(ColorSpec::new()
+        .set_fg(Some(Color::Yellow))
+        .set_intense(false))?;
+    writeln!(stderr, "{}:", title)?;
+    stderr.reset()
 }
 
 pub(crate) struct Simulator {
