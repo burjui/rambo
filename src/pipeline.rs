@@ -232,13 +232,19 @@ impl CompilerPass<ControlFlowGraph, RICSVImage> for RISCVBackend {
             EnableImmediateIntegers(options.enable_immediate_integers),
         )?;
         if options.verbosity >= 1 {
-            let data_size_string = match NumberPrefix::binary(image.data.len() as f32) {
-                NumberPrefix::Standalone(usage) => format!("{} bytes", usage),
-                NumberPrefix::Prefixed(prefix, usage) =>  format!("{:.0} {}B", usage, prefix),
-            };
-            writeln!(&mut stdout(), "{} instructions, {} data", image.code.len() / 4, data_size_string)?;
+            // FIXME "image.code.len() / 4" is only correct for 32-bit instructions
+            let stdout = &mut stdout();
+            writeln!(stdout, "code: {} ({} instructions)", size_string(image.code.len()), image.code.len() / 4)?;
+            writeln!(stdout, "data: {}", size_string(image.data.len()))?;
         }
         Ok(image)
+    }
+}
+
+fn size_string(size: usize) -> String {
+    match NumberPrefix::binary(size as f32) {
+        NumberPrefix::Standalone(size) => format!("{} bytes", size),
+        NumberPrefix::Prefixed(prefix, size) =>  format!("{:.1} {}B", size, prefix),
     }
 }
 
