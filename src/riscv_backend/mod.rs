@@ -676,8 +676,8 @@ impl<'a> Backend<'a> {
         let (register, source, previous_user) = self.registers.allocate(value_id, target, &*self.no_spill)?;
         if let Some(previous_user) = previous_user {
             if previous_user != value_id {
-                if let Some(address) = self.value_addresses.get(&previous_user) {
-                    self.store_u32(register, *address)?;
+                if let Some(&address) = self.value_addresses.get(&previous_user) {
+                    self.store_u32(register, address)?;
                 }
             }
         }
@@ -688,8 +688,8 @@ impl<'a> Backend<'a> {
                     addi(register, source, 0)?,
                 ])?;
             }
-        } else if let Some(address) = self.value_addresses.get(&value_id) {
-            self.load_u32(register, *address)?;
+        } else if let Some(&address) = self.value_addresses.get(&value_id) {
+            self.load_u32(register, address)?;
         } else if self.enable_immediate_integers {
             if let Value::Int(_) | Value::Function(_) = &self.module.values[value_id] {
                 self.generate_immediate(register, value_id)?;

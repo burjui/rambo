@@ -583,58 +583,68 @@ fn fold_constants(
         Value::String(_) |
         Value::Function(_) => None,
 
-        Value::AddInt(left, right) => fold_binary(block, definitions, values, functions, *left, *right, |(_, left_value), (_, right_value)| {
-            match (left_value, right_value) {
-                (Value::Int(left), Value::Int(right)) => Some(Value::Int(left + right)),
-                (Value::Int(left), _) if left.is_zero() => Some(right_value.clone()),
-                (_, Value::Int(right)) if right.is_zero() => Some(left_value.clone()),
-                _ => None,
-            }
-        }),
-
-        Value::SubInt(left, right) => fold_binary(block, definitions, values, functions, *left, *right, |(left, left_value), (right, right_value)| {
-            if left == right {
-                Some(Value::Int(BigInt::from(0)))
-            } else {
+        &Value::AddInt(left, right) => {
+            fold_binary(block, definitions, values, functions, left, right, |(_, left_value), (_, right_value)| {
                 match (left_value, right_value) {
-                    (Value::Int(left), Value::Int(right)) => Some(Value::Int(left - right)),
+                    (Value::Int(left), Value::Int(right)) => Some(Value::Int(left + right)),
+                    (Value::Int(left), _) if left.is_zero() => Some(right_value.clone()),
                     (_, Value::Int(right)) if right.is_zero() => Some(left_value.clone()),
                     _ => None,
                 }
-            }
-        }),
+            })
+        },
 
-        Value::MulInt(left, right) => fold_binary(block, definitions, values, functions, *left, *right, |(_, left_value), (_, right_value)| {
-            match (left_value, right_value) {
-                (Value::Int(left), Value::Int(right)) => Some(Value::Int(left * right)),
-                (Value::Int(left), _) if left.is_zero() => Some(Value::Int(BigInt::from(0))),
-                (_, Value::Int(right)) if right.is_zero() => Some(Value::Int(BigInt::from(0))),
-                (Value::Int(left), _) if left.is_one() => Some(right_value.clone()),
-                (_, Value::Int(right)) if right.is_one() => Some(left_value.clone()),
-                _ => None,
-            }
-        }),
+        &Value::SubInt(left, right) => {
+            fold_binary(block, definitions, values, functions, left, right, |(left, left_value), (right, right_value)| {
+                if left == right {
+                    Some(Value::Int(BigInt::from(0)))
+                } else {
+                    match (left_value, right_value) {
+                        (Value::Int(left), Value::Int(right)) => Some(Value::Int(left - right)),
+                        (_, Value::Int(right)) if right.is_zero() => Some(left_value.clone()),
+                        _ => None,
+                    }
+                }
+            })
+        },
 
-        Value::DivInt(left, right) => fold_binary(block, definitions, values, functions, *left, *right, |(_, left_value), (_, right_value)| {
-            match (left_value, right_value) {
-                (Value::Int(left), Value::Int(right)) => Some(Value::Int(left / right)),
-                (Value::Int(left), _) if left.is_zero() => Some(Value::Int(BigInt::from(0))),
-                (_, Value::Int(right)) if right.is_one() => Some(left_value.clone()),
-                _ => None,
-            }
-        }),
+        &Value::MulInt(left, right) => {
+            fold_binary(block, definitions, values, functions, left, right, |(_, left_value), (_, right_value)| {
+                match (left_value, right_value) {
+                    (Value::Int(left), Value::Int(right)) => Some(Value::Int(left * right)),
+                    (Value::Int(left), _) if left.is_zero() => Some(Value::Int(BigInt::from(0))),
+                    (_, Value::Int(right)) if right.is_zero() => Some(Value::Int(BigInt::from(0))),
+                    (Value::Int(left), _) if left.is_one() => Some(right_value.clone()),
+                    (_, Value::Int(right)) if right.is_one() => Some(left_value.clone()),
+                    _ => None,
+                }
+            })
+        },
 
-        Value::AddString(left, right) => fold_binary(block, definitions, values, functions, *left, *right, |(_, left_value), (_, right_value)| {
-            match (left_value, right_value) {
-                (Value::String(left), Value::String(right)) => {
-                    let mut result = String::with_capacity(left.len() + right.len());
-                    result.push_str(&left);
-                    result.push_str(&right);
-                    Some(Value::String(Rc::new(result)))
-                },
-                _ => None,
-            }
-        }),
+        &Value::DivInt(left, right) => {
+            fold_binary(block, definitions, values, functions, left, right, |(_, left_value), (_, right_value)| {
+                match (left_value, right_value) {
+                    (Value::Int(left), Value::Int(right)) => Some(Value::Int(left / right)),
+                    (Value::Int(left), _) if left.is_zero() => Some(Value::Int(BigInt::from(0))),
+                    (_, Value::Int(right)) if right.is_one() => Some(left_value.clone()),
+                    _ => None,
+                }
+            })
+        },
+
+        &Value::AddString(left, right) => {
+            fold_binary(block, definitions, values, functions, left, right, |(_, left_value), (_, right_value)| {
+                match (left_value, right_value) {
+                    (Value::String(left), Value::String(right)) => {
+                        let mut result = String::with_capacity(left.len() + right.len());
+                        result.push_str(&left);
+                        result.push_str(&right);
+                        Some(Value::String(Rc::new(result)))
+                    },
+                    _ => None,
+                }
+            })
+        },
 
         Value::Call(function, arguments) => fold_call(*function, arguments.to_vec(), values, functions),
 
