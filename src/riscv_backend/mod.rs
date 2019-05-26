@@ -44,19 +44,16 @@ pub(crate) fn generate(
     dump_code: DumpCode,
     enable_immediate_integers: EnableImmediateIntegers,
 ) -> GenericResult<RICSVImage> {
-    let data_start_address = 0xD000_0000;
-    let backend = Backend::new(module, 0x0000_0000, data_start_address, data_start_address,
-                               dump_code, enable_immediate_integers);
+    let backend = Backend::new(module, dump_code, enable_immediate_integers);
     let (image, _) = backend.generate()?;
     Ok(image)
 }
 
 pub(crate) struct RICSVImage {
     pub(crate) code: Vec<u8>,
-    pub(crate) code_base_address: u32,
     pub(crate) data: Vec<u8>,
-    pub(crate) ram_base_address: u32,
     pub(crate) comments: CommentVec,
+    pub(crate) code_relocations: Vec<(u32)>,
 }
 
 #[derive(Copy, Clone, PartialEq, Eq)]
@@ -79,16 +76,15 @@ impl Ord for PhiValue {
 
 struct Backend<'a> {
     module: &'a IRModule,
-    code_base_address: u32,
-    ram_base_address: u32,
-    data_start_address: u32,
     code: Vec<u8>,
     data: Vec<u8>,
+    data_offset: usize,
+    code_relocations: Vec<(u32)>,
     comments: CommentVec,
     dump_code: bool,
     enable_immediate_integers: bool,
     registers: RegisterAllocator,
-    value_addresses: HashMap<ValueId, u32>,
+    data_offsets: HashMap<ValueId, u32>,
     no_spill: SmallVec<[u8; REGISTER_COUNT]>,
     function_id: Option<FnId>,
     stderr: StandardStream,
@@ -99,24 +95,20 @@ struct Backend<'a> {
 
 impl<'a> Backend<'a> {
     fn new(module: &'a IRModule,
-           code_base_address: u32,
-           ram_base_address: u32,
-           data_start_address: u32,
            DumpCode(dump_code): DumpCode,
            EnableImmediateIntegers(enable_immediate_integers): EnableImmediateIntegers,
     ) -> Self {
         Self {
             module,
-            code_base_address,
-            ram_base_address,
-            data_start_address,
             dump_code,
             enable_immediate_integers,
             code: Vec::new(),
             data: Vec::new(),
+            data_offset: 0,
+            code_relocations: Vec::new(),
             comments: CommentVec::new(),
             registers: RegisterAllocator::new(),
-            value_addresses: HashMap::new(),
+            data_offsets: HashMap::new(),
             no_spill: SmallVec::new(),
             function_id: None,
             stderr: stderr(),
@@ -154,22 +146,23 @@ impl<'a> Backend<'a> {
             for (&fn_id, fn_cfg) in &functions {
                 let fn_offset = self.current_code_offset()?;
                 self.function_offsets.insert(fn_id, fn_offset);
-                let fn_data_address = self.current_data_offset()?;
+
                 let mut backend = Backend::new(
                     fn_cfg,
-                    self.code_base_address + fn_offset,
-                    self.ram_base_address + fn_data_address,
-                    self.ram_base_address,
                     DumpCode(self.dump_code),
                     EnableImmediateIntegers(self.enable_immediate_integers),
                 );
                 backend.function_id = Some(fn_id);
+                backend.data_offset = self.data.len();
                 backend.dump_code = false;
 
-                let (fn_image, used_registers) = backend.generate()?;
+                let (mut fn_image, used_registers) = backend.generate()?;
                 self.function_used_registers.insert(fn_id, used_registers);
                 self.code.extend(fn_image.code);
                 self.data.extend(fn_image.data);
+                for (offset, _) in fn_image.comments.iter_mut() {
+                    *offset += fn_offset;
+                }
                 self.comments.extend(fn_image.comments);
             }
         }
@@ -200,7 +193,7 @@ impl<'a> Backend<'a> {
                 .map(|register| format!("x{}", register))
                 .format(", ")
                 .to_string();
-            let save_registers_comment_address = self.code_base_address + self.current_code_offset()?;
+            let save_registers_comment_offset = self.current_code_offset()?;
             self.comment(&format!("Save registers {}", &saved_register_list))?;
             for (i, register) in saved_registers.iter().enumerate() {
                 self.push_code(&[
@@ -214,9 +207,9 @@ impl<'a> Backend<'a> {
 
             let comment_fixup_offset = u32::try_from(self.code.len())?;
             self.code.extend(code);
-            for (comment_address, _) in self.comments.iter_mut() {
-                if *comment_address != save_registers_comment_address {
-                    *comment_address += comment_fixup_offset;
+            for (comment_offset, _) in self.comments.iter_mut() {
+                if *comment_offset != save_registers_comment_offset {
+                    *comment_offset += comment_fixup_offset;
                 }
             }
         }
@@ -242,7 +235,7 @@ impl<'a> Backend<'a> {
                 self.stderr.set_color(ColorSpec::new()
                     .set_fg(Some(Color::Black))
                     .set_intense(true))?;
-                writeln!(self.stderr, "[0x{:08x}]  {:?}", self.code_base_address + u32::try_from(offset)?, op)?;
+                writeln!(self.stderr, "[0x{:08x}]  {:?}", u32::try_from(offset)?, op)?;
                 self.stderr.reset()?;
             }
 
@@ -253,7 +246,7 @@ impl<'a> Backend<'a> {
                         if index > 0 {
                             writeln!(self.stderr)?;
                         }
-                        write!(self.stderr, "[{:08x}] ", self.ram_base_address + index as u32)?;
+                        write!(self.stderr, "[{:08x}] ", index)?;
                     } else {
                         write!(self.stderr, " ")?;
                     }
@@ -269,10 +262,9 @@ impl<'a> Backend<'a> {
 
         let image = RICSVImage {
             code: self.code,
-            code_base_address: self.code_base_address,
             data: self.data,
-            ram_base_address: self.ram_base_address,
             comments: self.comments,
+            code_relocations: self.code_relocations,
         };
         let used_registers = self.registers
             .used()
@@ -312,8 +304,8 @@ impl<'a> Backend<'a> {
                             None
                         }));
                 if let Some(phi) = phi {
-                    let phi_address = self.allocate_value(phi)?.unwrap();
-                    self.store_u32(register, phi_address)?;
+                    let phi_offset = self.allocate_value(phi)?.unwrap();
+                    self.store_u32(register, phi_offset)?;
                 }
                 self.comment(&format!("{}: {:?} -> x{}", value_id, self.module.values[*value_id], register))?;
                 Ok(None)
@@ -460,9 +452,9 @@ impl<'a> Backend<'a> {
 
                 self.comment("Call the function")?;
                 self.no_spill.truncate(no_spill_length);
-                let function = self.allocate_register(*function, None)?;
+                let fn_address = self.allocate_register(*function, None)?;
                 self.push_code(&[
-                    jalr(registers::LINK, function, 0)?,
+                    jalr(registers::LINK, fn_address, 0).unwrap(),
                 ])?;
 
                 self.comment("Restore stack pointer")?;
@@ -493,12 +485,6 @@ impl<'a> Backend<'a> {
         let value = &self.module.values[value_id];
         let value_i32 = match value {
             Value::Int(value) => *value,
-
-            Value::Function(fn_id) => {
-                let fn_offset = self.function_offsets[fn_id];
-                (self.code_base_address + fn_offset) as i32
-            },
-
             _ => panic!("cannot generate an immediate from value {}: {:?}", value_id, value),
         };
         self.generate_immediate_i32(register, value_i32)
@@ -541,29 +527,27 @@ impl<'a> Backend<'a> {
     }
 
     fn allocate_value(&mut self, value_id: ValueId) -> GenericResult<Option<u32>> {
-        match self.value_addresses.get(&value_id) {
-            Some(address) => Ok(Some(*address)),
+        match self.data_offsets.get(&value_id) {
+            Some(offset) => Ok(Some(*offset)),
 
             None => {
                 let value = &self.module.values[value_id];
-                let address = match value {
+                let data_offset = match value {
                     Value::Int(value) => {
                         if self.enable_immediate_integers {
                             None
                         } else {
-                            Some(self.allocate_u32(*value as u32)?)
+                            Some(self.allocate_u32(*value as u32).unwrap())
                         }
                     },
 
                     Value::String(_) => unimplemented!("allocate_value(): Value::String"),
 
                     Value::Function(fn_id) => {
-                        if self.enable_immediate_integers {
-                            None
-                        } else {
-                            let address = self.code_base_address + self.function_offsets[fn_id];
-                            Some(self.allocate_u32(address)?)
-                        }
+                        let offset = self.function_offsets[fn_id];
+                        let offset = self.allocate_u32(offset).unwrap();
+                        self.code_relocations.push(offset);
+                        Some(offset)
                     },
 
                     Value::Phi(_) => Some(self.allocate_u32(0xDEAD_BEEF)?),
@@ -575,60 +559,48 @@ impl<'a> Backend<'a> {
 
                     _ => None,
                 };
-                if let Some(address) = address {
-                    self.value_addresses.insert(value_id, address);
+                if let Some(offset) = data_offset {
+                    self.data_offsets.insert(value_id, offset);
                 }
-                Ok(address)
+                Ok(data_offset)
             },
         }
     }
 
     fn allocate_u32(&mut self, data: u32) -> GenericResult<u32> {
-        let offset = u32::try_from(self.data.len())?;
+        let offset = u32::try_from(self.data.len() + self.data_offset)?;
         self.data.write_u32::<DataByteOrder>(data)?;
-        Ok(self.ram_base_address + offset)
+        Ok(offset)
     }
 
-    fn load_u32(&mut self, rd: u8, address: u32) -> GenericResult<()> {
-        let location = self.i_immediate(i32::try_from(address - self.data_start_address).unwrap())?;
+    fn load_u32(&mut self, rd: u8, offset: u32) -> GenericResult<()> {
+        let location = self.i_immediate(i32::try_from(offset).unwrap())?;
         let result = if location.upper == 0 {
             self.push_code(&[
                 lw(rd, registers::GLOBAL_POINTER, location.lower).unwrap(),
             ])
         } else {
-            let location = self.i_immediate(address as i32)?;
-            if location.upper == 0 {
-                self.push_code(&[
-                    lw(rd, registers::ZERO, location.lower).unwrap(),
-                ])
-            } else {
-                self.push_code(&[
-                    lui(rd, location.upper).unwrap(),
-                    lw(rd, rd, location.lower).unwrap(),
-                ])
-            }
+            self.push_code(&[
+                lui(rd, location.upper).unwrap(),
+                add(rd, rd, registers::GLOBAL_POINTER).unwrap(),
+                lw(rd, rd, location.lower).unwrap(),
+            ])
         };
         result.map(|_| ())
     }
 
-    fn store_u32(&mut self, register: u8, address: u32) -> GenericResult<()> {
-        let location = self.i_immediate((address - self.data_start_address) as i32)?;
+    fn store_u32(&mut self, register: u8, offset: u32) -> GenericResult<()> {
+        let location = self.i_immediate(i32::try_from(offset).unwrap())?;
         let result = if location.upper == 0 {
             self.push_code(&[
                 sw(registers::GLOBAL_POINTER, location.lower, register).unwrap(),
             ])
         } else {
-            let location = self.i_immediate(address as i32)?;
-            if location.upper == 0 {
-                self.push_code(&[
-                    sw(registers::ZERO, location.lower, register).unwrap(),
-                ])
-            } else {
-                self.push_code(&[
-                    lui(registers::TMP0, location.upper).unwrap(),
-                    sw(registers::TMP0, location.lower, register).unwrap(),
-                ])
-            }
+            self.push_code(&[
+                lui(registers::TMP0, location.upper).unwrap(),
+                add(registers::TMP0, registers::TMP0, registers::GLOBAL_POINTER).unwrap(),
+                sw(registers::TMP0, location.lower, register).unwrap(),
+            ])
         };
         result.map(|_| ())
     }
@@ -651,10 +623,6 @@ impl<'a> Backend<'a> {
         u32::try_from(self.code.len())
     }
 
-    fn current_data_offset(&self) -> Result<u32, TryFromIntError> {
-        u32::try_from(self.data.len())
-    }
-
     fn allocate_register(&mut self, value_id: ValueId, target: Option<u8>) -> GenericResult<u8> {
         if self.enable_immediate_integers {
             if let Value::Int(value) = &self.module.values[value_id] {
@@ -667,8 +635,8 @@ impl<'a> Backend<'a> {
         let (register, source, previous_user) = self.registers.allocate(value_id, target, &*self.no_spill)?;
         if let Some(previous_user) = previous_user {
             if previous_user != value_id {
-                if let Some(&address) = self.value_addresses.get(&previous_user) {
-                    self.store_u32(register, address)?;
+                if let Some(&data_offset) = self.data_offsets.get(&previous_user) {
+                    self.store_u32(register, data_offset)?;
                 }
             }
         }
@@ -679,10 +647,10 @@ impl<'a> Backend<'a> {
                     addi(register, source, 0)?,
                 ])?;
             }
-        } else if let Some(&address) = self.value_addresses.get(&value_id) {
-            self.load_u32(register, address)?;
+        } else if let Some(&data_offset) = self.data_offsets.get(&value_id) {
+            self.load_u32(register, data_offset)?;
         } else if self.enable_immediate_integers {
-            if let Value::Int(_) | Value::Function(_) = &self.module.values[value_id] {
+            if let Value::Int(_) = &self.module.values[value_id] {
                 self.generate_immediate(register, value_id)?;
             }
         }
@@ -691,8 +659,7 @@ impl<'a> Backend<'a> {
     }
 
     fn comment(&mut self, comment: &str) -> GenericResult<()> {
-        let code_offset = self.code_base_address + self.current_code_offset()?;
-        self.comments.insert(code_offset, comment);
+        self.comments.insert(self.current_code_offset()?, comment);
         Ok(())
     }
 

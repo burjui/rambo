@@ -6,7 +6,7 @@ use std::io;
 use std::io::{Cursor, Read, Write};
 use std::ops::{Deref, DerefMut, Range};
 
-use bitflags::bitflags;
+use byteorder::{ReadBytesExt, WriteBytesExt};
 use itertools::Itertools;
 use riscv::registers;
 use riscv::registers::REGISTER_COUNT;
@@ -18,6 +18,8 @@ use rvsim::MemoryAccess;
 use rvsim::Op;
 use rvsim::SimpleClock;
 use termcolor::{Color, ColorSpec, StandardStream, WriteColor};
+
+use bitflags::bitflags;
 
 use crate::riscv_backend::RICSVImage;
 use crate::utils::{intersection, stderr};
@@ -34,31 +36,42 @@ pub(crate) enum DumpState {
 
 pub(crate) fn run(image: &RICSVImage, dump_state: DumpState) -> Result<Simulator, Box<dyn Error>> {
     const STACK_SIZE: u32 = 1024;
-    let ram_size = STACK_SIZE + u32::try_from(image.data.len()).unwrap();
+    const CODE_START_ADDRESS: u32 = 0x2000_0000;
+    const DATA_START_ADDRESS: u32 = 0x8000_0000;
 
+    let ram_size = STACK_SIZE + u32::try_from(image.data.len()).unwrap();
     let mut dram = DRAM::new(&[
-        (image.code_base_address, u32::try_from(image.code.len())?, AccessMode::EXECUTE),
-        (image.ram_base_address, u32::try_from(image.data.len())? + ram_size, AccessMode::READ | AccessMode::WRITE),
+        (CODE_START_ADDRESS, u32::try_from(image.code.len())?, AccessMode::EXECUTE),
+        (DATA_START_ADDRESS, u32::try_from(image.data.len())? + ram_size, AccessMode::READ | AccessMode::WRITE),
     ]);
-    dram.find_bank_mut(image.code_base_address).unwrap().write_all(&image.code)?;
-    dram.find_bank_mut(image.ram_base_address).unwrap().write_all(&image.data)?;
+    dram.find_bank_mut(CODE_START_ADDRESS).unwrap().write_all(&image.code)?;
+
+    let data_bank = dram.find_bank_mut(DATA_START_ADDRESS).unwrap();
+    data_bank.write_all(&image.data)?;
+    for &data_offset in &image.code_relocations {
+        let range = data_offset as usize .. data_offset as usize + 4;
+        let mut fn_pointer = &data_bank[range.clone()];
+        let fn_pointer_value = fn_pointer.read_u32::<riscv::DataByteOrder>()? + CODE_START_ADDRESS;
+        let mut fn_pointer = &mut data_bank[range];
+        fn_pointer.write_u32::<riscv::DataByteOrder>(fn_pointer_value)?;
+    }
 
     let stderr = &mut stderr();
-    let mut simulator = Simulator::new(image.code_base_address, dram);
-    simulator.cpu.x[registers::STACK_POINTER as usize] = image.ram_base_address + ram_size - 4;
+    let mut simulator = Simulator::new(CODE_START_ADDRESS, dram);
+    simulator.cpu.x[registers::STACK_POINTER as usize] = DATA_START_ADDRESS + ram_size - 4;
     simulator.cpu.x[registers::FRAME_POINTER as usize] = simulator.cpu.x[registers::STACK_POINTER as usize];
-    simulator.cpu.x[registers::GLOBAL_POINTER as usize] = image.ram_base_address;
+    simulator.cpu.x[registers::GLOBAL_POINTER as usize] = DATA_START_ADDRESS;
 
     let dump_simulator_state = |stderr: &mut StandardStream, simulator: &mut Simulator| -> Result<(), Box<dyn Error>> {
         dump_registers(&simulator.cpu)?;
 
-        let data_bank = simulator.dram.find_bank_mut(image.ram_base_address).unwrap();
+        let data_bank = simulator.dram.find_bank_mut(DATA_START_ADDRESS).unwrap();
         if !image.data.is_empty() {
             write_title(stderr, "RAM")?;
-            dump_ram(&data_bank[.. image.data.len()], image.ram_base_address)?;
+            dump_ram(&data_bank[.. image.data.len()], DATA_START_ADDRESS)?;
         }
 
-        dump_stack(&simulator.cpu, &data_bank, image.ram_base_address, ram_size)?;
+        dump_stack(&simulator.cpu, &data_bank, DATA_START_ADDRESS, ram_size)?;
         Ok(())
     };
 
@@ -94,15 +107,15 @@ pub(crate) fn run(image: &RICSVImage, dump_state: DumpState) -> Result<Simulator
                     CpuError::Ebreak => break,
                     _ => {
                         dump_registers(&simulator.cpu)?;
-                        let data_bank = simulator.dram.find_bank_mut(image.ram_base_address).unwrap();
-                        dump_stack(&simulator.cpu, &data_bank, image.ram_base_address, ram_size)?;
+                        let data_bank = simulator.dram.find_bank_mut(DATA_START_ADDRESS).unwrap();
+                        dump_stack(&simulator.cpu, &data_bank, DATA_START_ADDRESS, ram_size)?;
                         return Err(format!("[0x{:08x}] op: {:?}, error: {:?}", pc, op.map(riscv::decoder::Op), error).into())
                     },
                 }
             },
         }
 
-        if simulator.cpu.x[registers::STACK_POINTER as usize] < image.ram_base_address + ram_size - STACK_SIZE {
+        if simulator.cpu.x[registers::STACK_POINTER as usize] < DATA_START_ADDRESS + ram_size - STACK_SIZE {
             return Err("stack overflow".into());
         }
     }
