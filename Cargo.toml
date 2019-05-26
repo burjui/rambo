@@ -11,8 +11,6 @@ name = "rambo"
 [dependencies]
 getopts = "0.2.19"
 itertools = "0.8.0"
-num-bigint = "0.2.2"
-num-traits = "0.2.6"
 petgraph = "0.4.13"
 termcolor = "1.0.4"
 libc = "0.2.55"

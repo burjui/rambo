@@ -7,8 +7,6 @@ use std::ops::IndexMut;
 use std::rc::Rc;
 
 use itertools::Itertools;
-use num_bigint::BigInt;
-use num_traits::identities::Zero;
 use petgraph::graph::NodeIndex;
 use petgraph::prelude::Direction::Outgoing;
 use petgraph::visit::EdgeRef;
@@ -79,8 +77,8 @@ impl<'a> EvalContext<'a> {
                 Some(Statement::CondJump(var, then_block, else_block)) => {
                     let value = &self.env[var].value;
                     match value {
-                        Value::Int(n) => {
-                            let block = if n.is_zero() { else_block } else { then_block };
+                        Value::Int(value) => {
+                            let block = if *value == 0 { else_block } else { then_block };
                             state = self.new_state(*block);
                             continue;
                         }
@@ -161,7 +159,7 @@ impl<'a> EvalContext<'a> {
     }
 
     #[allow(clippy::trivially_copy_pass_by_ref)]
-    fn int(&self, value_id: &ValueId) -> BigInt {
+    fn int(&self, value_id: &ValueId) -> i32 {
         self.runtime_value(value_id).into()
     }
 
@@ -249,11 +247,11 @@ impl Default for RuntimeValue {
     }
 }
 
-impl From<&RuntimeValue> for BigInt {
+impl From<&RuntimeValue> for i32 {
     fn from(value: &RuntimeValue) -> Self {
         match &value.value {
-            Value::Int(n) => n.clone(),
-            _ => unreachable!("BigInt::from(): {:?}", &value.value),
+            Value::Int(value) => *value,
+            _ => unreachable!("i32::from(): {:?}", &value.value),
         }
     }
 }

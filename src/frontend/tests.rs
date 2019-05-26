@@ -5,8 +5,6 @@ use std::fs::File;
 use std::path::Path;
 use std::rc::Rc;
 
-use num_bigint::BigInt;
-
 use crate::frontend::FrontEnd;
 use crate::graphviz::graphviz_dot_write_cfg;
 use crate::ir::IRModule;
@@ -174,7 +172,7 @@ test_frontend_eval! {
     }
     x
     ",
-    Value::Int(BigInt::from(3))
+    Value::Int(3)
 }
 
 test_frontend_eval! {
@@ -213,7 +211,7 @@ test_frontend_eval!{
     (a + 1) * (b - 1)
     a = 10
     ",
-    Value::Int(BigInt::from(10))
+    Value::Int(10)
 }
 
 test_frontend!{

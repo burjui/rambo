@@ -13,8 +13,6 @@ use std::num::TryFromIntError;
 use bimap::BiMap;
 use byteorder::WriteBytesExt;
 use itertools::Itertools;
-use num_traits::cast::ToPrimitive;
-use num_traits::identities::Zero;
 use petgraph::Direction;
 use petgraph::stable_graph::NodeIndex;
 use petgraph::visit::EdgeRef;
@@ -494,11 +492,7 @@ impl<'a> Backend<'a> {
     fn generate_immediate(&mut self, register: u8, value_id: ValueId) -> GenericResult<()> {
         let value = &self.module.values[value_id];
         let value_i32 = match value {
-            Value::Int(value) => {
-                value
-                    .to_i32()
-                    .unwrap_or_else(|| panic!("number out of range: {}", value))
-            },
+            Value::Int(value) => *value,
 
             Value::Function(fn_id) => {
                 let fn_offset = self.function_offsets[fn_id];
@@ -553,14 +547,11 @@ impl<'a> Backend<'a> {
             None => {
                 let value = &self.module.values[value_id];
                 let address = match value {
-                    Value::Int(n) => {
+                    Value::Int(value) => {
                         if self.enable_immediate_integers {
                             None
                         } else {
-                            let value = n
-                                .to_i32()
-                                .unwrap_or_else(|| panic!("number out of range: {}", n));
-                            Some(self.allocate_u32(value as u32)?)
+                            Some(self.allocate_u32(*value as u32)?)
                         }
                     },
 
@@ -666,8 +657,8 @@ impl<'a> Backend<'a> {
 
     fn allocate_register(&mut self, value_id: ValueId, target: Option<u8>) -> GenericResult<u8> {
         if self.enable_immediate_integers {
-            if let Value::Int(n) = &self.module.values[value_id] {
-                if n.is_zero() {
+            if let Value::Int(value) = &self.module.values[value_id] {
+                if *value == 0 {
                     return Ok(registers::ZERO);
                 }
             }

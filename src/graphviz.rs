@@ -194,7 +194,7 @@ fn write_value_id(output: &mut impl io::Write, value_id: ValueId) -> io::Result<
 fn write_value(output: &mut impl io::Write, value: &Value) -> io::Result<()> {
     match value {
         Value::Unit => write_with_font_color(output, CONSTANT_COLOR, "()"),
-        Value::Int(n) => write_with_font_color(output, CONSTANT_COLOR, &n.to_string()),
+        Value::Int(value) => write_with_font_color(output, CONSTANT_COLOR, &value.to_string()),
         Value::String(s) => write_with_font_color(output, CONSTANT_COLOR, &format!("\"{}\"", s)),
         Value::Function(fn_id) => {
             let font_color_end = write_font_color_start(output, LAMBDA_COLOR)?;

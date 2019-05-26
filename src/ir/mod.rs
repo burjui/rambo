@@ -11,7 +11,6 @@ use std::ops::DerefMut;
 use std::rc::Rc;
 
 use itertools::Itertools;
-use num_bigint::BigInt;
 use petgraph::graph::NodeIndex;
 use petgraph::stable_graph::StableDiGraph;
 use stable_vec::StableVec;
@@ -239,7 +238,7 @@ impl Hash for Phi {
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub(crate) enum Value {
     Unit,
-    Int(BigInt), // TODO i32
+    Int(i32),
     String(Rc<String>),
     Function(FnId),
     AddInt(ValueId, ValueId),
@@ -262,7 +261,7 @@ impl fmt::Debug for Value {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Value::Unit => f.write_str("()"),
-            Value::Int(n) => write!(f, "{}", n),
+            Value::Int(value) => write!(f, "{}", value),
             Value::String(s) => write!(f, "\"{}\"", s),
             Value::Function(id) => write!(f, "{}", id),
             Value::AddInt(left, right) => write!(f, "{} + {}", left, right),

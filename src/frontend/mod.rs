@@ -13,9 +13,6 @@ use std::rc::Rc;
 
 use itertools::free::chain;
 use itertools::Itertools;
-use num_bigint::BigInt;
-use num_traits::identities::One;
-use num_traits::identities::Zero;
 use petgraph::Direction;
 use petgraph::graph::NodeIndex;
 use petgraph::visit::EdgeRef;
@@ -176,7 +173,7 @@ impl FrontEnd {
 
             TypedExpr::Int(value, source) => {
                 self.comment(block, source.text());
-                (block, self.define(block, Value::Int(value.clone())))
+                (block, self.define(block, Value::Int(*value)))
             }
 
             TypedExpr::String(value, source) => {
@@ -202,8 +199,8 @@ impl FrontEnd {
 
                 if self.enable_cfp && condition_value.is_constant() {
                     return match condition_value {
-                        Value::Int(n) => {
-                            if n.is_zero() {
+                        Value::Int(value) => {
+                            if *value == 0 {
                                 self.process_expr(else_branch, block)
                             } else {
                                 self.process_expr(then_branch, block)
@@ -587,8 +584,8 @@ fn fold_constants(
             fold_binary(block, definitions, values, functions, left, right, |(_, left_value), (_, right_value)| {
                 match (left_value, right_value) {
                     (Value::Int(left), Value::Int(right)) => Some(Value::Int(left + right)),
-                    (Value::Int(left), _) if left.is_zero() => Some(right_value.clone()),
-                    (_, Value::Int(right)) if right.is_zero() => Some(left_value.clone()),
+                    (&Value::Int(left), _) if left == 0 => Some(right_value.clone()),
+                    (_, &Value::Int(right)) if right == 0 => Some(left_value.clone()),
                     _ => None,
                 }
             })
@@ -597,11 +594,11 @@ fn fold_constants(
         &Value::SubInt(left, right) => {
             fold_binary(block, definitions, values, functions, left, right, |(left, left_value), (right, right_value)| {
                 if left == right {
-                    Some(Value::Int(BigInt::from(0)))
+                    Some(Value::Int(0))
                 } else {
                     match (left_value, right_value) {
                         (Value::Int(left), Value::Int(right)) => Some(Value::Int(left - right)),
-                        (_, Value::Int(right)) if right.is_zero() => Some(left_value.clone()),
+                        (_, &Value::Int(right)) if right == 0 => Some(left_value.clone()),
                         _ => None,
                     }
                 }
@@ -612,10 +609,10 @@ fn fold_constants(
             fold_binary(block, definitions, values, functions, left, right, |(_, left_value), (_, right_value)| {
                 match (left_value, right_value) {
                     (Value::Int(left), Value::Int(right)) => Some(Value::Int(left * right)),
-                    (Value::Int(left), _) if left.is_zero() => Some(Value::Int(BigInt::from(0))),
-                    (_, Value::Int(right)) if right.is_zero() => Some(Value::Int(BigInt::from(0))),
-                    (Value::Int(left), _) if left.is_one() => Some(right_value.clone()),
-                    (_, Value::Int(right)) if right.is_one() => Some(left_value.clone()),
+                    (&Value::Int(left), _) if left == 0 => Some(Value::Int(0)),
+                    (_, &Value::Int(right)) if right == 0 => Some(Value::Int(0)),
+                    (&Value::Int(left), _) if left == 1 => Some(right_value.clone()),
+                    (_, &Value::Int(right)) if right == 1 => Some(left_value.clone()),
                     _ => None,
                 }
             })
@@ -625,8 +622,8 @@ fn fold_constants(
             fold_binary(block, definitions, values, functions, left, right, |(_, left_value), (_, right_value)| {
                 match (left_value, right_value) {
                     (Value::Int(left), Value::Int(right)) => Some(Value::Int(left / right)),
-                    (Value::Int(left), _) if left.is_zero() => Some(Value::Int(BigInt::from(0))),
-                    (_, Value::Int(right)) if right.is_one() => Some(left_value.clone()),
+                    (&Value::Int(left), _) if left == 0 => Some(Value::Int(0)),
+                    (_, &Value::Int(right)) if right == 1 => Some(left_value.clone()),
                     _ => None,
                 }
             })

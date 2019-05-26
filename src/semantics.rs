@@ -6,7 +6,6 @@ use std::ops::Deref;
 use std::rc::Rc;
 
 use itertools::Itertools;
-use num_bigint::BigInt;
 
 use crate::env::Environment;
 use crate::parser::BinaryOperation;
@@ -53,8 +52,10 @@ impl SemanticsChecker {
         match expr {
             Expr::Unit(source) => Ok(self.new_expr(TypedExpr::Unit(source.clone()))),
             Expr::Int(source) => {
-                let value = source.text().parse::<BigInt>()?;
-                Ok(self.new_expr(TypedExpr::Int(value, source.clone())))
+                match source.text().parse::<i32>() {
+                    Ok(value) => Ok(self.new_expr(TypedExpr::Int(value, source.clone()))),
+                    Err(_) => error!("{}: number `{}' is out of 32-bit signed integer range", source, source.text()),
+                }
             },
             Expr::String(source) => {
                 let text = source.text();
@@ -352,7 +353,7 @@ impl Debug for Lambda {
 pub(crate) enum TypedExpr {
     ArgumentPlaceholder(Rc<String>, Type),
     Unit(Source),
-    Int(BigInt, Source),
+    Int(i32, Source),
     String(Rc<String>, Source),
     Reference(BindingRef, Source),
     Lambda(LambdaRef, Source),
