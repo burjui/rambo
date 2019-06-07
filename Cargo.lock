@@ -198,7 +198,7 @@ dependencies = [
 
 [[package]]
 name = "rambo"
-version = "0.3.6"
+version = "0.3.7"
 dependencies = [
  "bimap 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "bitflags 1.0.4 (registry+https://github.com/rust-lang/crates.io-index)",
