@@ -99,6 +99,7 @@ pub(crate) struct IRModule {
     pub(crate) functions: FunctionMap,
     pub(crate) parameters: Vec<ValueId>,
     pub(crate) result: ValueId,
+    pub(crate) main_fn_id: Option<FnId>, // FIXME not used at the moment, consider removing
 }
 
 pub(crate) trait Ident: Sized + Copy {
@@ -240,7 +241,7 @@ pub(crate) enum Value {
     Unit,
     Int(i32),
     String(Rc<String>),
-    Function(FnId),
+    Function(FnId, Rc<String>),
     AddInt(ValueId, ValueId),
     SubInt(ValueId, ValueId),
     MulInt(ValueId, ValueId),
@@ -253,7 +254,7 @@ pub(crate) enum Value {
 
 impl Value {
     pub(crate) fn is_constant(&self) -> bool {
-        matches!(self, Value::Unit, Value::Int(_), Value::String(_), Value::Function(_))
+        matches!(self, Value::Unit, Value::Int(_), Value::String(_), Value::Function(_, _))
     }
 }
 
@@ -263,7 +264,7 @@ impl fmt::Debug for Value {
             Value::Unit => f.write_str("()"),
             Value::Int(value) => write!(f, "{}", value),
             Value::String(s) => write!(f, "\"{}\"", s),
-            Value::Function(id) => write!(f, "{}", id),
+            Value::Function(_, name) => write!(f, "{}", name),
             Value::AddInt(left, right) => write!(f, "{} + {}", left, right),
             Value::SubInt(left, right) => write!(f, "{} - {}", left, right),
             Value::MulInt(left, right) => write!(f, "{} * {}", left, right),

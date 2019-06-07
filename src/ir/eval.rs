@@ -132,11 +132,14 @@ impl<'a> EvalContext<'a> {
             Value::Call(function, arguments) => {
                 let value = &self.runtime_value(function).value;
                 let fn_id = match value {
-                    Value::Function(fn_id) => fn_id,
+                    Value::Function(fn_id, _) => fn_id,
                     _ => unreachable!("`{}' is not a function: {:?}", function, value),
                 };
+
                 let function_cfg = &self.functions[fn_id];
-                let mut function_context = EvalContext::new(function_cfg, &self.module.functions);
+                let mut functions = self.functions.clone();
+                functions.extend(function_cfg.functions.clone());
+                let mut function_context = EvalContext::new(function_cfg, &functions);
                 for argument in arguments.iter() {
                     let runtime_value = self.env[argument].clone();
                     let value = runtime_value.value.clone();

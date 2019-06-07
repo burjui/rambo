@@ -18,18 +18,48 @@ use crate::unique_rc::UniqueRc;
 
 pub(crate) struct SemanticsChecker {
     env: Environment<Rc<String>, BindingRef>,
+    next_function_id: usize,
 }
 
 impl SemanticsChecker {
     pub(crate) fn new() -> Self {
         SemanticsChecker {
             env: Environment::new(),
+            next_function_id: 0,
         }
     }
 
     pub(crate) fn check_module(mut self, code: &ASTBlock) -> CheckResult<ExprRef> {
         let block = self.check_block(code.statements.iter(), code.source.clone())?;
-        Ok(self.new_expr(block))
+        let source = match &block {
+            TypedExpr::Block(_, source) => source.clone(),
+            _ => unreachable!("not a block: {:?}", block),
+        };
+        let name = Rc::new("main".to_string());
+        let function = FunctionRef::from(Function {
+            name: name.clone(),
+            type_: Rc::new(FunctionType {
+                parameters: Vec::new(),
+                result: Type::Unit,
+            }),
+            parameters: Vec::new(),
+            body: new_expr(block),
+        });
+        let main_binding = BindingRef::from(Binding {
+            name,
+            data: new_expr(TypedExpr::Function(function, source.clone())),
+            source: source.clone(),
+        });
+        let program = vec![
+            TypedStatement::Binding(main_binding.clone()),
+            TypedStatement::Expr(new_expr(TypedExpr::Application {
+                type_: Type::Unit,
+                function: new_expr(TypedExpr::Reference(main_binding, source.clone())),
+                arguments: vec![],
+                source: source.clone(),
+            })),
+        ];
+        Ok(new_expr(TypedExpr::Block(program, source)))
     }
 
     fn check_statement(&mut self, statement: &Statement) -> CheckResult<TypedStatement> {
@@ -50,21 +80,21 @@ impl SemanticsChecker {
 
     fn check_expr(&mut self, expr: &Expr) -> CheckResult<ExprRef> {
         match expr {
-            Expr::Unit(source) => Ok(self.new_expr(TypedExpr::Unit(source.clone()))),
+            Expr::Unit(source) => Ok(new_expr(TypedExpr::Unit(source.clone()))),
             Expr::Int(source) => {
                 match source.text().parse::<i32>() {
-                    Ok(value) => Ok(self.new_expr(TypedExpr::Int(value, source.clone()))),
+                    Ok(value) => Ok(new_expr(TypedExpr::Int(value, source.clone()))),
                     Err(_) => error!("{}: number `{}' is out of 32-bit signed integer range", source, source.text()),
                 }
             },
             Expr::String(source) => {
                 let text = source.text();
                 let value = Rc::new(text[1..text.len() - 1].to_owned());
-                Ok(self.new_expr(TypedExpr::String(value, source.clone())))
+                Ok(new_expr(TypedExpr::String(value, source.clone())))
             },
             Expr::Id(name) => {
                 let binding = self.resolve(name)?;
-                Ok(self.new_expr(TypedExpr::Reference(binding.clone(), name.clone())))
+                Ok(new_expr(TypedExpr::Reference(binding.clone(), name.clone())))
             },
             Expr::Binary { operation, left, right, .. } => {
                 match operation {
@@ -75,7 +105,7 @@ impl SemanticsChecker {
                             let binding_type = binding.data.type_();
                             let value_type = value.type_();
                             if binding.data.type_() == value.type_() {
-                                Ok(self.new_expr(TypedExpr::Assign(binding, value, expr.source().clone())))
+                                Ok(new_expr(TypedExpr::Assign(binding, value, expr.source().clone())))
                             } else {
                                 error!("assigning a value of type `{:?}' to the variable of type `{:?}': {:?}", value_type, binding_type, &expr)
                             }
@@ -95,8 +125,8 @@ impl SemanticsChecker {
 
                         match operation {
                             BinaryOperation::Add => match left_type {
-                                Type::Int => Ok(self.new_expr(TypedExpr::AddInt(left_checked, right_checked, expr.source().clone()))),
-                                Type::String => Ok(self.new_expr(TypedExpr::AddStr(left_checked, right_checked, expr.source().clone()))),
+                                Type::Int => Ok(new_expr(TypedExpr::AddInt(left_checked, right_checked, expr.source().clone()))),
+                                Type::String => Ok(new_expr(TypedExpr::AddStr(left_checked, right_checked, expr.source().clone()))),
                                 _ => error!("operation `{:?}' is not implemented for type `{:?}'", operation, left_type)
                             },
                             operation => {
@@ -108,7 +138,7 @@ impl SemanticsChecker {
                                             BinaryOperation::Divide => TypedExpr::DivInt,
                                             _ => unreachable!()
                                         };
-                                    Ok(self.new_expr(constructor(left_checked, right_checked, expr.source().clone())))
+                                    Ok(new_expr(constructor(left_checked, right_checked, expr.source().clone())))
                                 } else {
                                     error!("operation `{:?}' is not implemented for type `{:?}'", operation, left_type)
                                 }
@@ -117,9 +147,13 @@ impl SemanticsChecker {
                     }
                 }
             },
-            Expr::Lambda { source, parameters, body } => {
-                let function = self.check_function(parameters.as_slice(), &body)?;
-                Ok(self.new_expr(TypedExpr::Lambda(LambdaRef::from(function), source.clone())))
+            Expr::Function { name, source, parameters, body } => {
+                let name = name
+                    .as_ref()
+                    .map(|name| name.text().to_owned())
+                    .unwrap_or_else(|| self.generate_function_name());
+                let function = self.check_function(name, parameters.as_slice(), &body)?;
+                Ok(new_expr(TypedExpr::Function(FunctionRef::from(function), source.clone())))
             },
             Expr::Application { source, function, arguments } => {
                 let function = self.check_expr(&function)?;
@@ -153,7 +187,7 @@ impl SemanticsChecker {
                     arguments_checked
                 };
 
-                Ok(self.new_expr(TypedExpr::Application {
+                Ok(new_expr(TypedExpr::Application {
                     type_: function_type.result.clone(),
                     function,
                     arguments: arguments_checked,
@@ -208,10 +242,10 @@ impl SemanticsChecker {
                                   then_branch_type, else_branch_type);
                 }
 
-                Ok(self.new_expr(TypedExpr::Conditional {
+                Ok(new_expr(TypedExpr::Conditional {
                     condition: condition_typed,
-                    then_branch: self.new_expr(then_branch),
-                    else_branch: self.new_expr(else_branch),
+                    then_branch: new_expr(then_branch),
+                    else_branch: new_expr(else_branch),
                     type_: then_branch_type,
                     source: source.clone()
                 }))
@@ -220,18 +254,18 @@ impl SemanticsChecker {
                 let statements = statements.iter()
                     .map(|statement| self.check_statement(statement))
                     .collect::<CheckResult<Vec<_>>>()?;
-                Ok(self.new_expr(TypedExpr::Block(statements, source.clone())))
+                Ok(new_expr(TypedExpr::Block(statements, source.clone())))
             }
         }
     }
 
-    fn check_function(&mut self, parameters: &[Parameter], body: &Expr) -> CheckResult<Lambda> {
+    fn check_function(&mut self, name: String, parameters: &[Parameter], body: &Expr) -> CheckResult<Function> {
         let outer_env = replace(&mut self.env, Environment::new());
         self.env.push();
         let mut parameter_bindings = vec![];
         for parameter in parameters {
             let name = Rc::new(parameter.name.text().to_owned());
-            let value = self.new_expr(TypedExpr::ArgumentPlaceholder(name.clone(), parameter.type_.clone()));
+            let value = new_expr(TypedExpr::ArgumentPlaceholder(name.clone(), parameter.type_.clone()));
             let binding = BindingRef::from(Binding::new(name.clone(), value, parameter.source.clone()));
             self.env.bind(name.clone(), binding.clone());
             parameter_bindings.push(binding);
@@ -243,7 +277,8 @@ impl SemanticsChecker {
             parameters: parameters.to_vec(),
             result: body.type_()
         });
-        Ok(Lambda {
+        Ok(Function {
+            name: Rc::new(name),
             type_: function_type,
             parameters: parameter_bindings,
             body
@@ -264,15 +299,11 @@ impl SemanticsChecker {
         }
         else {
             if let TypedStatement::Binding(_) = statements.last().unwrap() {
-                statements.push(TypedStatement::Expr(self.new_expr(TypedExpr::Unit(source.clone()))));
+                statements.push(TypedStatement::Expr(new_expr(TypedExpr::Unit(source.clone()))));
             }
             TypedExpr::Block(statements, source)
         };
         Ok(expr)
-    }
-
-    fn new_expr(&self, expr: TypedExpr) -> ExprRef {
-        ExprRef(Rc::new(expr))
     }
 
     fn resolve(&self, name: &Source) -> Result<BindingRef, String> {
@@ -280,6 +311,11 @@ impl SemanticsChecker {
             .resolve(&Rc::new(name.text().to_owned()))
             .map_err(|message| format!("{}: {}", name, message))
             .map(Clone::clone)
+    }
+
+    fn generate_function_name(&mut self) -> String {
+        let next_function_id = self.next_function_id + 1;
+        format!("@lambda{}", replace(&mut self.next_function_id, next_function_id))
     }
 }
 
@@ -338,15 +374,16 @@ impl Debug for ExprRef {
 }
 
 #[derive(Clone)]
-pub(crate) struct Lambda {
+pub(crate) struct Function {
+    pub(crate) name: Rc<String>,
     pub(crate) type_: FunctionTypeRef,
     pub(crate) parameters: Vec<BindingRef>,
-    pub(crate) body: ExprRef
+    pub(crate) body: ExprRef,
 }
 
-impl Debug for Lambda {
+impl Debug for Function {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(formatter, "(λ {:?} = {:?})", self.type_, &self.body)
+        write!(formatter, "({:?} = {:?})", self.type_, &self.body)
     }
 }
 
@@ -356,7 +393,7 @@ pub(crate) enum TypedExpr {
     Int(i32, Source),
     String(Rc<String>, Source),
     Reference(BindingRef, Source),
-    Lambda(LambdaRef, Source),
+    Function(FunctionRef, Source),
     Application {
         type_: Type,
         function: ExprRef,
@@ -393,7 +430,7 @@ impl Debug for TypedExpr {
             TypedExpr::DivInt(left, right, _) => write!(formatter, "({:?} / {:?})", left, right),
             TypedExpr::AddStr(left, right, _) => write!(formatter, "({:?} + {:?})", left, right),
             TypedExpr::Assign(binding, value, _) => write!(formatter, "({} = {:?})", &binding.name, value),
-            TypedExpr::Lambda(lambda, _) => lambda.fmt(formatter),
+            TypedExpr::Function(function, _) => function.fmt(formatter),
             TypedExpr::Application { function, arguments, .. } => write!(formatter, "({:?} @ {:?})", function, arguments),
             TypedExpr::Conditional { condition, then_branch, else_branch, .. } =>
                 write!(formatter, "(if ({:?}) {:?} else {:?})", condition, then_branch, else_branch),
@@ -419,7 +456,7 @@ impl TypedExpr {
 
             TypedExpr::Reference(binding, _) => binding.data.type_(),
             TypedExpr::Assign(_, value, _) => value.type_(),
-            TypedExpr::Lambda(lambda, _) => Type::Function(lambda.type_.clone()),
+            TypedExpr::Function(function, _) => Type::Function(function.type_.clone()),
             TypedExpr::Application { type_, .. } => type_.clone(),
             TypedExpr::Conditional { type_, .. } => type_.clone(),
 
@@ -430,7 +467,7 @@ impl TypedExpr {
     }
 }
 
-pub(crate) type LambdaRef = UniqueRc<Lambda>;
+pub(crate) type FunctionRef = UniqueRc<Function>;
 pub(crate) type BindingRef = UniqueRc<Binding>;
 
 pub(crate) struct Binding {
@@ -473,4 +510,8 @@ impl TypedStatement {
             TypedStatement::Expr(expr) => expr.type_()
         }
     }
+}
+
+fn new_expr(expr: TypedExpr) -> ExprRef {
+    ExprRef(Rc::new(expr))
 }

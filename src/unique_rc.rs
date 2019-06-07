@@ -7,6 +7,7 @@ use std::rc::Rc;
 pub(crate) struct UniqueRc<T: ?Sized>(Rc<T>);
 
 impl<T> From<T> for UniqueRc<T> {
+    // TODO replace with new()
     fn from(value: T) -> Self {
         UniqueRc(Rc::new(value))
     }

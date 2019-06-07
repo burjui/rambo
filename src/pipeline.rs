@@ -32,6 +32,7 @@ use crate::semantics::SemanticsChecker;
 use crate::source::SourceFile;
 use crate::source::SourceFileRef;
 use crate::utils::stdout;
+use crate::frontend::FrontEndState;
 
 #[derive(Clone)]
 pub(crate) struct PipelineOptions {
@@ -182,7 +183,8 @@ impl CompilerPass<(ExprRef, SourceFileRef), IRModule> for IR {
     const TITLE: &'static str = "Generating IR";
 
     fn apply((hir, source_file): (ExprRef, SourceFileRef), options: &PipelineOptions) -> Result<IRModule, Box<dyn Error>> {
-        let frontend = FrontEnd::new("main")
+        let mut state = FrontEndState::new();
+        let frontend = FrontEnd::new(source_file.name(), &mut state)
             .enable_warnings(options.enable_warnings)
             .include_comments(options.cfg_include_comments)
             .enable_cfp(options.enable_cfp)
@@ -271,7 +273,7 @@ fn unit_statements_count(module: &IRModule) -> usize {
     let functions = module.values
         .iter()
         .filter_map(|(value, _)| match value {
-            Value::Function(fn_id) => Some(&module.functions[fn_id]),
+            Value::Function(fn_id, _) => Some(&module.functions[fn_id]),
             _ => None,
         });
     module.cfg
@@ -294,16 +296,14 @@ fn dump_module(module: &IRModule, name: &str, stdout: &mut StandardStream) -> st
     let functions = module.values
         .iter()
         .filter_map(|(value, _)| match value {
-            Value::Function(fn_id) => Some((fn_id, &module.functions[fn_id])),
+            Value::Function(fn_id, name) => Some((name.as_ref(), &module.functions[fn_id])),
             _ => None,
         })
         .collect_vec();
     if !functions.is_empty() {
-        writeln!(stdout)?;
-        for (id, module) in functions {
-            writeln!(stdout, "// {}", module.name)?;
-            let name = id.to_string();
-            dump_module(module, &name, stdout)?;
+        for (name, module) in functions {
+            writeln!(stdout, "\n// {}", module.name)?;
+            dump_module(module, name, stdout)?;
         }
     }
     Ok(())

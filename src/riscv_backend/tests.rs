@@ -14,6 +14,7 @@ use crate::riscv_simulator;
 use crate::riscv_simulator::DumpState;
 use crate::utils::GenericResult;
 use crate::utils::stderr;
+use crate::frontend::FrontEndState;
 
 struct BackEndPermutation(usize);
 
@@ -47,7 +48,8 @@ macro_rules! test_backend {
         #[test]
         fn $name() -> GenericResult<()> {
             let code = typecheck!($code)?;
-            let module = FrontEnd::new(&location!())
+            let mut state = FrontEndState::new();
+            let module = FrontEnd::new(&location!(), &mut state)
                 .enable_warnings(false)
                 .include_comments(true)
                 .enable_cfp(false)

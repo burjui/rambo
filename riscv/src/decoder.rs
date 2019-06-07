@@ -17,7 +17,7 @@ impl Iterator for Decoder<'_> {
             .read_u32::<InstructionByteOrder>()
             .map(|instruction| {
                 let op = Op::parse(instruction)
-                    .unwrap_or_else(|| panic!("failed to parse instruction: 0x{:08x}", instruction));
+                    .unwrap_or_else(|| panic!("failed to parse instruction 0x{:08x} at 0x{:08x}: 0x{:08x}", instruction, offset, instruction));
                 (op, offset)
             })
             .ok()

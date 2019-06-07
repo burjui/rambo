@@ -10,8 +10,6 @@ use itertools::Itertools;
 use petgraph::graph::NodeIndex;
 
 use crate::ir::ControlFlowGraph;
-use crate::ir::FnId;
-use crate::ir::Ident;
 use crate::ir::IdentGenerator;
 use crate::ir::IRModule;
 use crate::ir::Phi;
@@ -29,15 +27,14 @@ pub(crate) fn graphviz_dot_write_cfg(output: &mut impl io::Write, unit: &IRModul
     writeln_attribute(output, "fontsize", NODE_FONT_SIZE)?;
     writeln!(output, "]\n")?;
     let mut cluster_idgen = IdentGenerator::new();
-    let label = CfgLabel::Ordinary(&unit.name);
-    write_cfg(output, unit, label, &mut cluster_idgen)?;
+    write_cfg(output, unit, &unit.name, &mut cluster_idgen)?;
     writeln!(output, "}}")
 }
 
 fn write_cfg(
     output: &mut impl io::Write,
     unit: &IRModule,
-    label: CfgLabel<'_>,
+    label: &str,
     cluster_idgen: &mut IdentGenerator<ClusterId>)
     -> io::Result<()>
 {
@@ -62,28 +59,24 @@ fn write_cfg(
     let functions = unit.values
         .iter()
         .filter_map(|(value, _)| match value {
-            Value::Function(fn_id) => Some((*fn_id, &unit.functions[fn_id])),
+            Value::Function(fn_id, name) => Some((name.as_ref(), &unit.functions[fn_id])),
             _ => None,
         });
-    for (id, module) in functions {
+    for (name, module) in functions {
         writeln!(output)?;
-        write_cfg(output, module, CfgLabel::Function(id), cluster_idgen)?;
+        write_cfg(output, module, name, cluster_idgen)?;
     }
     Ok(())
 }
 
-fn writeln_cluster_label(output: &mut impl io::Write, label: CfgLabel<'_>) -> io::Result<()> {
+fn writeln_cluster_label(output: &mut impl io::Write, label: &str) -> io::Result<()> {
     let label_end = write_html_attribute_start(output, "label")?;
     let font_tag_end = write_html_start_tag(output, "font", &[
         ("color", CLUSTER_TITLE_COLOR),
         ("point-size", CLUSTER_TITLE_FONT_SIZE),
     ])?;
     let bold_tag_end = write_html_start_tag(output, "b", &[])?;
-    match label {
-        CfgLabel::Ordinary(label) => write!(output, "{}", escape_html_text(label))?,
-        CfgLabel::Function(function_id) => write_ident(output, function_id)?,
-    }
-
+    write!(output, "{}", escape_html_text(label))?;
     bold_tag_end.write(output)?;
     font_tag_end.write(output)?;
     label_end.write(output)?;
@@ -177,13 +170,6 @@ fn write_statement(output: &mut impl io::Write, statement: &Statement, values: &
     }
 }
 
-fn write_ident(output: &mut impl io::Write, ident: impl Ident) -> io::Result<()> {
-    write!(output, "{}", ident.prefix())?;
-    let sub_tag_end = write_html_start_tag(output, "sub", &[])?;
-    write!(output, "{}", ident.index())?;
-    sub_tag_end.write(output)
-}
-
 fn write_value_id(output: &mut impl io::Write, value_id: ValueId) -> io::Result<()> {
     write!(output, "v")?;
     let sub_tag_end = write_html_start_tag(output, "sub", &[])?;
@@ -196,9 +182,9 @@ fn write_value(output: &mut impl io::Write, value: &Value) -> io::Result<()> {
         Value::Unit => write_with_font_color(output, CONSTANT_COLOR, "()"),
         Value::Int(value) => write_with_font_color(output, CONSTANT_COLOR, &value.to_string()),
         Value::String(s) => write_with_font_color(output, CONSTANT_COLOR, &format!("\"{}\"", s)),
-        Value::Function(fn_id) => {
+        Value::Function(_, name) => {
             let font_color_end = write_font_color_start(output, LAMBDA_COLOR)?;
-            write_ident(output, *fn_id)?;
+            write!(output, "{}", escape_html_text(name))?;
             font_color_end.write(output)
         },
         Value::AddInt(left, right) => write_binary(output, "+", *left, *right),
@@ -355,11 +341,6 @@ fn escape_attribute_char(c: char) -> EscapedChar {
         '\'' => EscapedChar::Escaped("&#39;".chars()),
         _ => EscapedChar::Original(once(c)),
     }
-}
-
-enum CfgLabel<'a> {
-    Ordinary(&'a str),
-    Function(FnId),
 }
 
 #[must_use]

@@ -10,6 +10,7 @@ use crate::graphviz::graphviz_dot_write_cfg;
 use crate::ir::IRModule;
 use crate::ir::Value;
 use crate::utils::TestResult;
+use crate::frontend::FrontEndState;
 
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
 enum ForbiddenPermutation {
@@ -85,7 +86,8 @@ macro_rules! test_frontend {
                     continue;
                 }
 
-                let module = FrontEnd::new(&location!())
+                let mut state = FrontEndState::new();
+                let module = FrontEnd::new(&location!(), &mut state)
                     .enable_warnings(false)
                     .include_comments(frontend_permutation.include_comments())
                     .enable_cfp(frontend_permutation.enable_cfp())

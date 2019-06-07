@@ -61,7 +61,8 @@ pub(crate) enum Expr {
     Int(Source),
     String(Source),
     Id(Source),
-    Lambda {
+    Function {
+        name: Option<Source>,
         source: Source,
         parameters: Vec<Parameter>,
         body: Box<Expr>
@@ -99,7 +100,7 @@ impl Expr {
             Expr::String(source) |
             Expr::Int(source) |
             Expr::Id(source) |
-            Expr::Lambda { source, .. } |
+            Expr::Function { source, .. } |
             Expr::Binary { source, .. } |
             Expr::Application { source, .. } |
             Expr::Conditional { source, .. } |
@@ -114,7 +115,7 @@ pub(crate) enum Statement {
     Expr(Expr),
     Binding {
         name: Source,
-        value: Box<Expr>,
+        value: Expr,
         source: Source
     }
 }
@@ -177,9 +178,31 @@ impl Parser {
             let start = self.lexeme.source.clone();
             self.read_lexeme()?;
             self.parse_binding(&start)
+        } else if self.lexeme.token == Token::Id && self.lexeme.text() == "fn" {
+            let start = self.lexeme.source.clone();
+            self.read_lexeme()?;
+            self.parse_function(&start)
         } else {
             Ok(Statement::Expr(self.parse_expression()?))
         }
+    }
+
+    fn parse_function(&mut self, start: &Source) -> ParseResult<Statement> {
+        let name = self.expect(Token::Id, "identifier")?;
+        let parameters = self.parse_function_parameters()?;
+        let body = self.parse_block_or_expr()?;
+        let source = start.extend(&self.previous_lexeme_source);
+        let function = Expr::Function {
+            name: Some(name.source.clone()),
+            source: source.clone(),
+            parameters,
+            body: Box::new(body)
+        };
+        Ok(Statement::Binding {
+            name: name.source,
+            value: function,
+            source,
+        })
     }
 
     fn parse_expression(&mut self) -> ParseResult<Expr> {
@@ -284,7 +307,6 @@ impl Parser {
                     left: Box::new(result),
                     right: Box::new(right_operand)
                 };
-//                start = self.lexeme.source.clone();
             }
         }
 
@@ -352,23 +374,24 @@ impl Parser {
         let source = start.extend(&self.previous_lexeme_source);
         Ok(Statement::Binding {
             name: name.source,
-            value: Box::new(value),
+            value,
             source
         })
     }
 
     fn parse_lambda(&mut self, start: &Source) -> ParseResult<Expr> {
-        let parameters = self.parse_parameters()?;
+        let parameters = self.parse_function_parameters()?;
         self.expect(Token::Arrow, "arrow")?;
         let body = self.parse_block_or_expr()?;
-        Ok(Expr::Lambda {
+        Ok(Expr::Function {
+            name: None,
             source: start.extend(&self.previous_lexeme_source),
             parameters,
             body: Box::new(body)
         })
     }
 
-    fn parse_parameters(&mut self) -> ParseResult<Vec<Parameter>> {
+    fn parse_function_parameters(&mut self) -> ParseResult<Vec<Parameter>> {
         let mut parameters = vec![];
         let lparen = self.expect(Token::LParen, "`('")?;
         if self.lexeme.token == Token::RParen {
@@ -431,7 +454,7 @@ impl Parser {
     }
 
     fn parse_function_type(&mut self) -> ParseResult<Type> {
-        let parameters = self.parse_parameters()?;
+        let parameters = self.parse_function_parameters()?;
         self.expect(Token::Arrow, "arrow")?;
         let result = self.parse_type()?;
         Ok(Type::Function(FunctionTypeRef::new(FunctionType {

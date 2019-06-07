@@ -42,18 +42,32 @@ use crate::source::Source;
 mod dead_code;
 #[cfg(test)] mod tests;
 
-pub(crate) struct FrontEnd {
+pub(crate) struct FrontEndState {
+    function_idgen: IdentGenerator<FnId>,
+    main_fn_id: Option<FnId>,
+}
+
+impl FrontEndState {
+    pub(crate) fn new() -> Self {
+        Self {
+            function_idgen: IdentGenerator::new(),
+            main_fn_id: None,
+        }
+    }
+}
+
+pub(crate) struct FrontEnd<'a> {
     name: String,
     enable_warnings: bool,
     include_comments: bool,
     enable_cfp: bool,
     enable_dce: bool,
     cfg: ControlFlowGraph,
-    function_idgen: IdentGenerator<FnId>,
+    state: &'a mut FrontEndState,
+    functions: FunctionMap,
     variables: HashMap<BindingRef, HashMap<NodeIndex, ValueId>>,
     variables_read: HashSet<BindingRef>,
     values: ValueStorage,
-    functions: FunctionMap,
     parameters: Vec<ValueId>,
     definitions: HashMap<ValueId, StatementLocation>,
     sealed_blocks: HashSet<NodeIndex>,
@@ -64,8 +78,8 @@ pub(crate) struct FrontEnd {
     markers: Vec<Option<Marker>>,
 }
 
-impl FrontEnd {
-    pub(crate) fn new(name: &str) -> Self {
+impl<'a> FrontEnd<'a> {
+    pub(crate) fn new(name: &str, state: &'a mut FrontEndState) -> Self {
         let mut instance = Self {
             name: name.to_owned(),
             enable_warnings: false,
@@ -73,11 +87,11 @@ impl FrontEnd {
             enable_cfp: false,
             enable_dce: false,
             cfg: ControlFlowGraph::new(),
-            function_idgen: IdentGenerator::new(),
+            state,
+            functions: HashMap::new(),
             variables: HashMap::new(),
             variables_read: HashSet::new(),
             values: ValueStorage::new(),
-            functions: HashMap::new(),
             parameters: Vec::new(),
             definitions: HashMap::new(),
             sealed_blocks: HashSet::new(),
@@ -141,6 +155,7 @@ impl FrontEnd {
             functions: self.functions,
             parameters: self.parameters,
             result: program_result,
+            main_fn_id: self.state.main_fn_id,
         }
     }
 
@@ -239,21 +254,26 @@ impl FrontEnd {
                 (block, value_id)
             }
 
-            TypedExpr::Lambda(lambda, source) => {
-                let mut function = FrontEnd::new(source.text())
+            TypedExpr::Function(function, _) => {
+                let fn_id = self.state.function_idgen.next_id();
+                if function.name.as_str() == "main" {
+                    self.state.main_fn_id = Some(fn_id);
+                }
+
+                let mut function_frontend = FrontEnd::new(function.name.as_str(), self.state)
                     .enable_warnings(self.enable_warnings)
                     .include_comments(self.include_comments)
                     .enable_cfp(self.enable_cfp)
                     .enable_dce(self.enable_dce);
-                for (index, parameter) in lambda.parameters.iter().enumerate() {
-                    function.comment(function.entry_block, &parameter.name);
-                    let declaration = function.define(function.entry_block, Value::Arg(index));
-                    function.write_variable(parameter.clone(), function.entry_block, declaration);
-                    function.parameters.push(declaration);
+                for (index, parameter) in function.parameters.iter().enumerate() {
+                    function_frontend.comment(function_frontend.entry_block, &parameter.name);
+                    let declaration = function_frontend.define(function_frontend.entry_block, Value::Arg(index));
+                    function_frontend.write_variable(parameter.clone(), function_frontend.entry_block, declaration);
+                    function_frontend.parameters.push(declaration);
                 }
-                let fn_id = self.function_idgen.next_id();
-                self.functions.insert(fn_id, function.build(&lambda.body));
-                (block, self.define(block, Value::Function(fn_id)))
+                let module = function_frontend.build(&function.body);
+                self.functions.insert(fn_id, module);
+                (block, self.define(block, Value::Function(fn_id, function.name.clone())))
             }
 
             TypedExpr::Application { function, arguments, source, .. } => {
@@ -578,7 +598,7 @@ fn fold_constants(
         Value::Unit |
         Value::Int(_) |
         Value::String(_) |
-        Value::Function(_) => None,
+        Value::Function(_, _) => None,
 
         &Value::AddInt(left, right) => {
             fold_binary(block, definitions, values, functions, left, right, |(_, left_value), (_, right_value)| {
@@ -677,7 +697,7 @@ fn fold_call(
         .all(|argument| values[*argument].is_constant());
     if arguments_are_constant {
         let mut function_cfg = match &values[function] {
-            Value::Function(fn_id) => functions[fn_id].clone(),
+            Value::Function(fn_id, _) => functions[fn_id].clone(),
             _ => unreachable!(),
         };
         for (parameter_value_id, argument_value_id) in function_cfg.parameters.iter().enumerate() {

@@ -195,7 +195,7 @@ fn remove_unused_values(
 {
     for (_, value_id) in values.iter() {
         if !definitions.contains_key(&value_id) {
-            if let Value::Function(fn_id) = &values[value_id] {
+            if let Value::Function(fn_id, _) = &values[value_id] {
                 functions.remove(fn_id);
             }
         }
