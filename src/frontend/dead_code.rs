@@ -85,8 +85,11 @@ fn remove_unused_definitions(
         })
         .unzip();
     for value_id in unused_values {
-        definitions.remove(&value_id);
         value_usage.remove(&value_id);
+        match &values[value_id] {
+            Value::Arg(_) => None,
+            _ => definitions.remove(&value_id),
+        };
     }
     remove_statements(dead_code, cfg);
 }
