@@ -199,14 +199,15 @@ impl<'a> Backend<'a> {
         let functions = self.module.functions
             .iter()
             .sorted_by_key(|(fn_id, _)| *fn_id)
+            .map(|(fn_id, module)| (fn_id.clone(), module))
             .collect_vec();
-        for (&fn_id, fn_cfg) in &functions {
+        for (fn_id, fn_cfg) in functions {
             let fn_offset = self.current_code_offset()?;
-            self.image.function_offsets.insert(fn_id, fn_offset);
+            self.image.function_offsets.insert(fn_id.clone(), fn_offset);
 
             let mut backend = Backend::new(
                 self.image,
-                fn_cfg,
+                &fn_cfg,
                 DumpCode(false),
                 EnableImmediateIntegers(self.enable_immediate_integers),
             );
@@ -634,7 +635,7 @@ impl<'a> Backend<'a> {
 
                 Value::Function(fn_id, _) => {
                     let relocation_offset = self.current_code_offset().unwrap();
-                    self.image.relocations.push(Relocation::new(relocation_offset, *fn_id));
+                    self.image.relocations.push(Relocation::new(relocation_offset, fn_id.clone()));
                     self.push_code(&[
                         lui(register, 0).unwrap(),
                         addi(register, register, 0).unwrap(),

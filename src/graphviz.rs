@@ -4,13 +4,13 @@ use std::io;
 use std::iter::FlatMap;
 use std::iter::once;
 use std::iter::Once;
+use std::mem::replace;
 use std::str::Chars;
 
 use itertools::Itertools;
 use petgraph::graph::NodeIndex;
 
 use crate::ir::ControlFlowGraph;
-use crate::ir::IdentGenerator;
 use crate::ir::IRModule;
 use crate::ir::Phi;
 use crate::ir::Statement;
@@ -18,15 +18,13 @@ use crate::ir::Value;
 use crate::ir::value_storage::ValueId;
 use crate::ir::value_storage::ValueStorage;
 
-define_ident!{ ClusterId "cluster" }
-
 pub(crate) fn graphviz_dot_write_cfg(output: &mut impl io::Write, unit: &IRModule) -> io::Result<()> {
     writeln!(output, "digraph {{")?;
     writeln!(output, "node [ ")?;
     writeln_attribute(output, "fontname", NODE_FONT)?;
     writeln_attribute(output, "fontsize", NODE_FONT_SIZE)?;
     writeln!(output, "]\n")?;
-    let mut cluster_idgen = IdentGenerator::new();
+    let mut cluster_idgen = ClusterIdGenerator::new();
     write_cfg(output, unit, &unit.name, &mut cluster_idgen)?;
     writeln!(output, "}}")
 }
@@ -35,10 +33,10 @@ fn write_cfg(
     output: &mut impl io::Write,
     unit: &IRModule,
     label: &str,
-    cluster_idgen: &mut IdentGenerator<ClusterId>)
+    cluster_idgen: &mut ClusterIdGenerator)
     -> io::Result<()>
 {
-    let cluster_id = cluster_idgen.next_id();
+    let cluster_id = cluster_idgen.next();
     writeln!(output, "subgraph {} {{", cluster_id)?;
     writeln_cluster_label(output, label)?;
     for block in unit.cfg.node_indices() {
@@ -340,6 +338,29 @@ fn escape_attribute_char(c: char) -> EscapedChar {
         '\"' => EscapedChar::Escaped("&quot;".chars()),
         '\'' => EscapedChar::Escaped("&#39;".chars()),
         _ => EscapedChar::Original(once(c)),
+    }
+}
+
+struct ClusterIdGenerator(usize);
+
+impl ClusterIdGenerator {
+    fn new() -> Self {
+        Self(0)
+    }
+
+    fn next(&mut self) -> ClusterId {
+        let next_id = self.0 + 1;
+        ClusterId(replace(&mut self.0, next_id))
+    }
+}
+
+#[must_use]
+#[derive(Copy, Clone)]
+struct ClusterId(usize);
+
+impl fmt::Display for ClusterId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "cluster{}", self.0)
     }
 }
 

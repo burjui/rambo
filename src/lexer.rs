@@ -3,10 +3,10 @@ use std::fmt::Debug;
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::iter::once;
+use std::ops::Range;
 
 use itertools::Itertools;
 
-use crate::source::Range;
 use crate::source::Source;
 use crate::source::SourceFileRef;
 
@@ -68,7 +68,7 @@ impl Lexer {
         let eof_offset = file.text().len();
         let eof_lexeme = Lexeme {
             token: Token::EOF,
-            source: Source::new(file.clone(), Range::new(eof_offset, eof_offset))
+            source: Source::new(file.clone(), eof_offset .. eof_offset)
         };
         let mut lexer = Lexer {
             eof_lexeme,
@@ -161,7 +161,7 @@ impl Lexer {
                 match self.current_character {
                     Some('"') => {
                         self.read_char();
-                        let range = Range::new(self.lexeme_offset, self.current_offset);
+                        let range = self.lexeme_offset .. self.current_offset;
                         Ok(Some(self.new_lexeme(Token::String, Some(range))))
                     },
                     _ => {
@@ -211,18 +211,20 @@ impl Lexer {
             .map(|token| self.new_lexeme(token, None)))
     }
 
-    fn new_lexeme(&self, token: Token, range: Option<Range>) -> Lexeme {
-        let source = range.map(|range| Source::new(self.file.clone(), range))
+    fn new_lexeme<R>(&self, token: Token, range: R) -> Lexeme where
+        R: Into<Option<Range<usize>>>
+    {
+        let source = range.into().map(|range| Source::new(self.file.clone(), range))
             .unwrap_or_else(|| self.lexeme_source());
         Lexeme { token, source }
     }
 
     fn current_source(&self) -> Source {
-        Source::new(self.file.clone(), Range::new(self.current_offset, self.current_offset))
+        Source::new(self.file.clone(), self.current_offset .. self.current_offset)
     }
 
     fn lexeme_source(&self) -> Source {
-        Source::new(self.file.clone(), Range::new(self.lexeme_offset, self.current_offset))
+        Source::new(self.file.clone(), self.lexeme_offset .. self.current_offset)
     }
 
     fn skip_whitespace(&mut self) -> LexerResult<()> {
@@ -287,7 +289,7 @@ impl Lexer {
             .tuple_windows::<(_, _)>();
         if let Some(((_, character), (next_offset, next_character))) = source_iterator.next() {
             self.next_character_offset += next_offset;
-            if self.current_offset >= self.file.lines()[self.current_line].end() {
+            if self.current_offset >= self.file.lines()[self.current_line].end {
                 self.current_line += 1;
             }
             self.current_character = Some(character);

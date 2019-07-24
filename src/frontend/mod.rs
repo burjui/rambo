@@ -21,9 +21,9 @@ use crate::frontend::dead_code::remove_dead_code;
 use crate::ir::BasicBlock;
 use crate::ir::ControlFlowGraph;
 use crate::ir::FnId;
+use crate::ir::FnIdGenerator;
 use crate::ir::FunctionMap;
 use crate::ir::get_value_operands;
-use crate::ir::IdentGenerator;
 use crate::ir::IRModule;
 use crate::ir::normalize;
 use crate::ir::Phi;
@@ -43,14 +43,14 @@ mod dead_code;
 #[cfg(test)] mod tests;
 
 pub(crate) struct FrontEndState {
-    function_idgen: IdentGenerator<FnId>,
+    function_idgen: FnIdGenerator,
     main_fn_id: Option<FnId>,
 }
 
 impl FrontEndState {
     pub(crate) fn new() -> Self {
         Self {
-            function_idgen: IdentGenerator::new(),
+            function_idgen: FnIdGenerator::new(),
             main_fn_id: None,
         }
     }
@@ -155,7 +155,7 @@ impl<'a> FrontEnd<'a> {
             functions: self.functions,
             parameters: self.parameters,
             result: program_result,
-            main_fn_id: self.state.main_fn_id,
+            main_fn_id: self.state.main_fn_id.clone(),
         }
     }
 
@@ -254,10 +254,10 @@ impl<'a> FrontEnd<'a> {
                 (block, value_id)
             }
 
-            TypedExpr::Function(function, _) => {
-                let fn_id = self.state.function_idgen.next_id();
+            TypedExpr::Function(function, source) => {
+                let fn_id = self.state.function_idgen.new_id(source.clone());
                 if function.name.as_str() == "main" {
-                    self.state.main_fn_id = Some(fn_id);
+                    self.state.main_fn_id = Some(fn_id.clone());
                 }
 
                 let mut function_frontend = FrontEnd::new(function.name.as_str(), self.state)
@@ -272,7 +272,7 @@ impl<'a> FrontEnd<'a> {
                     function_frontend.parameters.push(declaration);
                 }
                 let module = function_frontend.build(&function.body);
-                self.functions.insert(fn_id, module);
+                self.functions.insert(fn_id.clone(), module);
                 (block, self.define(block, Value::Function(fn_id, function.name.clone())))
             }
 
@@ -581,7 +581,7 @@ enum Marker {
 
 fn warn_about_redundant_bindings<'a>(redundant_bindings: impl Iterator<Item = &'a BindingRef>) {
     let redundant_bindings = redundant_bindings
-        .sorted_by_key(|binding| binding.source.range().start());
+        .sorted_by_key(|binding| binding.source.range().start);
     for binding in redundant_bindings {
         warning_at!(binding.source, "unused definition: {}", binding.source.text());
     }

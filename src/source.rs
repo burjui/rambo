@@ -2,6 +2,7 @@ use std::error::Error;
 use std::fmt::Debug;
 use std::fmt::Display;
 use std::fmt::Formatter;
+use std::ops::Range;
 
 use crate::unique_rc::UniqueRc;
 
@@ -17,31 +18,16 @@ impl Debug for Position {
     }
 }
 
-#[derive(Copy, Clone, PartialEq, Eq, Hash)]
-pub(crate) struct Range {
-    start: usize,
-    end: usize
-}
-
-impl Range {
-    pub(crate) fn new(start: usize, end: usize) -> Self {
-        Self { start, end }
-    }
-
-    pub(crate) fn start(&self) -> usize { self.start }
-    pub(crate) fn end(&self) -> usize { self.end }
-}
-
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub(crate) struct Source {
     file: SourceFileRef,
-    range: Range
+    range: Range<usize>,
 }
 
 impl Source {
-    pub(crate) fn new(file: SourceFileRef, range: Range) -> Self { Self { file, range } }
+    pub(crate) fn new(file: SourceFileRef, range: Range<usize>) -> Self { Self { file, range } }
     pub(crate) fn file(&self) -> &SourceFileRef { &self.file }
-    pub(crate) fn range(&self) -> &Range { &self.range }
+    pub(crate) fn range(&self) -> &Range<usize> { &self.range }
 }
 
 impl Source {
@@ -54,7 +40,7 @@ impl Source {
         let end = until.range.end;
         assert!(end >= self.range.end);
         assert!(end <= self.file.text.len());
-        Source::new(self.file.clone(), Range::new(self.range.start, end))
+        Source::new(self.file.clone(), self.range.start .. end)
     }
 }
 
@@ -73,7 +59,7 @@ impl Debug for Source {
 pub(crate) struct SourceFile {
     name: String,
     text: String,
-    lines: Vec<Range>,
+    lines: Vec<Range<usize>>,
     size: usize,
 }
 
@@ -100,7 +86,7 @@ impl SourceFile {
 
     pub(crate) fn name(&self) -> &str { &self.name }
     pub(crate) fn text(&self) -> &str { &self.text }
-    pub(crate) fn lines(&self) -> &[Range] { &self.lines }
+    pub(crate) fn lines(&self) -> &[Range<usize>] { &self.lines }
     pub(crate) fn size(&self) -> usize { self.size }
 
     fn from_text(name: String, text: String, size: usize) -> SourceFileRef {
@@ -128,7 +114,7 @@ impl SourceFile {
         BOMS.iter().find(|bom| data.starts_with(bom.bytes()))
     }
 
-    fn collect_lines(text: &str) -> Vec<Range> {
+    fn collect_lines(text: &str) -> Vec<Range<usize>> {
         use std::iter::once;
 
         let mut lines = vec![];
@@ -136,7 +122,7 @@ impl SourceFile {
         let eof = (text.len(), '\n');
         for (offset, character) in text.char_indices().chain(once(eof)) {
             if character == '\n' {
-                lines.push(Range::new(line_start, offset));
+                lines.push(line_start .. offset);
                 line_start = offset + 1;
             }
         }

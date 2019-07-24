@@ -1,3 +1,4 @@
+use core::cmp;
 use std::collections::HashMap;
 use std::fmt;
 use std::hash::Hash;
@@ -5,7 +6,6 @@ use std::hash::Hasher;
 use std::io::Write;
 use std::iter::empty;
 use std::iter::once;
-use std::mem::replace;
 use std::ops::Deref;
 use std::ops::DerefMut;
 use std::rc::Rc;
@@ -17,6 +17,7 @@ use stable_vec::StableVec;
 
 use crate::ir::value_storage::ValueId;
 use crate::ir::value_storage::ValueStorage;
+use crate::source::Source;
 
 pub(crate) mod eval;
 pub(crate) mod value_storage;
@@ -102,51 +103,59 @@ pub(crate) struct IRModule {
     pub(crate) main_fn_id: Option<FnId>, // FIXME not used at the moment, consider removing
 }
 
-pub(crate) trait Ident: Sized + Copy {
-    const UNDEFINED: Self;
-    fn next(&self) -> Self;
-    fn prefix(&self) -> &'static str;
-    fn index(&self) -> usize;
+#[derive(Clone, Eq)]
+pub(crate) struct FnId {
+    id: usize,
+    source: Source,
 }
 
-macro_rules! define_ident {
-    ($visibility: vis $name: ident $prefix: literal) => {
-        #[derive(Copy, Clone, Eq, PartialEq, Hash, Ord, PartialOrd)]
-        $visibility struct $name(usize);
+impl PartialEq for FnId {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
+}
 
-        impl crate::ir::Ident for $name {
-            const UNDEFINED: Self = $name(0);
+impl Hash for FnId {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.id.hash(state)
+    }
+}
 
-            fn next(&self) -> Self {
-                $name(self.0 + 1)
-            }
+impl PartialOrd for FnId {
+    fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
+        self.id.partial_cmp(&other.id)
+    }
+}
 
-            fn prefix(&self) -> &'static str {
-                $prefix
-            }
+impl Ord for FnId {
+    fn cmp(&self, other: &Self) -> cmp::Ordering {
+        self.id.cmp(&other.id)
+    }
+}
 
-            fn index(&self) -> usize {
-                self.0
-            }
-        }
+impl fmt::Display for FnId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "λ{}<{}>", self.id, self.source)
+    }
+}
 
-        impl Default for $name {
-            fn default() -> Self {
-                crate::ir::Ident::UNDEFINED
-            }
-        }
+impl fmt::Debug for FnId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Display::fmt(self, f)
+    }
+}
 
-        impl std::fmt::Display for $name {
-            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                write!(f, "{}{}", $prefix, self.0)
-            }
-        }
+pub(crate) struct FnIdGenerator(usize);
 
-        impl std::fmt::Debug for $name {
-            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                std::fmt::Display::fmt(self, f)
-            }
-        }
+impl FnIdGenerator {
+    pub(crate) fn new() -> Self {
+        Self(0)
+    }
+
+    pub(crate) fn new_id(&mut self, source: Source) -> FnId {
+        let id = self.0;
+        self.0 += 1;
+        FnId { id, source }
     }
 }
 
@@ -159,21 +168,6 @@ pub(crate) struct StatementLocation {
 impl StatementLocation {
     pub(crate) fn new(block: NodeIndex, index: usize) -> Self {
         Self { block, index }
-    }
-}
-
-define_ident!{ pub(crate) FnId "λ" }
-
-pub(crate) struct IdentGenerator<Id: Ident>(Id);
-
-impl<Id: Ident> IdentGenerator<Id> {
-    pub(crate) fn new() -> Self {
-        Self(Id::UNDEFINED.next())
-    }
-
-    pub(crate) fn next_id(&mut self) -> Id {
-        let next_id = self.0.next();
-        replace(&mut self.0, next_id)
     }
 }
 
