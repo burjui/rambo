@@ -11,11 +11,11 @@ use petgraph::graph::NodeIndex;
 use petgraph::prelude::Direction::Outgoing;
 use petgraph::visit::EdgeRef;
 
+use crate::ir::value_storage::ValueId;
 use crate::ir::FunctionMap;
 use crate::ir::IRModule;
 use crate::ir::Statement;
 use crate::ir::Value;
-use crate::ir::value_storage::ValueId;
 
 pub(crate) struct EvalContext<'a> {
     module: &'a IRModule,
@@ -60,7 +60,7 @@ impl<'a> EvalContext<'a> {
                     Some(edge) => {
                         state = self.new_state(edge.target());
                         continue;
-                    },
+                    }
                     None => break,
                 };
             }
@@ -107,20 +107,21 @@ impl<'a> EvalContext<'a> {
 
     fn eval_value(&mut self, value: &Value) -> Value {
         match value {
-            Value::Unit |
-            Value::Int(_) |
-            Value::String(_) |
-            Value::Function { .. } => value.clone(),
+            Value::Unit | Value::Int(_) | Value::String(_) | Value::Function { .. } => {
+                value.clone()
+            }
 
             Value::AddInt(left, right) => Value::Int(self.int(left) + self.int(right)),
             Value::SubInt(left, right) => Value::Int(self.int(left) - self.int(right)),
             Value::MulInt(left, right) => Value::Int(self.int(left) * self.int(right)),
             Value::DivInt(left, right) => Value::Int(self.int(left) / self.int(right)),
 
-            Value::AddString(left, right) => Value::String(Rc::new(
-                (*self.string(left)).clone() + &self.string(right))),
+            Value::AddString(left, right) => {
+                Value::String(Rc::new((*self.string(left)).clone() + &self.string(right)))
+            }
 
-            Value::Phi(operands) => operands.iter()
+            Value::Phi(operands) => operands
+                .iter()
                 .filter_map(|operand| self.env.get(*operand))
                 .minmax_by(|value1, value2| value1.timestamp.cmp(&value2.timestamp))
                 .into_option()

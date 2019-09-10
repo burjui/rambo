@@ -6,11 +6,11 @@ use std::path::Path;
 use std::rc::Rc;
 
 use crate::frontend::FrontEnd;
+use crate::frontend::FrontEndState;
 use crate::graphviz::graphviz_dot_write_cfg;
 use crate::ir::IRModule;
 use crate::ir::Value;
 use crate::utils::TestResult;
-use crate::frontend::FrontEndState;
 
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
 enum ForbiddenPermutation {
@@ -34,9 +34,10 @@ impl FrontEndPermutation {
     }
 
     fn is_forbidden(&self, forbidden_permutations: &HashSet<ForbiddenPermutation>) -> bool {
-        forbidden_permutations.contains(&ForbiddenPermutation::IncludeComments(self.include_comments())) ||
-        forbidden_permutations.contains(&ForbiddenPermutation::EnableCfp(self.enable_cfp())) ||
-        forbidden_permutations.contains(&ForbiddenPermutation::EnableDce(self.enable_dce()))
+        forbidden_permutations.contains(&ForbiddenPermutation::IncludeComments(
+            self.include_comments(),
+        )) || forbidden_permutations.contains(&ForbiddenPermutation::EnableCfp(self.enable_cfp()))
+            || forbidden_permutations.contains(&ForbiddenPermutation::EnableDce(self.enable_dce()))
     }
 
     fn next(&mut self) {
@@ -63,11 +64,17 @@ impl FrontEndPermutation {
 #[cfg(test)]
 impl fmt::Debug for FrontEndPermutation {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "FrontEndPermutation {{\
-            \n  include_comments: {},\
-            \n  enable_cfp: {},\
-            \n  enable_dce: {},\
-            \n}}", self.include_comments(), self.enable_cfp(), self.enable_dce())
+        write!(
+            f,
+            "FrontEndPermutation {{\
+             \n  include_comments: {},\
+             \n  enable_cfp: {},\
+             \n  enable_dce: {},\
+             \n}}",
+            self.include_comments(),
+            self.enable_cfp(),
+            self.enable_dce()
+        )
     }
 }
 
@@ -198,7 +205,7 @@ test_frontend_eval! {
     Value::Unit
 }
 
-test_frontend_eval!{
+test_frontend_eval! {
     marker_eval,
     "
     let a = 1
@@ -216,7 +223,7 @@ test_frontend_eval!{
     Value::Int(10)
 }
 
-test_frontend!{
+test_frontend! {
     conditional_cfp,
     "
     let f = λ (a: num, b: num) -> a + b

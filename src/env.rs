@@ -9,7 +9,10 @@ pub(crate) struct Environment<Key, Value> {
 }
 
 impl<Key, Value> Environment<Key, Value>
-where Key: Eq + Debug + Hash + Clone, Value: Debug {
+where
+    Key: Eq + Debug + Hash + Clone,
+    Value: Debug,
+{
     pub(crate) fn new() -> Environment<Key, Value> {
         Environment {
             scopes: Vec::new(),
@@ -22,7 +25,7 @@ where Key: Eq + Debug + Hash + Clone, Value: Debug {
     }
 
     pub(crate) fn resolve(&self, key: &Key) -> Result<&Value, String> {
-        for scope in self.scopes[0 .. self.current_scope_count].iter().rev() {
+        for scope in self.scopes[0..self.current_scope_count].iter().rev() {
             if let Some(value) = scope.get(key) {
                 return Ok(value);
             }

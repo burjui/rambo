@@ -67,8 +67,12 @@ impl SemanticsChecker {
             Statement::Expr(expr) => {
                 let expr = self.check_expr(expr)?;
                 Ok(TypedStatement::Expr(expr))
-            },
-            Statement::Binding { name, value, source } => {
+            }
+            Statement::Binding {
+                name,
+                value,
+                source,
+            } => {
                 let name = Rc::new(name.text().to_owned());
                 let value = self.check_expr(&value)?;
                 let binding = BindingRef::from(Binding::new(name.clone(), value, source.clone()));
@@ -81,86 +85,138 @@ impl SemanticsChecker {
     fn check_expr(&mut self, expr: &Expr) -> CheckResult<ExprRef> {
         match expr {
             Expr::Unit(source) => Ok(new_expr(TypedExpr::Unit(source.clone()))),
-            Expr::Int(source) => {
-                match source.text().parse::<i32>() {
-                    Ok(value) => Ok(new_expr(TypedExpr::Int(value, source.clone()))),
-                    Err(_) => error!("{}: number `{}' is out of 32-bit signed integer range", source, source.text()),
-                }
+            Expr::Int(source) => match source.text().parse::<i32>() {
+                Ok(value) => Ok(new_expr(TypedExpr::Int(value, source.clone()))),
+                Err(_) => error!(
+                    "{}: number `{}' is out of 32-bit signed integer range",
+                    source,
+                    source.text()
+                ),
             },
             Expr::String(source) => {
                 let text = source.text();
                 let value = Rc::new(text[1..text.len() - 1].to_owned());
                 Ok(new_expr(TypedExpr::String(value, source.clone())))
-            },
+            }
             Expr::Id(name) => {
                 let binding = self.resolve(name)?;
-                Ok(new_expr(TypedExpr::Reference(binding.clone(), name.clone())))
-            },
-            Expr::Binary { operation, left, right, .. } => {
-                match operation {
-                    BinaryOperation::Assign => {
-                        if let Expr::Id(name) = left as &Expr {
-                            let binding = self.resolve(name)?;
-                            let value = self.check_expr(right)?;
-                            let binding_type = binding.data.type_();
-                            let value_type = value.type_();
-                            if binding.data.type_() == value.type_() {
-                                Ok(new_expr(TypedExpr::Assign(binding, value, expr.source().clone())))
-                            } else {
-                                error!("assigning a value of type `{:?}' to the variable of type `{:?}': {:?}", value_type, binding_type, &expr)
-                            }
+                Ok(new_expr(TypedExpr::Reference(
+                    binding.clone(),
+                    name.clone(),
+                )))
+            }
+            Expr::Binary {
+                operation,
+                left,
+                right,
+                ..
+            } => match operation {
+                BinaryOperation::Assign => {
+                    if let Expr::Id(name) = left as &Expr {
+                        let binding = self.resolve(name)?;
+                        let value = self.check_expr(right)?;
+                        let binding_type = binding.data.type_();
+                        let value_type = value.type_();
+                        if binding.data.type_() == value.type_() {
+                            Ok(new_expr(TypedExpr::Assign(
+                                binding,
+                                value,
+                                expr.source().clone(),
+                            )))
                         } else {
-                            error!("a variable expected at the left side of assignment, but found: {:?}", left)
+                            error!(
+                                "assigning a value of type `{:?}' to the variable of type `{:?}': {:?}",
+                                value_type, binding_type, &expr
+                            )
                         }
-                    },
-                    _ => {
-                        let left_checked = self.check_expr(left)?;
-                        let right_checked = self.check_expr(right)?;
-                        let left_type = left_checked.type_();
-                        let right_type = right_checked.type_();
-                        if left_type != right_type {
-                            return error!("operands of `{:?}' have incompatible types:\n  {:?}: {:?}\n  {:?}: {:?}",
-                                          operation, left, left_type, right, right_type);
-                        }
+                    } else {
+                        error!(
+                            "a variable expected at the left side of assignment, but found: {:?}",
+                            left
+                        )
+                    }
+                }
+                _ => {
+                    let left_checked = self.check_expr(left)?;
+                    let right_checked = self.check_expr(right)?;
+                    let left_type = left_checked.type_();
+                    let right_type = right_checked.type_();
+                    if left_type != right_type {
+                        return error!(
+                            "operands of `{:?}' have incompatible types:\n  {:?}: {:?}\n  {:?}: {:?}",
+                            operation, left, left_type, right, right_type
+                        );
+                    }
 
-                        match operation {
-                            BinaryOperation::Add => match left_type {
-                                Type::Int => Ok(new_expr(TypedExpr::AddInt(left_checked, right_checked, expr.source().clone()))),
-                                Type::String => Ok(new_expr(TypedExpr::AddStr(left_checked, right_checked, expr.source().clone()))),
-                                _ => error!("operation `{:?}' is not implemented for type `{:?}'", operation, left_type)
-                            },
-                            operation => {
-                                if let Type::Int = left_type {
-                                    let constructor =
-                                        match operation {
-                                            BinaryOperation::Subtract => TypedExpr::SubInt,
-                                            BinaryOperation::Multiply => TypedExpr::MulInt,
-                                            BinaryOperation::Divide => TypedExpr::DivInt,
-                                            _ => unreachable!()
-                                        };
-                                    Ok(new_expr(constructor(left_checked, right_checked, expr.source().clone())))
-                                } else {
-                                    error!("operation `{:?}' is not implemented for type `{:?}'", operation, left_type)
-                                }
+                    match operation {
+                        BinaryOperation::Add => match left_type {
+                            Type::Int => Ok(new_expr(TypedExpr::AddInt(
+                                left_checked,
+                                right_checked,
+                                expr.source().clone(),
+                            ))),
+                            Type::String => Ok(new_expr(TypedExpr::AddStr(
+                                left_checked,
+                                right_checked,
+                                expr.source().clone(),
+                            ))),
+                            _ => error!(
+                                "operation `{:?}' is not implemented for type `{:?}'",
+                                operation, left_type
+                            ),
+                        },
+                        operation => {
+                            if let Type::Int = left_type {
+                                let constructor = match operation {
+                                    BinaryOperation::Subtract => TypedExpr::SubInt,
+                                    BinaryOperation::Multiply => TypedExpr::MulInt,
+                                    BinaryOperation::Divide => TypedExpr::DivInt,
+                                    _ => unreachable!(),
+                                };
+                                Ok(new_expr(constructor(
+                                    left_checked,
+                                    right_checked,
+                                    expr.source().clone(),
+                                )))
+                            } else {
+                                error!(
+                                    "operation `{:?}' is not implemented for type `{:?}'",
+                                    operation, left_type
+                                )
                             }
                         }
                     }
                 }
             },
-            Expr::Function { name, source, parameters, body } => {
+            Expr::Function {
+                name,
+                source,
+                parameters,
+                body,
+            } => {
                 let name = name
                     .as_ref()
                     .map(|name| name.text().to_owned())
                     .unwrap_or_else(|| self.generate_function_name());
                 let function = self.check_function(name, parameters.as_slice(), &body)?;
-                Ok(new_expr(TypedExpr::Function(FunctionRef::from(function), source.clone())))
-            },
-            Expr::Application { source, function, arguments } => {
+                Ok(new_expr(TypedExpr::Function(
+                    FunctionRef::from(function),
+                    source.clone(),
+                )))
+            }
+            Expr::Application {
+                source,
+                function,
+                arguments,
+            } => {
                 let function = self.check_expr(&function)?;
                 let function_type = function.type_();
                 let function_type_result: CheckResult<FunctionTypeRef> = match function_type {
                     Type::Function(type_) => Ok(type_.clone()),
-                    _ => error!("2 expected a function, found `{:?}' of type `{:?}'", expr, function_type)
+                    _ => error!(
+                        "2 expected a function, found `{:?}' of type `{:?}'",
+                        expr, function_type
+                    ),
                 };
                 let function_type = function_type_result?;
 
@@ -169,8 +225,10 @@ impl SemanticsChecker {
                     let parameter_count = function_parameters.len();
                     let argument_count = arguments.len();
                     if argument_count != parameter_count {
-                        return error!("{}: invalid number of arguments: expected {}, found {}:\n  {:?}",
-                                      source, parameter_count, argument_count, expr);
+                        return error!(
+                            "{}: invalid number of arguments: expected {}, found {}:\n  {:?}",
+                            source, parameter_count, argument_count, expr
+                        );
                     }
 
                     let mut arguments_checked = vec![];
@@ -191,19 +249,27 @@ impl SemanticsChecker {
                     type_: function_type.result.clone(),
                     function,
                     arguments: arguments_checked,
-                    source: source.clone()
+                    source: source.clone(),
                 }))
-            },
-            Expr::Conditional { source, condition, then_branch, else_branch } => {
+            }
+            Expr::Conditional {
+                source,
+                condition,
+                then_branch,
+                else_branch,
+            } => {
                 let condition_typed = self.check_expr(condition)?;
                 let condition_type = condition_typed.type_();
                 if condition_type != Type::Int {
-                    return error!("a condition can only be of type `num': {:?}", condition.source())
+                    return error!(
+                        "a condition can only be of type `num': {:?}",
+                        condition.source()
+                    );
                 }
 
                 let (then_branch_statements, then_branch_source) = match then_branch.deref() {
                     Expr::Block(ASTBlock { source, statements }) => (statements, source),
-                    _ => unreachable!()
+                    _ => unreachable!(),
                 };
                 let then_branch = if then_branch_statements.is_empty() {
                     warning!("empty true branch: {:?}", then_branch_source);
@@ -214,32 +280,40 @@ impl SemanticsChecker {
                     } else {
                         vec![]
                     };
-                    let statements = then_branch_statements.iter().chain(additional_statement.iter());
+                    let statements = then_branch_statements
+                        .iter()
+                        .chain(additional_statement.iter());
                     self.check_block(statements, then_branch_source.clone())?
                 };
                 let then_branch_type = then_branch.type_();
 
                 let else_branch = match else_branch {
                     Some(else_branch) => {
-                        let (else_branch_statements, else_branch_source) = match else_branch.deref() {
+                        let (else_branch_statements, else_branch_source) = match else_branch.deref()
+                        {
                             Expr::Block(ASTBlock { source, statements }) => (statements, source),
-                            _ => unreachable!()
+                            _ => unreachable!(),
                         };
                         if else_branch_statements.is_empty() {
                             warning!("empty false branch: {:?}", else_branch_source);
                             TypedExpr::Unit(else_branch_source.clone())
                         } else {
-                            self.check_block(else_branch_statements.iter(), else_branch_source.clone())?
+                            self.check_block(
+                                else_branch_statements.iter(),
+                                else_branch_source.clone(),
+                            )?
                         }
                     }
 
-                    None => TypedExpr::Unit(source.clone())
+                    None => TypedExpr::Unit(source.clone()),
                 };
                 let else_branch_type = else_branch.type_();
 
                 if then_branch_type != else_branch_type {
-                    return error!("branch types don't match: `{:?}' and `{:?}'",
-                                  then_branch_type, else_branch_type);
+                    return error!(
+                        "branch types don't match: `{:?}' and `{:?}'",
+                        then_branch_type, else_branch_type
+                    );
                 }
 
                 Ok(new_expr(TypedExpr::Conditional {
@@ -247,11 +321,12 @@ impl SemanticsChecker {
                     then_branch: new_expr(then_branch),
                     else_branch: new_expr(else_branch),
                     type_: then_branch_type,
-                    source: source.clone()
+                    source: source.clone(),
                 }))
-            },
+            }
             Expr::Block(ASTBlock { source, statements }) => {
-                let statements = statements.iter()
+                let statements = statements
+                    .iter()
                     .map(|statement| self.check_statement(statement))
                     .collect::<CheckResult<Vec<_>>>()?;
                 Ok(new_expr(TypedExpr::Block(statements, source.clone())))
@@ -259,14 +334,23 @@ impl SemanticsChecker {
         }
     }
 
-    fn check_function(&mut self, name: String, parameters: &[Parameter], body: &Expr) -> CheckResult<Function> {
+    fn check_function(
+        &mut self,
+        name: String,
+        parameters: &[Parameter],
+        body: &Expr,
+    ) -> CheckResult<Function> {
         let outer_env = replace(&mut self.env, Environment::new());
         self.env.push();
         let mut parameter_bindings = vec![];
         for parameter in parameters {
             let name = Rc::new(parameter.name.text().to_owned());
-            let value = new_expr(TypedExpr::ArgumentPlaceholder(name.clone(), parameter.type_.clone()));
-            let binding = BindingRef::from(Binding::new(name.clone(), value, parameter.source.clone()));
+            let value = new_expr(TypedExpr::ArgumentPlaceholder(
+                name.clone(),
+                parameter.type_.clone(),
+            ));
+            let binding =
+                BindingRef::from(Binding::new(name.clone(), value, parameter.source.clone()));
             self.env.bind(name.clone(), binding.clone());
             parameter_bindings.push(binding);
         }
@@ -275,18 +359,23 @@ impl SemanticsChecker {
 
         let function_type = Rc::new(FunctionType {
             parameters: parameters.to_vec(),
-            result: body.type_()
+            result: body.type_(),
         });
         Ok(Function {
             name: Rc::new(name),
             type_: function_type,
             parameters: parameter_bindings,
-            body
+            body,
         })
     }
 
-    fn check_block<'a, BlockIterator>(&mut self, block: BlockIterator, source: Source) -> CheckResult<TypedExpr>
-        where BlockIterator: Iterator<Item = &'a Statement>
+    fn check_block<'a, BlockIterator>(
+        &mut self,
+        block: BlockIterator,
+        source: Source,
+    ) -> CheckResult<TypedExpr>
+    where
+        BlockIterator: Iterator<Item = &'a Statement>,
     {
         self.env.push();
         let mut statements: Vec<_> = block
@@ -296,10 +385,11 @@ impl SemanticsChecker {
 
         let expr = if statements.is_empty() {
             TypedExpr::Unit(source.clone())
-        }
-        else {
+        } else {
             if let TypedStatement::Binding(_) = statements.last().unwrap() {
-                statements.push(TypedStatement::Expr(new_expr(TypedExpr::Unit(source.clone()))));
+                statements.push(TypedStatement::Expr(new_expr(TypedExpr::Unit(
+                    source.clone(),
+                ))));
             }
             TypedExpr::Block(statements, source)
         };
@@ -315,7 +405,10 @@ impl SemanticsChecker {
 
     fn generate_function_name(&mut self) -> String {
         let next_function_id = self.next_function_id + 1;
-        format!("@lambda{}", replace(&mut self.next_function_id, next_function_id))
+        format!(
+            "@lambda{}",
+            replace(&mut self.next_function_id, next_function_id)
+        )
     }
 }
 
@@ -325,12 +418,14 @@ pub(crate) type FunctionTypeRef = Rc<FunctionType>;
 #[derive(Clone, PartialEq)]
 pub(crate) struct FunctionType {
     pub(crate) parameters: Vec<Parameter>,
-    pub(crate) result: Type
+    pub(crate) result: Type,
 }
 
 impl Debug for FunctionType {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        let parameter_list = self.parameters.iter()
+        let parameter_list = self
+            .parameters
+            .iter()
             .map(|parameter| format!("{}: {:?}", parameter.name.text(), parameter.type_))
             .format(", ");
         write!(formatter, "λ ({}) -> {:?}", parameter_list, self.result)
@@ -351,7 +446,7 @@ impl Debug for Type {
             Type::Unit => write!(formatter, "()"),
             Type::Int => write!(formatter, "num"),
             Type::String => write!(formatter, "str"),
-            Type::Function(type_) => type_.fmt(formatter)
+            Type::Function(type_) => type_.fmt(formatter),
         }
     }
 }
@@ -398,7 +493,7 @@ pub(crate) enum TypedExpr {
         type_: Type,
         function: ExprRef,
         arguments: Vec<ExprRef>,
-        source: Source
+        source: Source,
     },
     AddInt(ExprRef, ExprRef, Source),
     SubInt(ExprRef, ExprRef, Source),
@@ -411,9 +506,9 @@ pub(crate) enum TypedExpr {
         then_branch: ExprRef,
         else_branch: ExprRef,
         type_: Type,
-        source: Source
+        source: Source,
     },
-    Block(Vec<TypedStatement>, Source)
+    Block(Vec<TypedStatement>, Source),
 }
 
 impl Debug for TypedExpr {
@@ -429,12 +524,28 @@ impl Debug for TypedExpr {
             TypedExpr::MulInt(left, right, _) => write!(formatter, "({:?} * {:?})", left, right),
             TypedExpr::DivInt(left, right, _) => write!(formatter, "({:?} / {:?})", left, right),
             TypedExpr::AddStr(left, right, _) => write!(formatter, "({:?} + {:?})", left, right),
-            TypedExpr::Assign(binding, value, _) => write!(formatter, "({} = {:?})", &binding.name, value),
+            TypedExpr::Assign(binding, value, _) => {
+                write!(formatter, "({} = {:?})", &binding.name, value)
+            }
             TypedExpr::Function(function, _) => function.fmt(formatter),
-            TypedExpr::Application { function, arguments, .. } => write!(formatter, "({:?} @ {:?})", function, arguments),
-            TypedExpr::Conditional { condition, then_branch, else_branch, .. } =>
-                write!(formatter, "(if ({:?}) {:?} else {:?})", condition, then_branch, else_branch),
-            TypedExpr::Block(statements, _) => write!(formatter, "{{\n{:?}\n}}", statements.iter().format("\n")),
+            TypedExpr::Application {
+                function,
+                arguments,
+                ..
+            } => write!(formatter, "({:?} @ {:?})", function, arguments),
+            TypedExpr::Conditional {
+                condition,
+                then_branch,
+                else_branch,
+                ..
+            } => write!(
+                formatter,
+                "(if ({:?}) {:?} else {:?})",
+                condition, then_branch, else_branch
+            ),
+            TypedExpr::Block(statements, _) => {
+                write!(formatter, "{{\n{:?}\n}}", statements.iter().format("\n"))
+            }
         }
     }
 }
@@ -445,14 +556,13 @@ impl TypedExpr {
             TypedExpr::ArgumentPlaceholder(_, type_) => type_.clone(),
             TypedExpr::Unit(_) => Type::Unit,
 
-            TypedExpr::Int(_, _) |
-            TypedExpr::AddInt(_, _, _) |
-            TypedExpr::SubInt(_, _, _) |
-            TypedExpr::MulInt(_, _, _) |
-            TypedExpr::DivInt(_, _, _) => Type::Int,
+            TypedExpr::Int(_, _)
+            | TypedExpr::AddInt(_, _, _)
+            | TypedExpr::SubInt(_, _, _)
+            | TypedExpr::MulInt(_, _, _)
+            | TypedExpr::DivInt(_, _, _) => Type::Int,
 
-            TypedExpr::String(_, _) |
-            TypedExpr::AddStr(_, _, _) => Type::String,
+            TypedExpr::String(_, _) | TypedExpr::AddStr(_, _, _) => Type::String,
 
             TypedExpr::Reference(binding, _) => binding.data.type_(),
             TypedExpr::Assign(_, value, _) => value.type_(),
@@ -460,9 +570,10 @@ impl TypedExpr {
             TypedExpr::Application { type_, .. } => type_.clone(),
             TypedExpr::Conditional { type_, .. } => type_.clone(),
 
-            TypedExpr::Block(statements, _) => statements.last()
+            TypedExpr::Block(statements, _) => statements
+                .last()
                 .map(TypedStatement::type_)
-                .unwrap_or_else(|| Type::Unit)
+                .unwrap_or_else(|| Type::Unit),
         }
     }
 }
@@ -491,14 +602,14 @@ impl Debug for Binding {
 #[derive(Clone)]
 pub(crate) enum TypedStatement {
     Expr(ExprRef),
-    Binding(BindingRef)
+    Binding(BindingRef),
 }
 
 impl Debug for TypedStatement {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             TypedStatement::Expr(expr) => expr.fmt(formatter),
-            TypedStatement::Binding(binding) => binding.fmt(formatter)
+            TypedStatement::Binding(binding) => binding.fmt(formatter),
         }
     }
 }
@@ -507,7 +618,7 @@ impl TypedStatement {
     pub(crate) fn type_(&self) -> Type {
         match self {
             TypedStatement::Binding(_) => Type::Unit,
-            TypedStatement::Expr(expr) => expr.type_()
+            TypedStatement::Expr(expr) => expr.type_(),
         }
     }
 }

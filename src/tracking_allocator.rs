@@ -12,7 +12,8 @@ pub struct TrackingAllocator<Allocator> {
 unsafe impl<Allocator: GlobalAlloc> GlobalAlloc for TrackingAllocator<Allocator> {
     unsafe fn alloc(&self, l: Layout) -> *mut u8 {
         let usage = self.usage.update_and_fetch(|usage| usage + l.size());
-        self.max_usage.update_and_fetch(|max_usage| max_usage.max(usage));
+        self.max_usage
+            .update_and_fetch(|max_usage| max_usage.max(usage));
         self.allocator.alloc(l)
     }
 
@@ -51,7 +52,7 @@ impl CasLoop for AtomicUsize {
             let next = f(prev);
             match self.compare_exchange_weak(prev, next, Ordering::SeqCst, Ordering::Relaxed) {
                 Ok(x) => return x,
-                Err(next_prev) => prev = next_prev
+                Err(next_prev) => prev = next_prev,
             }
         }
     }
@@ -62,7 +63,7 @@ impl CasLoop for AtomicUsize {
             let next = f(prev);
             match self.compare_exchange_weak(prev, next, Ordering::SeqCst, Ordering::Relaxed) {
                 Ok(_) => return next,
-                Err(next_prev) => prev = next_prev
+                Err(next_prev) => prev = next_prev,
             }
         }
     }

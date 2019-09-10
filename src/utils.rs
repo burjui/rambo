@@ -1,12 +1,16 @@
 use std::error::Error;
+use std::io;
+use std::io::Write;
 use std::mem::swap;
 use std::ops::Range;
 
-use termcolor::{ColorChoice, WriteColor, ColorSpec, Color};
+use termcolor::Color;
+use termcolor::ColorChoice;
+use termcolor::ColorSpec;
 use termcolor::StandardStream;
+use termcolor::WriteColor;
+
 use copy_in_place::copy_in_place;
-use std::io;
-use std::io::Write;
 
 pub(crate) type GenericResult<T> = std::result::Result<T, Box<dyn Error>>;
 
@@ -29,15 +33,17 @@ macro_rules! warning_at {
 
 #[cfg(test)]
 macro_rules! location {
-    () => (format!("{}({})", file!(), line!()))
+    () => {
+        format!("{}({})", file!(), line!())
+    };
 }
 
 #[cfg(test)]
 macro_rules! typecheck {
-    ($text: expr) => ({
+    ($text: expr) => {{
         use crate::utils::typecheck;
         typecheck(location!(), $text)
-    })
+    }};
 }
 
 #[cfg(test)]
@@ -54,13 +60,21 @@ pub(crate) fn typecheck(name: String, text: &str) -> GenericResult<crate::semant
 
 pub(crate) fn stdout() -> StandardStream {
     let is_tty = unsafe { libc::isatty(libc::STDOUT_FILENO as i32) } != 0;
-    let color_choice = if is_tty { ColorChoice::Always } else { ColorChoice::Never };
+    let color_choice = if is_tty {
+        ColorChoice::Always
+    } else {
+        ColorChoice::Never
+    };
     StandardStream::stdout(color_choice)
 }
 
 pub(crate) fn stderr() -> StandardStream {
     let is_tty = unsafe { libc::isatty(libc::STDERR_FILENO as i32) } != 0;
-    let color_choice = if is_tty { ColorChoice::Always } else { ColorChoice::Never };
+    let color_choice = if is_tty {
+        ColorChoice::Always
+    } else {
+        ColorChoice::Never
+    };
     StandardStream::stderr(color_choice)
 }
 
@@ -76,14 +90,17 @@ macro_rules! matches {
     }
 }
 
-pub(crate) fn intersection<'a, T: Ord + Copy>(mut r1: &'a Range<T>, mut r2: &'a Range<T>) -> Option<Range<T>> {
+pub(crate) fn intersection<'a, T: Ord + Copy>(
+    mut r1: &'a Range<T>,
+    mut r2: &'a Range<T>,
+) -> Option<Range<T>> {
     if r1.start > r2.start {
         swap(&mut r1, &mut r2);
     }
     if r1.end <= r2.start {
         None
     } else {
-        Some(r1.start.max(r2.start) .. r1.end.min(r2.end))
+        Some(r1.start.max(r2.start)..r1.end.min(r2.end))
     }
 }
 
@@ -95,7 +112,10 @@ macro_rules! test_intersection {
         let range2: Range<u32> = $range2;
         let expected: Option<Range<u32>> = $expected;
         assert_eq!(&intersection(&range1, &range2), &expected);
-        assert_eq!(&intersection(&range1, &range2), &intersection(&range2, &range1));
+        assert_eq!(
+            &intersection(&range1, &range2),
+            &intersection(&range2, &range1)
+        );
     }};
 }
 
@@ -107,11 +127,19 @@ fn range_intersection() {
 }
 
 pub(crate) trait RetainIndices<T> {
-    fn retain_indices(&mut self, predicate: impl FnMut(&T, usize) -> bool, remap: impl FnMut(&T, usize, usize));
+    fn retain_indices(
+        &mut self,
+        predicate: impl FnMut(&T, usize) -> bool,
+        remap: impl FnMut(&T, usize, usize),
+    );
 }
 
 impl<T> RetainIndices<T> for Vec<T> {
-    fn retain_indices(&mut self, mut predicate: impl FnMut(&T, usize) -> bool, mut remap: impl FnMut(&T, usize, usize)) {
+    fn retain_indices(
+        &mut self,
+        mut predicate: impl FnMut(&T, usize) -> bool,
+        mut remap: impl FnMut(&T, usize, usize),
+    ) {
         let mut index = 0;
         let mut new_index = 0;
         self.retain(|value| {
@@ -137,9 +165,9 @@ impl<T: Default + Copy> VecUtils<T> for Vec<T> {
         self.resize_with(old_len + slice_len, T::default);
         let new_len = self.len();
         let slice_end = index + slice_len;
-        let range = index .. new_len - slice_len;
+        let range = index..new_len - slice_len;
         copy_in_place(self, range.clone(), new_len - range.end + range.start);
-        (&mut self[index .. slice_end]).copy_from_slice(src)
+        (&mut self[index..slice_end]).copy_from_slice(src)
     }
 }
 
@@ -154,9 +182,11 @@ pub(crate) fn dump_memory(ram: &[u8], base_address: u32) -> io::Result<()> {
         } else {
             write!(stderr, " ")?;
         }
-        stderr.set_color(ColorSpec::new()
-            .set_fg(Some(Color::Black))
-            .set_intense(true))?;
+        stderr.set_color(
+            ColorSpec::new()
+                .set_fg(Some(Color::Black))
+                .set_intense(true),
+        )?;
         write!(stderr, "{:02x}", byte)?;
         stderr.reset()?;
     }

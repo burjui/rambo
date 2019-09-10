@@ -1,25 +1,25 @@
 use std::collections::HashMap;
-use std::iter::FromIterator;
 use std::iter::once;
 use std::iter::repeat;
+use std::iter::FromIterator;
 use std::mem::replace;
 
 use itertools::Itertools;
-use petgraph::Direction;
 use petgraph::graph::NodeIndex;
 use petgraph::visit::EdgeRef;
+use petgraph::Direction;
 
-use crate::ir::BasicBlock;
-use crate::ir::ControlFlowGraph;
-use crate::ir::FunctionMap;
 use crate::ir::get_statement_operands_mut;
 use crate::ir::get_statement_value_operands;
 use crate::ir::get_value_operands_mut;
+use crate::ir::value_storage::ValueId;
+use crate::ir::value_storage::ValueStorage;
+use crate::ir::BasicBlock;
+use crate::ir::ControlFlowGraph;
+use crate::ir::FunctionMap;
 use crate::ir::Statement;
 use crate::ir::StatementLocation;
 use crate::ir::Value;
-use crate::ir::value_storage::ValueId;
-use crate::ir::value_storage::ValueStorage;
 
 pub(crate) fn remove_dead_code(
     entry_block: NodeIndex,
@@ -27,8 +27,8 @@ pub(crate) fn remove_dead_code(
     values: &mut ValueStorage,
     cfg: &mut ControlFlowGraph,
     definitions: &mut HashMap<ValueId, StatementLocation>,
-    functions: &mut FunctionMap)
-{
+    functions: &mut FunctionMap,
+) {
     let mut value_usage = compute_value_usage(*program_result, values, cfg, definitions);
     remove_unused_definitions(&mut value_usage, values, cfg, definitions);
     remove_empty_blocks(cfg);
@@ -41,14 +41,9 @@ fn compute_value_usage(
     program_result: ValueId,
     values: &mut ValueStorage,
     cfg: &mut ControlFlowGraph,
-    definitions: &mut HashMap<ValueId, StatementLocation>)
-    -> HashMap<ValueId, usize>
-{
-    let mut value_usage = HashMap::from_iter(
-        definitions
-            .keys()
-            .cloned()
-            .zip(repeat(0)));
+    definitions: &mut HashMap<ValueId, StatementLocation>,
+) -> HashMap<ValueId, usize> {
+    let mut value_usage = HashMap::from_iter(definitions.keys().cloned().zip(repeat(0)));
     let used_values = cfg
         .node_indices()
         .flat_map(|node| cfg[node].iter())
@@ -64,13 +59,13 @@ fn remove_unused_definitions(
     value_usage: &mut HashMap<ValueId, usize>,
     values: &mut ValueStorage,
     cfg: &mut ControlFlowGraph,
-    definitions: &mut HashMap<ValueId, StatementLocation>)
-{
+    definitions: &mut HashMap<ValueId, StatementLocation>,
+) {
     let unused_values = value_usage
         .iter()
         .filter_map(|(value_id, usages)| match usages {
             0 => Some(*value_id),
-            _ => None
+            _ => None,
         })
         .collect_vec();
     for value_id in unused_values {
@@ -99,8 +94,8 @@ fn unuse(
     cfg: &ControlFlowGraph,
     values: &ValueStorage,
     value_usage: &mut HashMap<ValueId, usize>,
-    definitions: &mut HashMap<ValueId, StatementLocation>)
-{
+    definitions: &mut HashMap<ValueId, StatementLocation>,
+) {
     let usage_count = value_usage.get_mut(&value_id).unwrap();
     if *usage_count > 0 {
         *usage_count -= 1;
@@ -116,9 +111,7 @@ fn unuse(
 }
 
 fn remove_empty_blocks(cfg: &mut ControlFlowGraph) {
-    let blocks = cfg
-        .node_indices()
-        .collect_vec();
+    let blocks = cfg.node_indices().collect_vec();
     for block in blocks {
         let is_empty = cfg[block]
             .iter()
@@ -150,8 +143,8 @@ fn merge_consecutive_basic_blocks(
     values: &ValueStorage,
     cfg: &mut ControlFlowGraph,
     value_usage: &mut HashMap<ValueId, usize>,
-    definitions: &mut HashMap<ValueId, StatementLocation>)
-{
+    definitions: &mut HashMap<ValueId, StatementLocation>,
+) {
     let successors = cfg
         .edges_directed(block, Direction::Outgoing)
         .map(|edge| edge.target())
@@ -194,8 +187,8 @@ fn remove_unused_values(
     values: &mut ValueStorage,
     functions: &mut FunctionMap,
     cfg: &mut ControlFlowGraph,
-    program_result: &mut ValueId)
-{
+    program_result: &mut ValueId,
+) {
     for (_, value_id) in values.iter() {
         if !definitions.contains_key(&value_id) {
             if let Value::Function(fn_id, _) = &values[value_id] {
@@ -206,10 +199,13 @@ fn remove_unused_values(
 
     let mut remap = HashMap::new();
     let mut new_definitions = HashMap::new();
-    values.retain(|value_id| definitions.contains_key(&value_id), |from, to| {
-        remap.insert(from, to);
-        new_definitions.insert(to, definitions[&from]);
-    });
+    values.retain(
+        |value_id| definitions.contains_key(&value_id),
+        |from, to| {
+            remap.insert(from, to);
+            new_definitions.insert(to, definitions[&from]);
+        },
+    );
     for (value, _) in values.iter_mut() {
         for operand in get_value_operands_mut(value) {
             *operand = remap[operand];

@@ -182,22 +182,42 @@ pub(crate) enum Statement {
 impl fmt::Debug for Statement {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Statement::Comment(comment) => writeln!(f, "// {}", comment.split(|c| c == '\n').format("\n// ")),
+            Statement::Comment(comment) => {
+                writeln!(f, "// {}", comment.split(|c| c == '\n').format("\n// "))
+            }
             Statement::Definition(value_id) => write!(f, "define {}", value_id),
-            Statement::CondJump(condition, then_branch, else_branch) =>
-                write!(f, "condjump {}, {}, {}", condition, then_branch.index(), else_branch.index()),
-            Statement::Return(value_id) => write!(f, "return {}", value_id)
+            Statement::CondJump(condition, then_branch, else_branch) => write!(
+                f,
+                "condjump {}, {}, {}",
+                condition,
+                then_branch.index(),
+                else_branch.index()
+            ),
+            Statement::Return(value_id) => write!(f, "return {}", value_id),
         }
     }
 }
 
-pub(crate) fn fmt_statement(sink: &mut impl Write, statement: &Statement, values: &ValueStorage) -> std::io::Result<()> {
+pub(crate) fn fmt_statement(
+    sink: &mut impl Write,
+    statement: &Statement,
+    values: &ValueStorage,
+) -> std::io::Result<()> {
     match statement {
-        Statement::Comment(comment) => writeln!(sink, "// {}", comment.split(|c| c == '\n').format("\n// ")),
-        Statement::Definition(value_id) => write!(sink, "{} ← {:?}", value_id, &values[*value_id]),
-        Statement::CondJump(value_id, then_branch, else_branch) =>
-            write!(sink, "condjump {}, {}, {}", value_id, then_branch.index(), else_branch.index()),
-        Statement::Return(value_id) => write!(sink, "return {}", value_id)
+        Statement::Comment(comment) => {
+            writeln!(sink, "// {}", comment.split(|c| c == '\n').format("\n// "))
+        }
+        Statement::Definition(value_id) => {
+            write!(sink, "{} ← {:?}", value_id, &values[*value_id])
+        }
+        Statement::CondJump(value_id, then_branch, else_branch) => write!(
+            sink,
+            "condjump {}, {}, {}",
+            value_id,
+            then_branch.index(),
+            else_branch.index()
+        ),
+        Statement::Return(value_id) => write!(sink, "return {}", value_id),
     }
 }
 
@@ -248,7 +268,13 @@ pub(crate) enum Value {
 
 impl Value {
     pub(crate) fn is_constant(&self) -> bool {
-        matches!(self, Value::Unit, Value::Int(_), Value::String(_), Value::Function(_, _))
+        matches!(
+            self,
+            Value::Unit,
+            Value::Int(_),
+            Value::String(_),
+            Value::Function(_, _)
+        )
     }
 }
 
@@ -265,7 +291,9 @@ impl fmt::Debug for Value {
             Value::DivInt(left, right) => write!(f, "{} / {}", left, right),
             Value::AddString(left, right) => write!(f, "{} + {}", left, right),
             Value::Phi(Phi(operands)) => write!(f, "ϕ({})", operands.iter().format(", ")),
-            Value::Call(function, arguments) => write!(f, "call {}({})", function, arguments.iter().format(", ")),
+            Value::Call(function, arguments) => {
+                write!(f, "call {}({})", function, arguments.iter().format(", "))
+            }
             Value::Arg(index) => write!(f, "arg[{}]", index),
         }
     }
@@ -273,8 +301,8 @@ impl fmt::Debug for Value {
 
 pub(crate) fn get_statement_value_operands<'a>(
     values: &'a ValueStorage,
-    statement: &'a Statement) -> Box<dyn Iterator<Item = ValueId> + 'a>
-{
+    statement: &'a Statement,
+) -> Box<dyn Iterator<Item = ValueId> + 'a> {
     match statement {
         Statement::Comment(_) => Box::new(empty()),
         Statement::Definition(value_id) => get_value_operands(&values[*value_id]),
@@ -283,9 +311,9 @@ pub(crate) fn get_statement_value_operands<'a>(
     }
 }
 
-pub(crate) fn get_statement_operands_mut<'a>(statement: &'a mut Statement)
-    -> Box<dyn Iterator<Item = &'a mut ValueId> + 'a>
-{
+pub(crate) fn get_statement_operands_mut<'a>(
+    statement: &'a mut Statement,
+) -> Box<dyn Iterator<Item = &'a mut ValueId> + 'a> {
     match statement {
         Statement::Comment(_) => Box::new(empty()),
         Statement::Definition(value_id) => Box::new(once(value_id)),
@@ -296,17 +324,15 @@ pub(crate) fn get_statement_operands_mut<'a>(statement: &'a mut Statement)
 
 pub(crate) fn replace_value_id(value: &mut Value, value_id: ValueId, replacement: ValueId) {
     let operands: Box<dyn Iterator<Item = &mut ValueId>> = match value {
-        Value::Unit |
-        Value::Int(_) |
-        Value::String(_) |
-        Value::Function {..} |
-        Value::Arg(_) => Box::new(empty()),
+        Value::Unit | Value::Int(_) | Value::String(_) | Value::Function { .. } | Value::Arg(_) => {
+            Box::new(empty())
+        }
 
-        Value::AddInt(left, right) |
-        Value::SubInt(left, right) |
-        Value::MulInt(left, right) |
-        Value::DivInt(left, right) |
-        Value::AddString(left, right) => Box::new(once(left).chain(once(right))),
+        Value::AddInt(left, right)
+        | Value::SubInt(left, right)
+        | Value::MulInt(left, right)
+        | Value::DivInt(left, right)
+        | Value::AddString(left, right) => Box::new(once(left).chain(once(right))),
         Value::Phi(operands) => Box::new(operands.iter_mut()),
         Value::Call(function, arguments) => Box::new(once(function).chain(arguments.iter_mut())),
     };
@@ -317,38 +343,38 @@ pub(crate) fn replace_value_id(value: &mut Value, value_id: ValueId, replacement
     }
 }
 
-pub(crate) fn get_value_operands<'a>(value: &'a Value) -> Box<dyn Iterator<Item =ValueId> + 'a> {
+pub(crate) fn get_value_operands<'a>(value: &'a Value) -> Box<dyn Iterator<Item = ValueId> + 'a> {
     match value {
-        Value::Unit |
-        Value::Int(_) |
-        Value::String(_) |
-        Value::Function {..} |
-        Value::Arg(_) => Box::new(empty()),
+        Value::Unit | Value::Int(_) | Value::String(_) | Value::Function { .. } | Value::Arg(_) => {
+            Box::new(empty())
+        }
 
-        Value::AddInt(left, right) |
-        Value::SubInt(left, right) |
-        Value::MulInt(left, right) |
-        Value::DivInt(left, right) |
-        Value::AddString(left, right) => Box::new(once(*left).chain(once(*right))),
+        Value::AddInt(left, right)
+        | Value::SubInt(left, right)
+        | Value::MulInt(left, right)
+        | Value::DivInt(left, right)
+        | Value::AddString(left, right) => Box::new(once(*left).chain(once(*right))),
 
         Value::Phi(phi) => Box::new(phi.iter().cloned()),
-        Value::Call(function, arguments) => Box::new(once(*function).chain(arguments.iter().cloned())),
+        Value::Call(function, arguments) => {
+            Box::new(once(*function).chain(arguments.iter().cloned()))
+        }
     }
 }
 
-pub(crate) fn get_value_operands_mut<'a>(value: &'a mut Value) -> Box<dyn Iterator<Item = &mut ValueId> + 'a> {
+pub(crate) fn get_value_operands_mut<'a>(
+    value: &'a mut Value,
+) -> Box<dyn Iterator<Item = &mut ValueId> + 'a> {
     match value {
-        Value::Unit |
-        Value::Int(_) |
-        Value::String(_) |
-        Value::Function {..} |
-        Value::Arg(_) => Box::new(empty()),
+        Value::Unit | Value::Int(_) | Value::String(_) | Value::Function { .. } | Value::Arg(_) => {
+            Box::new(empty())
+        }
 
-        Value::AddInt(left, right) |
-        Value::SubInt(left, right) |
-        Value::MulInt(left, right) |
-        Value::DivInt(left, right) |
-        Value::AddString(left, right) => Box::new(once(left).chain(once(right))),
+        Value::AddInt(left, right)
+        | Value::SubInt(left, right)
+        | Value::MulInt(left, right)
+        | Value::DivInt(left, right)
+        | Value::AddString(left, right) => Box::new(once(left).chain(once(right))),
 
         Value::Phi(phi) => Box::new(phi.iter_mut()),
         Value::Call(function, arguments) => Box::new(once(function).chain(arguments.iter_mut())),
@@ -357,26 +383,22 @@ pub(crate) fn get_value_operands_mut<'a>(value: &'a mut Value) -> Box<dyn Iterat
 
 pub(crate) fn normalize(value: Value) -> Value {
     match &value {
-        Value::Unit |
-        Value::Int(_) |
-        Value::String(_) |
-        Value::Function {..} |
-        Value::SubInt(_, _) |
-        Value::DivInt(_, _) |
-        Value::AddString(_, _) |
-        Value::Call(_, _) |
-        Value::Arg(_) => value,
+        Value::Unit
+        | Value::Int(_)
+        | Value::String(_)
+        | Value::Function { .. }
+        | Value::SubInt(_, _)
+        | Value::DivInt(_, _)
+        | Value::AddString(_, _)
+        | Value::Call(_, _)
+        | Value::Arg(_) => value,
 
         Value::AddInt(left, right) => Value::AddInt(*left.min(&right), *left.max(&right)),
         Value::MulInt(left, right) => Value::MulInt(*left.min(&right), *left.max(&right)),
 
         Value::Phi(Phi(operands)) => {
-            let sorted_operands = operands
-                .iter()
-                .cloned()
-                .sorted()
-                .collect_vec();
+            let sorted_operands = operands.iter().cloned().sorted().collect_vec();
             Value::Phi(Phi(sorted_operands))
-        },
+        }
     }
 }

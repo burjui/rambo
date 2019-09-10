@@ -12,15 +12,34 @@ use crate::source::SourceFileRef;
 
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub(crate) enum Token {
-    EOF, Id, Int, String, LParen, RParen, LBrace, RBrace,
-    Eq, EqEq, Lt, LtEq, Gt, GtEq, Lambda, Minus, Arrow,
-    Plus, Star, Slash, Colon, Comma
+    EOF,
+    Id,
+    Int,
+    String,
+    LParen,
+    RParen,
+    LBrace,
+    RBrace,
+    Eq,
+    EqEq,
+    Lt,
+    LtEq,
+    Gt,
+    GtEq,
+    Lambda,
+    Minus,
+    Arrow,
+    Plus,
+    Star,
+    Slash,
+    Colon,
+    Comma,
 }
 
 #[derive(Clone)]
 pub(crate) struct Lexeme {
     pub(crate) token: Token,
-    pub(crate) source: Source
+    pub(crate) source: Source,
 }
 
 impl Lexeme {
@@ -31,14 +50,22 @@ impl Lexeme {
 
 impl Debug for Lexeme {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(&format!("{} | {:?} | {:?}",
-             self.text(), self.token, self.source.file().position(&self.source)))
+        formatter.write_str(&format!(
+            "{} | {:?} | {:?}",
+            self.text(),
+            self.token,
+            self.source.file().position(&self.source)
+        ))
     }
 }
 
 impl Display for Lexeme {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(if self.token == Token::EOF { "end of file" } else { self.text() })
+        formatter.write_str(if self.token == Token::EOF {
+            "end of file"
+        } else {
+            self.text()
+        })
     }
 }
 
@@ -58,7 +85,7 @@ pub(crate) struct Lexer {
     current_character: Option<char>,
     next_character_offset: usize,
     next_character: Option<char>,
-    stats: LexerStats
+    stats: LexerStats,
 }
 
 pub(crate) type LexerResult<T> = Result<T, Box<dyn Error>>;
@@ -68,7 +95,7 @@ impl Lexer {
         let eof_offset = file.text().len();
         let eof_lexeme = Lexeme {
             token: Token::EOF,
-            source: Source::new(file.clone(), eof_offset .. eof_offset)
+            source: Source::new(file.clone(), eof_offset..eof_offset),
         };
         let mut lexer = Lexer {
             eof_lexeme,
@@ -81,9 +108,7 @@ impl Lexer {
             current_character: None,
             next_character_offset: 0,
             next_character: None,
-            stats: LexerStats {
-                lexeme_count: 0
-            },
+            stats: LexerStats { lexeme_count: 0 },
         };
         lexer.read_char();
         lexer
@@ -96,16 +121,26 @@ impl Lexer {
         self.lexeme_line = self.current_line;
         match self.current_character {
             Some(c) => {
-                for matcher in &[ Lexer::read_int, Lexer::read_operator, Lexer::read_string, Lexer::read_id ] {
+                for matcher in &[
+                    Lexer::read_int,
+                    Lexer::read_operator,
+                    Lexer::read_string,
+                    Lexer::read_id,
+                ] {
                     if let Some(lexeme) = matcher(self)? {
                         self.stats.lexeme_count += 1;
-                        return Ok((lexeme, self.lexeme_line))
+                        return Ok((lexeme, self.lexeme_line));
                     }
                 }
-                error!("{:?}({:?}): unexpected character: {} ({})",
-                       self.file.name(), self.file.position(&self.current_source()), c, c as u32)
-            },
-            None => Ok((self.eof_lexeme.clone(), self.file.lines().len()))
+                error!(
+                    "{:?}({:?}): unexpected character: {} ({})",
+                    self.file.name(),
+                    self.file.position(&self.current_source()),
+                    c,
+                    c as u32
+                )
+            }
+            None => Ok((self.eof_lexeme.clone(), self.file.lines().len())),
         }
     }
 
@@ -121,12 +156,12 @@ impl Lexer {
                     if c.is_alphanumeric() || c == '_' {
                         self.read_char()
                     } else {
-                        break
+                        break;
                     }
                 }
                 Some(self.new_lexeme(Token::Id, None))
-            },
-            _ => None
+            }
+            _ => None,
         })
     }
 
@@ -136,12 +171,12 @@ impl Lexer {
                 loop {
                     match self.current_character {
                         Some(c) if c.is_numeric() => self.read_char(),
-                        _ => break
+                        _ => break,
                     }
                 }
                 Some(self.new_lexeme(Token::Int, None))
-            },
-            _ => None
+            }
+            _ => None,
         })
     }
 
@@ -154,41 +189,47 @@ impl Lexer {
                     match self.current_character {
                         Some('"') => break,
                         Some(_) => self.read_char(),
-                        None => break
+                        None => break,
                     }
                 }
 
                 match self.current_character {
                     Some('"') => {
                         self.read_char();
-                        let range = self.lexeme_offset .. self.current_offset;
+                        let range = self.lexeme_offset..self.current_offset;
                         Ok(Some(self.new_lexeme(Token::String, Some(range))))
-                    },
+                    }
                     _ => {
                         let start_position = self.file.position(&self.lexeme_source());
                         let end_position = self.file.position(&self.current_source());
-                        error!("{:?}({:?}): unclosed string starting at {:?}",
-                               self.file.name(), end_position, start_position)
+                        error!(
+                            "{:?}({:?}): unclosed string starting at {:?}",
+                            self.file.name(),
+                            end_position,
+                            start_position
+                        )
                     }
                 }
-            },
-            _ => Ok(None)
+            }
+            _ => Ok(None),
         }
     }
 
     fn read_operator(&mut self) -> LexerResult<Option<Lexeme>> {
         macro_rules! on {
-            ($char: tt, $token: expr, $handler: expr) => (
+            ($char: tt, $token: expr, $handler: expr) => {
                 match self.current_character {
                     Some($char) => {
                         self.read_char();
                         $handler.or(Some($token))
-                    },
-                    _ => None
+                    }
+                    _ => None,
                 }
-            );
+            };
 
-            ($char: expr, $token: expr) => { on!($char, $token, None) };
+            ($char: expr, $token: expr) => {
+                on!($char, $token, None)
+            };
         }
 
         Ok(None
@@ -211,20 +252,23 @@ impl Lexer {
             .map(|token| self.new_lexeme(token, None)))
     }
 
-    fn new_lexeme<R>(&self, token: Token, range: R) -> Lexeme where
-        R: Into<Option<Range<usize>>>
+    fn new_lexeme<R>(&self, token: Token, range: R) -> Lexeme
+    where
+        R: Into<Option<Range<usize>>>,
     {
-        let source = range.into().map(|range| Source::new(self.file.clone(), range))
+        let source = range
+            .into()
+            .map(|range| Source::new(self.file.clone(), range))
             .unwrap_or_else(|| self.lexeme_source());
         Lexeme { token, source }
     }
 
     fn current_source(&self) -> Source {
-        Source::new(self.file.clone(), self.current_offset .. self.current_offset)
+        Source::new(self.file.clone(), self.current_offset..self.current_offset)
     }
 
     fn lexeme_source(&self) -> Source {
-        Source::new(self.file.clone(), self.lexeme_offset .. self.current_offset)
+        Source::new(self.file.clone(), self.lexeme_offset..self.current_offset)
     }
 
     fn skip_whitespace(&mut self) -> LexerResult<()> {
@@ -236,7 +280,7 @@ impl Lexer {
             } else if let Some(('/', '*')) = self.current_chars() {
                 self.skip_multiline_comment()?;
             } else {
-                break
+                break;
             }
         }
         Ok(())
@@ -260,7 +304,7 @@ impl Lexer {
         const TERMINATOR: (char, char) = ('*', '/');
         while let Some(chars) = self.current_chars() {
             if chars == TERMINATOR {
-                break
+                break;
             } else {
                 self.read_char();
             }
@@ -269,16 +313,21 @@ impl Lexer {
             self.read_char();
             self.read_char();
         } else {
-            return error!("{}({:?}): unterminated comment starting at {:?}",
-                          self.file.name(),
-                          self.file.position(&self.current_source()),
-                          self.file.position(&comment_start));
+            return error!(
+                "{}({:?}): unterminated comment starting at {:?}",
+                self.file.name(),
+                self.file.position(&self.current_source()),
+                self.file.position(&comment_start)
+            );
         }
         Ok(())
     }
 
     fn current_chars(&self) -> Option<(char, char)> {
-        self.current_character.into_iter().zip(self.next_character.into_iter()).next()
+        self.current_character
+            .into_iter()
+            .zip(self.next_character.into_iter())
+            .next()
     }
 
     fn read_char(&mut self) {
@@ -304,7 +353,10 @@ impl Lexer {
 
 impl Debug for Lexer {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(
-            &format!("Lexer {{ {}({:?}) }}", self.file.name(), self.file.position(&self.current_source())))
+        formatter.write_str(&format!(
+            "Lexer {{ {}({:?}) }}",
+            self.file.name(),
+            self.file.position(&self.current_source())
+        ))
     }
 }

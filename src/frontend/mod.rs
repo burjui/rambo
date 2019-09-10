@@ -13,26 +13,27 @@ use std::rc::Rc;
 
 use itertools::free::chain;
 use itertools::Itertools;
-use petgraph::Direction;
 use petgraph::graph::NodeIndex;
 use petgraph::visit::EdgeRef;
+use petgraph::Direction;
 
 use crate::frontend::dead_code::remove_dead_code;
+use crate::ir::get_value_operands;
+use crate::ir::normalize;
+use crate::ir::replace_value_id;
+use crate::ir::value_storage::ValueId;
+use crate::ir::value_storage::ValueStorage;
+use crate::ir::value_storage::UNDEFINED_VALUE;
 use crate::ir::BasicBlock;
 use crate::ir::ControlFlowGraph;
 use crate::ir::FnId;
 use crate::ir::FnIdGenerator;
 use crate::ir::FunctionMap;
-use crate::ir::get_value_operands;
 use crate::ir::IRModule;
-use crate::ir::normalize;
 use crate::ir::Phi;
-use crate::ir::replace_value_id;
 use crate::ir::Statement;
 use crate::ir::StatementLocation;
 use crate::ir::Value;
-use crate::ir::value_storage::{UNDEFINED_VALUE, ValueId};
-use crate::ir::value_storage::ValueStorage;
 use crate::semantics::BindingRef;
 use crate::semantics::ExprRef;
 use crate::semantics::TypedExpr;
@@ -40,7 +41,8 @@ use crate::semantics::TypedStatement;
 use crate::source::Source;
 
 mod dead_code;
-#[cfg(test)] mod tests;
+#[cfg(test)]
+mod tests;
 
 pub(crate) struct FrontEndState {
     function_idgen: FnIdGenerator,
@@ -132,7 +134,8 @@ impl<'a> FrontEnd<'a> {
         self.assert_no_undefined_variables();
 
         if self.enable_warnings {
-            let variables = self.variables
+            let variables = self
+                .variables
                 .into_iter()
                 .map(|(variable, _)| variable)
                 .collect::<HashSet<_>>();
@@ -141,8 +144,14 @@ impl<'a> FrontEnd<'a> {
         }
 
         if self.enable_dce {
-            remove_dead_code(self.entry_block, &mut program_result, &mut self.values,
-                             &mut self.cfg, &mut self.definitions, &mut self.functions);
+            remove_dead_code(
+                self.entry_block,
+                &mut program_result,
+                &mut self.values,
+                &mut self.cfg,
+                &mut self.definitions,
+                &mut self.functions,
+            );
         }
 
         IRModule {
@@ -160,10 +169,14 @@ impl<'a> FrontEnd<'a> {
     }
 
     fn assert_no_undefined_variables(&self) {
-        assert!(self.undefined_users.is_empty(), "found undefined usages:\n{:?}\n",
-                self.undefined_users.iter()
-                    .map(|user| &self.values[*user])
-                    .format("\n"));
+        assert!(
+            self.undefined_users.is_empty(),
+            "found undefined usages:\n{:?}\n",
+            self.undefined_users
+                .iter()
+                .map(|user| &self.values[*user])
+                .format("\n")
+        );
     }
 
     // TODO make block the first argument everywhere
@@ -196,18 +209,34 @@ impl<'a> FrontEnd<'a> {
                 (block, self.define(block, Value::String(value.clone())))
             }
 
-            TypedExpr::AddInt(left, right, source) => self.process_binary(block, left, right, source, Value::AddInt),
-            TypedExpr::SubInt(left, right, source) => self.process_binary(block, left, right, source, Value::SubInt),
-            TypedExpr::MulInt(left, right, source) => self.process_binary(block, left, right, source, Value::MulInt),
-            TypedExpr::DivInt(left, right, source) => self.process_binary(block, left, right, source, Value::DivInt),
-            TypedExpr::AddStr(left, right, source) => self.process_binary(block, left, right, source, Value::AddString),
+            TypedExpr::AddInt(left, right, source) => {
+                self.process_binary(block, left, right, source, Value::AddInt)
+            }
+            TypedExpr::SubInt(left, right, source) => {
+                self.process_binary(block, left, right, source, Value::SubInt)
+            }
+            TypedExpr::MulInt(left, right, source) => {
+                self.process_binary(block, left, right, source, Value::MulInt)
+            }
+            TypedExpr::DivInt(left, right, source) => {
+                self.process_binary(block, left, right, source, Value::DivInt)
+            }
+            TypedExpr::AddStr(left, right, source) => {
+                self.process_binary(block, left, right, source, Value::AddString)
+            }
 
             TypedExpr::Reference(binding, source) => {
                 self.comment(block, source.text());
                 (block, self.read_variable(binding, block))
             }
 
-            TypedExpr::Conditional { condition, then_branch, else_branch, source, .. } => {
+            TypedExpr::Conditional {
+                condition,
+                then_branch,
+                else_branch,
+                source,
+                ..
+            } => {
                 self.comment(block, source.text());
                 let (block, condition) = self.process_expr(condition, block);
                 let condition_value = &self.values[condition];
@@ -229,15 +258,21 @@ impl<'a> FrontEnd<'a> {
                 let then_branch_block = self.new_block();
                 let else_branch_block = self.new_block();
 
-                self.cfg[block].push(Statement::CondJump(condition, then_branch_block, else_branch_block));
+                self.cfg[block].push(Statement::CondJump(
+                    condition,
+                    then_branch_block,
+                    else_branch_block,
+                ));
                 self.record_phi_and_undefined_usages(condition);
 
                 self.cfg.add_edge(block, then_branch_block, ());
                 self.cfg.add_edge(block, else_branch_block, ());
                 self.seal_block(then_branch_block);
                 self.seal_block(else_branch_block);
-                let (then_branch_exit_block, then_branch) = self.process_expr(then_branch, then_branch_block);
-                let (else_branch_exit_block, else_branch) = self.process_expr(else_branch, else_branch_block);
+                let (then_branch_exit_block, then_branch) =
+                    self.process_expr(then_branch, then_branch_block);
+                let (else_branch_exit_block, else_branch) =
+                    self.process_expr(else_branch, else_branch_block);
 
                 let exit = self.new_block();
                 self.cfg.add_edge(then_branch_exit_block, exit, ());
@@ -267,16 +302,29 @@ impl<'a> FrontEnd<'a> {
                     .enable_dce(self.enable_dce);
                 for (index, parameter) in function.parameters.iter().enumerate() {
                     function_frontend.comment(function_frontend.entry_block, &parameter.name);
-                    let declaration = function_frontend.define(function_frontend.entry_block, Value::Arg(index));
-                    function_frontend.write_variable(parameter.clone(), function_frontend.entry_block, declaration);
+                    let declaration =
+                        function_frontend.define(function_frontend.entry_block, Value::Arg(index));
+                    function_frontend.write_variable(
+                        parameter.clone(),
+                        function_frontend.entry_block,
+                        declaration,
+                    );
                     function_frontend.parameters.push(declaration);
                 }
                 let module = function_frontend.build(&function.body);
                 self.functions.insert(fn_id.clone(), module);
-                (block, self.define(block, Value::Function(fn_id, function.name.clone())))
+                (
+                    block,
+                    self.define(block, Value::Function(fn_id, function.name.clone())),
+                )
             }
 
-            TypedExpr::Application { function, arguments, source, .. } => {
+            TypedExpr::Application {
+                function,
+                arguments,
+                source,
+                ..
+            } => {
                 self.comment(block, source.text());
                 let (block, function_value_id) = self.process_expr(function, block);
                 let mut current_block = block;
@@ -286,23 +334,38 @@ impl<'a> FrontEnd<'a> {
                     argument_value_ids.push(value_id);
                     current_block = block;
                 }
-                (block, self.define(block, Value::Call(function_value_id, argument_value_ids)))
+                (
+                    block,
+                    self.define(block, Value::Call(function_value_id, argument_value_ids)),
+                )
             }
 
-            _ => unimplemented!("process_expr: {:?}", expr)
+            _ => unimplemented!("process_expr: {:?}", expr),
         }
     }
 
-    fn process_binary(&mut self, block: NodeIndex, left: &ExprRef, right: &ExprRef, source: &Source,
-                      value_constructor: impl Fn(ValueId, ValueId) -> Value) -> (NodeIndex, ValueId)
-    {
+    fn process_binary(
+        &mut self,
+        block: NodeIndex,
+        left: &ExprRef,
+        right: &ExprRef,
+        source: &Source,
+        value_constructor: impl Fn(ValueId, ValueId) -> Value,
+    ) -> (NodeIndex, ValueId) {
         let (block, left_value_id) = self.process_expr(left, block);
         let (block, right_value_id) = self.process_expr(right, block);
         self.comment(block, source.text());
-        (block, self.define(block, value_constructor(left_value_id, right_value_id)))
+        (
+            block,
+            self.define(block, value_constructor(left_value_id, right_value_id)),
+        )
     }
 
-    fn process_statement(&mut self, statement: &TypedStatement, block: NodeIndex) -> (NodeIndex, ValueId) {
+    fn process_statement(
+        &mut self,
+        statement: &TypedStatement,
+        block: NodeIndex,
+    ) -> (NodeIndex, ValueId) {
         match statement {
             TypedStatement::Expr(expr) => self.process_expr(expr, block),
 
@@ -311,7 +374,7 @@ impl<'a> FrontEnd<'a> {
                 let (block, value_id) = self.process_expr(&binding.data, block);
                 self.write_variable(binding.clone(), block, value_id);
                 (block, value_id)
-            },
+            }
         }
     }
 
@@ -357,7 +420,8 @@ impl<'a> FrontEnd<'a> {
                 _ => (),
             }
 
-            let mut predecessors = self.cfg
+            let mut predecessors = self
+                .cfg
                 .edges_directed(block, Direction::Incoming)
                 .map(|edge| edge.source());
             let first_predecessor = predecessors.next();
@@ -401,7 +465,8 @@ impl<'a> FrontEnd<'a> {
     }
 
     fn add_phi_operands(&mut self, variable: &BindingRef, phi: ValueId) -> ValueId {
-        let predecessors = self.cfg
+        let predecessors = self
+            .cfg
             .edges_directed(self.definitions[&phi].block, Direction::Incoming)
             .map(|edge| edge.source())
             .collect_vec();
@@ -454,12 +519,10 @@ impl<'a> FrontEnd<'a> {
     }
 
     fn seal_block(&mut self, block: NodeIndex) {
-        let variables = self.incomplete_phis
+        let variables = self
+            .incomplete_phis
             .get(&block)
-            .map(|incomplete_phis| incomplete_phis
-                .keys()
-                .cloned()
-                .collect_vec());
+            .map(|incomplete_phis| incomplete_phis.keys().cloned().collect_vec());
         if let Some(variables) = variables {
             for variable in &variables {
                 self.add_phi_operands(variable, self.incomplete_phis[&block][variable]);
@@ -473,7 +536,13 @@ impl<'a> FrontEnd<'a> {
         let (value_id, reused) = self.values.insert(value.clone());
         if !*reused {
             if self.enable_cfp {
-                fold_constants(block, &self.definitions, &mut self.values, &self.functions, value_id);
+                fold_constants(
+                    block,
+                    &self.definitions,
+                    &mut self.values,
+                    &self.functions,
+                    value_id,
+                );
             }
             let basic_block = &mut self.cfg[block];
             let statement_index = basic_block.push(Statement::Definition(value_id));
@@ -498,15 +567,17 @@ impl<'a> FrontEnd<'a> {
     }
 
     fn record_phi_and_undefined_usages(&mut self, value_id: ValueId) {
-        let (is_using_undefined, phis_used) = get_value_operands(&self.values[value_id])
-            .fold((false, vec![]), |(mut is_using_undefined, mut phis_used), value_id| {
+        let (is_using_undefined, phis_used) = get_value_operands(&self.values[value_id]).fold(
+            (false, vec![]),
+            |(mut is_using_undefined, mut phis_used), value_id| {
                 if value_id == UNDEFINED_VALUE {
                     is_using_undefined = true;
                 } else if self.is_a_phi(value_id) {
                     phis_used.push(value_id);
                 }
                 (is_using_undefined, phis_used)
-            });
+            },
+        );
         if is_using_undefined {
             self.undefined_users.push(value_id);
         }
@@ -522,14 +593,14 @@ impl<'a> FrontEnd<'a> {
     fn phi_operands(&self, phi: ValueId) -> &[ValueId] {
         match &self.values[phi] {
             Value::Phi(Phi(operands)) => operands,
-            _ => unreachable!()
+            _ => unreachable!(),
         }
     }
 
     fn phi_operands_mut(&mut self, phi: ValueId) -> &mut Vec<ValueId> {
         match &mut self.values[phi] {
             Value::Phi(Phi(operands)) => operands,
-            _ => unreachable!()
+            _ => unreachable!(),
         }
     }
 
@@ -567,7 +638,7 @@ impl<'a> FrontEnd<'a> {
     fn marker_index(&mut self, block: NodeIndex) -> usize {
         let index = block.index();
         if index >= self.markers.len() {
-            self.markers.resize(index +  1, None);
+            self.markers.resize(index + 1, None);
         }
         index
     }
@@ -580,10 +651,14 @@ enum Marker {
 }
 
 fn warn_about_redundant_bindings<'a>(redundant_bindings: impl Iterator<Item = &'a BindingRef>) {
-    let redundant_bindings = redundant_bindings
-        .sorted_by_key(|binding| binding.source.range().start);
+    let redundant_bindings =
+        redundant_bindings.sorted_by_key(|binding| binding.source.range().start);
     for binding in redundant_bindings {
-        warning_at!(binding.source, "unused definition: {}", binding.source.text());
+        warning_at!(
+            binding.source,
+            "unused definition: {}",
+            binding.source.text()
+        );
     }
 }
 
@@ -592,27 +667,34 @@ fn fold_constants(
     definitions: &HashMap<ValueId, StatementLocation>,
     values: &mut ValueStorage,
     functions: &FunctionMap,
-    value_id: ValueId)
-{
+    value_id: ValueId,
+) {
     let folded = match &values[value_id] {
-        Value::Unit |
-        Value::Int(_) |
-        Value::String(_) |
-        Value::Function(_, _) => None,
+        Value::Unit | Value::Int(_) | Value::String(_) | Value::Function(_, _) => None,
 
-        &Value::AddInt(left, right) => {
-            fold_binary(block, definitions, values, functions, left, right, |(_, left_value), (_, right_value)| {
-                match (left_value, right_value) {
-                    (Value::Int(left), Value::Int(right)) => Some(Value::Int(left + right)),
-                    (&Value::Int(left), _) if left == 0 => Some(right_value.clone()),
-                    (_, &Value::Int(right)) if right == 0 => Some(left_value.clone()),
-                    _ => None,
-                }
-            })
-        },
+        &Value::AddInt(left, right) => fold_binary(
+            block,
+            definitions,
+            values,
+            functions,
+            left,
+            right,
+            |(_, left_value), (_, right_value)| match (left_value, right_value) {
+                (Value::Int(left), Value::Int(right)) => Some(Value::Int(left + right)),
+                (&Value::Int(left), _) if left == 0 => Some(right_value.clone()),
+                (_, &Value::Int(right)) if right == 0 => Some(left_value.clone()),
+                _ => None,
+            },
+        ),
 
-        &Value::SubInt(left, right) => {
-            fold_binary(block, definitions, values, functions, left, right, |(left, left_value), (right, right_value)| {
+        &Value::SubInt(left, right) => fold_binary(
+            block,
+            definitions,
+            values,
+            functions,
+            left,
+            right,
+            |(left, left_value), (right, right_value)| {
                 if left == right {
                     Some(Value::Int(0))
                 } else {
@@ -622,51 +704,64 @@ fn fold_constants(
                         _ => None,
                     }
                 }
-            })
-        },
+            },
+        ),
 
-        &Value::MulInt(left, right) => {
-            fold_binary(block, definitions, values, functions, left, right, |(_, left_value), (_, right_value)| {
-                match (left_value, right_value) {
-                    (Value::Int(left), Value::Int(right)) => Some(Value::Int(left * right)),
-                    (&Value::Int(left), _) if left == 0 => Some(Value::Int(0)),
-                    (_, &Value::Int(right)) if right == 0 => Some(Value::Int(0)),
-                    (&Value::Int(left), _) if left == 1 => Some(right_value.clone()),
-                    (_, &Value::Int(right)) if right == 1 => Some(left_value.clone()),
-                    _ => None,
+        &Value::MulInt(left, right) => fold_binary(
+            block,
+            definitions,
+            values,
+            functions,
+            left,
+            right,
+            |(_, left_value), (_, right_value)| match (left_value, right_value) {
+                (Value::Int(left), Value::Int(right)) => Some(Value::Int(left * right)),
+                (&Value::Int(left), _) if left == 0 => Some(Value::Int(0)),
+                (_, &Value::Int(right)) if right == 0 => Some(Value::Int(0)),
+                (&Value::Int(left), _) if left == 1 => Some(right_value.clone()),
+                (_, &Value::Int(right)) if right == 1 => Some(left_value.clone()),
+                _ => None,
+            },
+        ),
+
+        &Value::DivInt(left, right) => fold_binary(
+            block,
+            definitions,
+            values,
+            functions,
+            left,
+            right,
+            |(_, left_value), (_, right_value)| match (left_value, right_value) {
+                (Value::Int(left), Value::Int(right)) => Some(Value::Int(left / right)),
+                (&Value::Int(left), _) if left == 0 => Some(Value::Int(0)),
+                (_, &Value::Int(right)) if right == 1 => Some(left_value.clone()),
+                _ => None,
+            },
+        ),
+
+        &Value::AddString(left, right) => fold_binary(
+            block,
+            definitions,
+            values,
+            functions,
+            left,
+            right,
+            |(_, left_value), (_, right_value)| match (left_value, right_value) {
+                (Value::String(left), Value::String(right)) => {
+                    let mut result = String::with_capacity(left.len() + right.len());
+                    result.push_str(&left);
+                    result.push_str(&right);
+                    Some(Value::String(Rc::new(result)))
                 }
-            })
-        },
+                _ => None,
+            },
+        ),
 
-        &Value::DivInt(left, right) => {
-            fold_binary(block, definitions, values, functions, left, right, |(_, left_value), (_, right_value)| {
-                match (left_value, right_value) {
-                    (Value::Int(left), Value::Int(right)) => Some(Value::Int(left / right)),
-                    (&Value::Int(left), _) if left == 0 => Some(Value::Int(0)),
-                    (_, &Value::Int(right)) if right == 1 => Some(left_value.clone()),
-                    _ => None,
-                }
-            })
-        },
+        Value::Call(function, arguments) => {
+            fold_call(*function, arguments.to_vec(), values, functions)
+        }
 
-        &Value::AddString(left, right) => {
-            fold_binary(block, definitions, values, functions, left, right, |(_, left_value), (_, right_value)| {
-                match (left_value, right_value) {
-                    (Value::String(left), Value::String(right)) => {
-                        let mut result = String::with_capacity(left.len() + right.len());
-                        result.push_str(&left);
-                        result.push_str(&right);
-                        Some(Value::String(Rc::new(result)))
-                    },
-                    _ => None,
-                }
-            })
-        },
-
-        Value::Call(function, arguments) => fold_call(*function, arguments.to_vec(), values, functions),
-
-        Value::Phi(_) |
-        Value::Arg(_) => None,
+        Value::Phi(_) | Value::Arg(_) => None,
     };
     if let Some(value) = folded {
         values[value_id] = value;
@@ -678,9 +773,10 @@ fn fold_binary(
     definitions: &HashMap<ValueId, StatementLocation>,
     values: &mut ValueStorage,
     functions: &FunctionMap,
-    left: ValueId, right: ValueId,
-    fold: impl FnOnce((ValueId, &Value), (ValueId, &Value)) -> Option<Value>) -> Option<Value>
-{
+    left: ValueId,
+    right: ValueId,
+    fold: impl FnOnce((ValueId, &Value), (ValueId, &Value)) -> Option<Value>,
+) -> Option<Value> {
     fold_constants(block, definitions, values, functions, left);
     fold_constants(block, definitions, values, functions, right);
     fold((left, &values[left]), (right, &values[right]))
@@ -690,8 +786,8 @@ fn fold_call(
     function: ValueId,
     arguments: Vec<ValueId>,
     values: &mut ValueStorage,
-    functions: &FunctionMap) -> Option<Value>
-{
+    functions: &FunctionMap,
+) -> Option<Value> {
     let arguments_are_constant = arguments
         .iter()
         .all(|argument| values[*argument].is_constant());
@@ -701,16 +797,20 @@ fn fold_call(
             _ => unreachable!(),
         };
         for (parameter_value_id, argument_value_id) in function_cfg.parameters.iter().enumerate() {
-            function_cfg.values[*argument_value_id] =
-                values[arguments[parameter_value_id]].clone();
+            function_cfg.values[*argument_value_id] = values[arguments[parameter_value_id]].clone();
         }
 
         let result_block = function_cfg.definitions[&function_cfg.result].block;
-        fold_constants(result_block, &function_cfg.definitions,
-                       &mut function_cfg.values, functions, function_cfg.result);
+        fold_constants(
+            result_block,
+            &function_cfg.definitions,
+            &mut function_cfg.values,
+            functions,
+            function_cfg.result,
+        );
         let result_value = &function_cfg.values[function_cfg.result];
         if result_value.is_constant() {
-            return Some(result_value.clone())
+            return Some(result_value.clone());
         }
     }
     None

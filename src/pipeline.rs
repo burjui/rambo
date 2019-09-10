@@ -15,6 +15,7 @@ use termcolor::StandardStream;
 use termcolor::WriteColor;
 
 use crate::frontend::FrontEnd;
+use crate::frontend::FrontEndState;
 use crate::graphviz::graphviz_dot_write_cfg;
 use crate::ir::eval::EvalContext;
 use crate::ir::fmt_statement;
@@ -24,7 +25,9 @@ use crate::lexer::Lexer;
 use crate::parser::Block;
 use crate::parser::Parser;
 use crate::riscv_backend;
-use crate::riscv_backend::{DumpCode, EnableImmediateIntegers, RICSVImage};
+use crate::riscv_backend::DumpCode;
+use crate::riscv_backend::EnableImmediateIntegers;
+use crate::riscv_backend::RICSVImage;
 use crate::riscv_simulator;
 use crate::riscv_simulator::DumpState;
 use crate::semantics::ExprRef;
@@ -32,7 +35,6 @@ use crate::semantics::SemanticsChecker;
 use crate::source::SourceFile;
 use crate::source::SourceFileRef;
 use crate::utils::stdout;
-use crate::frontend::FrontEndState;
 
 #[derive(Clone)]
 pub(crate) struct PipelineOptions {
@@ -48,45 +50,54 @@ pub(crate) struct PipelineOptions {
 
 pub(crate) struct Pipeline<'a, T> {
     input: Option<T>,
-    options: &'a PipelineOptions
+    options: &'a PipelineOptions,
 }
 
 impl<'a, T> Pipeline<'a, T> {
     pub(crate) fn new(input: T, options: &'a PipelineOptions) -> Self {
-        Self { input: Some(input), options }
+        Self {
+            input: Some(input),
+            options,
+        }
     }
 
-    pub(crate) fn map<U, Pass: CompilerPass<T, U>>(self, _: Pass) -> Result<Pipeline<'a, U>, Box<dyn Error>> {
+    pub(crate) fn map<U, Pass: CompilerPass<T, U>>(
+        self,
+        _: Pass,
+    ) -> Result<Pipeline<'a, U>, Box<dyn Error>> {
         let Pipeline { input, options } = self;
-        input.map(|input| {
-            let stdout = &mut stdout();
-            if options.verbosity >= 1 {
-                stdout.write_title("::", Pass::TITLE, Color::White)?;
-                stdout.set_color(ColorSpec::new()
-                    .set_fg(Some(Color::Black))
-                    .set_intense(true))?;
-                stdout.flush()?;
-            }
-            let (elapsed, result) = elapsed::measure_time(|| Pass::apply(input, options));
-            if options.verbosity >= 1 {
-                stdout.set_color(ColorSpec::new()
-                    .set_fg(Some(Color::White)))?;
-                write!(stdout, "(")?;
-                stdout.set_color(ColorSpec::new()
-                    .set_fg(Some(Color::Black))
-                    .set_intense(true))?;
-                write!(stdout, "{}", elapsed)?;
-                stdout.set_color(ColorSpec::new()
-                    .set_fg(Some(Color::White)))?;
-                writeln!(stdout, ")")?;
-            }
-            result
-        })
-        .transpose()
-        .map(move |output| {
-            let input = output.filter(|_| options.max_pass_name != Pass::NAME);
-            Pipeline { input, options }
-        })
+        input
+            .map(|input| {
+                let stdout = &mut stdout();
+                if options.verbosity >= 1 {
+                    stdout.write_title("::", Pass::TITLE, Color::White)?;
+                    stdout.set_color(
+                        ColorSpec::new()
+                            .set_fg(Some(Color::Black))
+                            .set_intense(true),
+                    )?;
+                    stdout.flush()?;
+                }
+                let (elapsed, result) = elapsed::measure_time(|| Pass::apply(input, options));
+                if options.verbosity >= 1 {
+                    stdout.set_color(ColorSpec::new().set_fg(Some(Color::White)))?;
+                    write!(stdout, "(")?;
+                    stdout.set_color(
+                        ColorSpec::new()
+                            .set_fg(Some(Color::Black))
+                            .set_intense(true),
+                    )?;
+                    write!(stdout, "{}", elapsed)?;
+                    stdout.set_color(ColorSpec::new().set_fg(Some(Color::White)))?;
+                    writeln!(stdout, ")")?;
+                }
+                result
+            })
+            .transpose()
+            .map(move |output| {
+                let input = output.filter(|_| options.max_pass_name != Pass::NAME);
+                Pipeline { input, options }
+            })
     }
 }
 
@@ -117,13 +128,15 @@ pub(crate) trait CompilerPass<Input, Output> {
 
 impl Load {
     fn file_size_pretty(size: usize) -> String {
-        [(usize::pow(2, 30), "G"),
+        [
+            (usize::pow(2, 30), "G"),
             (usize::pow(2, 20), "M"),
-            (usize::pow(2, 10), "K")]
-            .iter()
-            .find(|(unit, _)| size >= *unit)
-            .map(|&(unit, name)| format!("{:.2} {}iB", size as f32 / unit as f32, name))
-            .unwrap_or_else(|| format!("{} bytes", size))
+            (usize::pow(2, 10), "K"),
+        ]
+        .iter()
+        .find(|(unit, _)| size >= *unit)
+        .map(|&(unit, name)| format!("{:.2} {}iB", size as f32 / unit as f32, name))
+        .unwrap_or_else(|| format!("{} bytes", size))
     }
 }
 
@@ -136,7 +149,12 @@ impl CompilerPass<String, SourceFileRef> for Load {
         let line_count = source_file.lines().len();
         let stdout = &mut stdout();
         if options.verbosity >= 1 {
-            writeln!(stdout, "{}, {} lines", Self::file_size_pretty(source_file.size()), line_count)?;
+            writeln!(
+                stdout,
+                "{}, {} lines",
+                Self::file_size_pretty(source_file.size()),
+                line_count
+            )?;
         }
         Ok(source_file)
     }
@@ -146,7 +164,10 @@ impl CompilerPass<SourceFileRef, (Block, SourceFileRef)> for Parse {
     const NAME: &'static str = "parse";
     const TITLE: &'static str = "Parsing";
 
-    fn apply(source_file: SourceFileRef, options: &PipelineOptions) -> Result<(Block, SourceFileRef), Box<dyn Error>> {
+    fn apply(
+        source_file: SourceFileRef,
+        options: &PipelineOptions,
+    ) -> Result<(Block, SourceFileRef), Box<dyn Error>> {
         let lexer = Lexer::new(source_file.clone());
         let mut parser = Parser::new(lexer);
         let ast = parser.parse()?;
@@ -166,9 +187,10 @@ impl CompilerPass<(Block, SourceFileRef), (ExprRef, SourceFileRef)> for VerifySe
     const NAME: &'static str = "sem";
     const TITLE: &'static str = "Verifying semantics";
 
-    fn apply((ast, source_file): (Block, SourceFileRef), options: &PipelineOptions)
-        -> Result<(ExprRef, SourceFileRef), Box<dyn Error>>
-    {
+    fn apply(
+        (ast, source_file): (Block, SourceFileRef),
+        options: &PipelineOptions,
+    ) -> Result<(ExprRef, SourceFileRef), Box<dyn Error>> {
         let checker = SemanticsChecker::new();
         let hir = checker.check_module(&ast)?;
         if options.verbosity >= 2 {
@@ -182,7 +204,10 @@ impl CompilerPass<(ExprRef, SourceFileRef), IRModule> for IR {
     const NAME: &'static str = "ir";
     const TITLE: &'static str = "Generating IR";
 
-    fn apply((hir, source_file): (ExprRef, SourceFileRef), options: &PipelineOptions) -> Result<IRModule, Box<dyn Error>> {
+    fn apply(
+        (hir, source_file): (ExprRef, SourceFileRef),
+        options: &PipelineOptions,
+    ) -> Result<IRModule, Box<dyn Error>> {
         let mut state = FrontEndState::new();
         let frontend = FrontEnd::new(source_file.name(), &mut state)
             .enable_warnings(options.enable_warnings)
@@ -192,7 +217,11 @@ impl CompilerPass<(ExprRef, SourceFileRef), IRModule> for IR {
         let module = frontend.build(&hir);
         let mut stdout = stdout();
         if options.verbosity >= 1 {
-            writeln!(&mut stdout, "{} statements", unit_statements_count(&module.borrow()))?;
+            writeln!(
+                &mut stdout,
+                "{} statements",
+                unit_statements_count(&module.borrow())
+            )?;
         }
         if options.verbosity >= 2 {
             dump_module(&module, &module.name, &mut stdout)?;
@@ -202,7 +231,12 @@ impl CompilerPass<(ExprRef, SourceFileRef), IRModule> for IR {
             let src_file_name = src_path
                 .file_name()
                 .and_then(OsStr::to_str)
-                .unwrap_or_else(|| panic!("failed to extract the file name from path: {}", src_path.display()));
+                .unwrap_or_else(|| {
+                    panic!(
+                        "failed to extract the file name from path: {}",
+                        src_path.display()
+                    )
+                });
             let file = File::create(&format!("{}_cfg.dot", src_file_name))?;
             graphviz_dot_write_cfg(&mut BufWriter::new(file), &module)?;
         }
@@ -236,7 +270,12 @@ impl CompilerPass<IRModule, RICSVImage> for RISCVBackend {
         if options.verbosity >= 1 {
             // FIXME "image.code.len() / 4" is only correct for 32-bit instructions
             let stdout = &mut stdout();
-            writeln!(stdout, "code: {} ({} instructions)", size_string(image.code.len()), image.code.len() / 4)?;
+            writeln!(
+                stdout,
+                "code: {} ({} instructions)",
+                size_string(image.code.len()),
+                image.code.len() / 4
+            )?;
             writeln!(stdout, "data: {}", size_string(image.data.len()))?;
         }
         Ok(image)
@@ -246,7 +285,7 @@ impl CompilerPass<IRModule, RICSVImage> for RISCVBackend {
 fn size_string(size: usize) -> String {
     match NumberPrefix::binary(size as f32) {
         NumberPrefix::Standalone(size) => format!("{} bytes", size),
-        NumberPrefix::Prefixed(prefix, size) =>  format!("{:.1} {}B", size, prefix),
+        NumberPrefix::Prefixed(prefix, size) => format!("{:.1} {}B", size, prefix),
     }
 }
 
@@ -262,21 +301,25 @@ impl CompilerPass<RICSVImage, ()> for RISCVSimulator {
         };
         let state = riscv_simulator::run(&image, dump_state)?;
         if options.verbosity >= 1 {
-            writeln!(&mut stdout(), "result at x{} = 0x{:08x} ({})",
-                     registers::RETURN_VALUE0, state.cpu.x[registers::RETURN_VALUE0 as usize], state.cpu.x[registers::RETURN_VALUE0 as usize])?;
+            writeln!(
+                &mut stdout(),
+                "result at x{} = 0x{:08x} ({})",
+                registers::RETURN_VALUE0,
+                state.cpu.x[registers::RETURN_VALUE0 as usize],
+                state.cpu.x[registers::RETURN_VALUE0 as usize]
+            )?;
         }
         Ok(())
     }
 }
 
 fn unit_statements_count(module: &IRModule) -> usize {
-    let functions = module.values
-        .iter()
-        .filter_map(|(value, _)| match value {
-            Value::Function(fn_id, _) => Some(&module.functions[fn_id]),
-            _ => None,
-        });
-    module.cfg
+    let functions = module.values.iter().filter_map(|(value, _)| match value {
+        Value::Function(fn_id, _) => Some(&module.functions[fn_id]),
+        _ => None,
+    });
+    module
+        .cfg
         .node_indices()
         .map(|block| module.cfg[block].len())
         .chain(functions.map(|function_cfg| unit_statements_count(&function_cfg.borrow())))
@@ -293,7 +336,8 @@ fn dump_module(module: &IRModule, name: &str, stdout: &mut StandardStream) -> st
             writeln!(stdout)?;
         }
     }
-    let functions = module.values
+    let functions = module
+        .values
         .iter()
         .filter_map(|(value, _)| match value {
             Value::Function(fn_id, name) => Some((name.as_ref(), &module.functions[fn_id])),
@@ -315,13 +359,9 @@ pub(crate) trait StandardStreamUtils {
 
 impl StandardStreamUtils for StandardStream {
     fn write_title(&mut self, prefix: &str, title: &str, color: Color) -> std::io::Result<()> {
-        self.set_color(ColorSpec::new()
-            .set_fg(Some(Color::Blue))
-            .set_bold(true))?;
+        self.set_color(ColorSpec::new().set_fg(Some(Color::Blue)).set_bold(true))?;
         write!(self, "{} ", prefix)?;
-        self.set_color(ColorSpec::new()
-            .set_fg(Some(color))
-            .set_bold(true))?;
+        self.set_color(ColorSpec::new().set_fg(Some(color)).set_bold(true))?;
         writeln!(self, "{}", title)
     }
 }

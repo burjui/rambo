@@ -4,17 +4,17 @@ use std::io::Write;
 use std::path::Path;
 
 use crate::frontend::FrontEnd;
+use crate::frontend::FrontEndState;
 use crate::graphviz::graphviz_dot_write_cfg;
 use crate::riscv_backend;
+use crate::riscv_backend::registers;
 use crate::riscv_backend::DumpCode;
 use crate::riscv_backend::EnableImmediateIntegers;
-use crate::riscv_backend::registers;
 use crate::riscv_backend::RICSVImage;
 use crate::riscv_simulator;
 use crate::riscv_simulator::DumpState;
-use crate::utils::GenericResult;
 use crate::utils::stderr;
-use crate::frontend::FrontEndState;
+use crate::utils::GenericResult;
 
 struct BackEndPermutation(usize);
 
@@ -56,11 +56,19 @@ macro_rules! test_backend {
                 .enable_dce(false)
                 .build(&code);
             let test_src_path = Path::new(file!());
-            let test_src_file_name = test_src_path
-                .file_name()
-                .and_then(OsStr::to_str)
-                .expect(&format!("failed to extract the file name from path: {}", test_src_path.display()));
-            let mut file = File::create(format!("riscv_backend_{}_{}_cfg.dot", test_src_file_name, line!()))?;
+            let test_src_file_name =
+                test_src_path
+                    .file_name()
+                    .and_then(OsStr::to_str)
+                    .expect(&format!(
+                        "failed to extract the file name from path: {}",
+                        test_src_path.display()
+                    ));
+            let mut file = File::create(format!(
+                "riscv_backend_{}_{}_cfg.dot",
+                test_src_file_name,
+                line!()
+            ))?;
             graphviz_dot_write_cfg(&mut file, &module)?;
 
             let stderr = &mut stderr();
@@ -71,7 +79,8 @@ macro_rules! test_backend {
 
             let mut backend_permutation = BackEndPermutation::new();
             while !backend_permutation.is_empty() {
-                let enable_immediate_integers = EnableImmediateIntegers(backend_permutation.enable_immediate_integers());
+                let enable_immediate_integers =
+                    EnableImmediateIntegers(backend_permutation.enable_immediate_integers());
                 let image = riscv_backend::generate(&module, dump_code, enable_immediate_integers)?;
                 let check: fn(RICSVImage) -> GenericResult<()> = $check;
                 check(image)?;
@@ -79,10 +88,10 @@ macro_rules! test_backend {
             }
             Ok(())
         }
-    }
+    };
 }
 
-test_backend!{
+test_backend! {
     proper_spilling,
     "
     let a = 1
@@ -100,7 +109,7 @@ test_backend!{
     }
 }
 
-test_backend!{
+test_backend! {
     branching,
     "
     let a = 1
@@ -118,7 +127,7 @@ test_backend!{
     }
 }
 
-test_backend!{
+test_backend! {
     functions,
     "
     let f = \\ (a: num) -> a + 1
@@ -132,7 +141,7 @@ test_backend!{
     }
 }
 
-test_backend!{
+test_backend! {
     function_return,
     "
     let f = \\ (x: num) -> x + 1

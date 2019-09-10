@@ -57,9 +57,16 @@ impl ValueStorage {
             .map(|(index, value)| (value, ValueId(index)))
     }
 
-    pub(crate) fn retain(&mut self, mut predicate: impl FnMut(ValueId) -> bool, mut remap: impl FnMut(ValueId, ValueId)) {
+    pub(crate) fn retain(
+        &mut self,
+        mut predicate: impl FnMut(ValueId) -> bool,
+        mut remap: impl FnMut(ValueId, ValueId),
+    ) {
         self.value_to_id.retain(|_, index| predicate(*index));
-        self.values.retain_indices(|_, index| predicate(ValueId(index)), |_, from, to| remap(ValueId(from), ValueId(to)));
+        self.values.retain_indices(
+            |_, index| predicate(ValueId(index)),
+            |_, from, to| remap(ValueId(from), ValueId(to)),
+        );
         self.values.shrink_to_fit();
     }
 }

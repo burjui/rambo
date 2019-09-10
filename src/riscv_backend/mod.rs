@@ -12,22 +12,30 @@ use std::num::TryFromIntError;
 use bimap::BiMap;
 use byteorder::WriteBytesExt;
 use itertools::Itertools;
-use petgraph::Direction;
 use petgraph::stable_graph::NodeIndex;
 use petgraph::visit::EdgeRef;
-use riscv::{DataByteOrder, InstructionByteOrder, registers};
+use petgraph::Direction;
 use riscv::decoder::decode;
+use riscv::registers;
 use riscv::registers::REGISTER_COUNT;
+use riscv::DataByteOrder;
+use riscv::InstructionByteOrder;
 use risky::instructions::*;
 use smallvec::SmallVec;
-use termcolor::{Color, ColorSpec, StandardStream, WriteColor};
+use termcolor::Color;
+use termcolor::ColorSpec;
+use termcolor::StandardStream;
+use termcolor::WriteColor;
 
-use crate::ir::{IRModule, Phi};
+use crate::ir::value_storage::ValueId;
 use crate::ir::FnId;
+use crate::ir::IRModule;
+use crate::ir::Phi;
 use crate::ir::Statement;
 use crate::ir::Value;
-use crate::ir::value_storage::ValueId;
-use crate::utils::{GenericResult, stderr, VecUtils};
+use crate::utils::stderr;
+use crate::utils::GenericResult;
+use crate::utils::VecUtils;
 
 #[cfg(test)]
 mod tests;
@@ -115,10 +123,11 @@ struct Backend<'a> {
 }
 
 impl<'a> Backend<'a> {
-    fn new(image: &'a mut RICSVImage,
-           module: &'a IRModule,
-           DumpCode(dump_code): DumpCode,
-           EnableImmediateIntegers(enable_immediate_integers): EnableImmediateIntegers,
+    fn new(
+        image: &'a mut RICSVImage,
+        module: &'a IRModule,
+        DumpCode(dump_code): DumpCode,
+        EnableImmediateIntegers(enable_immediate_integers): EnableImmediateIntegers,
     ) -> Self {
         Self {
             image,
@@ -160,43 +169,56 @@ impl<'a> Backend<'a> {
 
         if self.function_id.is_some() && &self.module.name != "main" {
             let mut register_saving_code = Vec::new();
-            let saved_registers = self.registers
-                .used()
-                .collect_vec();
+            let saved_registers = self.registers.used().collect_vec();
             let saved_register_list = saved_registers
                 .iter()
                 .map(|register| format!("x{}", register))
                 .format(", ")
                 .to_string();
             for (i, register) in saved_registers.iter().enumerate() {
-                write_code(&mut register_saving_code, &[
-                    sw(registers::STACK_POINTER, -i16::try_from(i * 4)?, *register)?
-                ])?;
+                write_code(
+                    &mut register_saving_code,
+                    &[sw(
+                        registers::STACK_POINTER,
+                        -i16::try_from(i * 4)?,
+                        *register,
+                    )?],
+                )?;
             }
             let saved_registers_size = i16::try_from(saved_registers.len() * 4)?;
-            write_code(&mut register_saving_code, &[
-                addi(registers::STACK_POINTER, registers::STACK_POINTER, -saved_registers_size)?
-            ])?;
+            write_code(
+                &mut register_saving_code,
+                &[addi(
+                    registers::STACK_POINTER,
+                    registers::STACK_POINTER,
+                    -saved_registers_size,
+                )?],
+            )?;
 
             let comment_fixup_offset = register_saving_code.len() as u32;
-            self.image.code.insert_slice(usize::try_from(code_start).unwrap(), &register_saving_code);
+            self.image
+                .code
+                .insert_slice(usize::try_from(code_start).unwrap(), &register_saving_code);
             for (comment_offset, _) in self.image.comments.iter_mut() {
                 if *comment_offset > code_start {
                     *comment_offset += comment_fixup_offset;
                 }
             }
 
-            self.last_comment_at(code_start, &format!("Save registers {}", &saved_register_list))?;
+            self.last_comment_at(
+                code_start,
+                &format!("Save registers {}", &saved_register_list),
+            )?;
         }
 
         if self.function_id.is_none() {
-            self.push_code(&[
-                ebreak().unwrap(),
-            ]).unwrap();
+            self.push_code(&[ebreak().unwrap()]).unwrap();
         }
         self.comment(&format!("---- END {}", &self.module.name))?;
 
-        let functions = self.module.functions
+        let functions = self
+            .module
+            .functions
             .iter()
             .sorted_by_key(|(fn_id, _)| *fn_id)
             .map(|(fn_id, module)| (fn_id.clone(), module))
@@ -225,9 +247,11 @@ impl<'a> Backend<'a> {
                         writeln!(self.stderr, "// {}", comment)?;
                     }
                 }
-                self.stderr.set_color(ColorSpec::new()
-                    .set_fg(Some(Color::Black))
-                    .set_intense(true))?;
+                self.stderr.set_color(
+                    ColorSpec::new()
+                        .set_fg(Some(Color::Black))
+                        .set_intense(true),
+                )?;
                 writeln!(self.stderr, "[0x{:08x}]  {:?}", u32::try_from(offset)?, op)?;
                 self.stderr.reset()?;
             }
@@ -243,9 +267,11 @@ impl<'a> Backend<'a> {
                     } else {
                         write!(self.stderr, " ")?;
                     }
-                    self.stderr.set_color(ColorSpec::new()
-                        .set_fg(Some(Color::Black))
-                        .set_intense(true))?;
+                    self.stderr.set_color(
+                        ColorSpec::new()
+                            .set_fg(Some(Color::Black))
+                            .set_intense(true),
+                    )?;
                     write!(self.stderr, "{:02x}", byte)?;
                     self.stderr.reset()?;
                 }
@@ -266,32 +292,39 @@ impl<'a> Backend<'a> {
         Ok(next_block)
     }
 
-    fn generate_statement(&mut self, block: NodeIndex, statement: &Statement) -> GenericResult<Option<NodeIndex>> {
+    fn generate_statement(
+        &mut self,
+        block: NodeIndex,
+        statement: &Statement,
+    ) -> GenericResult<Option<NodeIndex>> {
         match statement {
             Statement::Comment(comment) => {
                 self.comment(comment)?;
                 Ok(None)
-            },
+            }
 
             Statement::Definition(value_id) => {
                 self.comment(&format!("define {:?}", self.module.values[*value_id]))?;
                 let register = self.generate_value(*value_id, None)?;
-                let phi = self.phis
-                    .get(&value_id)
-                    .and_then(|phis_by_block| phis_by_block
-                        .iter()
-                        .find_map(|(phi_block, phi)| if *phi_block >= block {
+                let phi = self.phis.get(&value_id).and_then(|phis_by_block| {
+                    phis_by_block.iter().find_map(|(phi_block, phi)| {
+                        if *phi_block >= block {
                             Some(*phi)
                         } else {
                             None
-                        }));
+                        }
+                    })
+                });
                 if let Some(phi) = phi {
                     let phi_offset = self.allocate_value(phi)?.unwrap();
                     self.store_u32(register, phi_offset)?;
                 }
-                self.comment(&format!("{}: {:?} -> x{}", value_id, self.module.values[*value_id], register))?;
+                self.comment(&format!(
+                    "{}: {:?} -> x{}",
+                    value_id, self.module.values[*value_id], register
+                ))?;
                 Ok(None)
-            },
+            }
 
             Statement::CondJump(condition, then_branch, else_branch) => {
                 let condition = self.allocate_register(*condition, None)?;
@@ -304,11 +337,15 @@ impl<'a> Backend<'a> {
                 }
                 let jump_to_end = self.push_code(&jump_placeholder()?)?;
                 let after_jump_to_end = self.current_code_offset()?;
-                let else_branch_offset = i16::try_from(self.current_code_offset()? - jump_to_else_branch)?;
-                self.patch_at(jump_to_else_branch, &[
-                    // FIXME branches have limited range (+-4KiB), consider jump tables
-                    beq(else_branch_offset, registers::ZERO, condition)?
-                ])?;
+                let else_branch_offset =
+                    i16::try_from(self.current_code_offset()? - jump_to_else_branch)?;
+                self.patch_at(
+                    jump_to_else_branch,
+                    &[
+                        // FIXME branches have limited range (+-4KiB), consider jump tables
+                        beq(else_branch_offset, registers::ZERO, condition)?,
+                    ],
+                )?;
 
                 let else_next_block = self.generate_block(*else_branch)?;
                 if let Some(else_next_block) = then_next_block {
@@ -322,39 +359,41 @@ impl<'a> Backend<'a> {
                     .unwrap();
                 self.patch_jump(jump_to_end, registers::ZERO, end_offset)?;
                 if after_jump_to_end == self.current_code_offset()? {
-                    for _ in 0 .. 4 {
+                    for _ in 0..4 {
                         self.image.code.remove(jump_to_end as usize);
                     }
                     let else_branch_offset = else_branch_offset - 4;
-                    self.patch_at(jump_to_else_branch, &[
-                        beq(else_branch_offset, registers::ZERO, condition)?
-                    ])?;
+                    self.patch_at(
+                        jump_to_else_branch,
+                        &[beq(else_branch_offset, registers::ZERO, condition)?],
+                    )?;
                 }
 
                 let then_next_block = then_next_block.unwrap_or(*then_branch);
                 let else_next_block = else_next_block.unwrap_or(*else_branch);
                 // Check if they converge
                 let successors = (
-                    self.module.cfg
+                    self.module
+                        .cfg
                         .edges_directed(then_next_block, Direction::Outgoing)
                         .next()
                         .map(|edge| edge.target()),
-                    self.module.cfg.edges_directed(else_next_block, Direction::Outgoing)
+                    self.module
+                        .cfg
+                        .edges_directed(else_next_block, Direction::Outgoing)
                         .next()
                         .map(|edge| edge.target()),
                 );
                 assert_eq!(successors.0, successors.1);
                 Ok(successors.0)
-            },
+            }
 
             Statement::Return(value_id) => {
                 self.allocate_register(*value_id, Some(registers::RETURN_VALUE0))?;
 
                 if self.function_id.is_some() {
                     if &self.module.name != "main" {
-                        let saved_registers = self.registers
-                            .used()
-                            .collect_vec();
+                        let saved_registers = self.registers.used().collect_vec();
                         let saved_register_list = saved_registers
                             .iter()
                             .map(|register| format!("x{}", register))
@@ -362,22 +401,25 @@ impl<'a> Backend<'a> {
                             .to_string();
                         self.comment(&format!("Restore registers {}", &saved_register_list))?;
                         let saved_registers_size = i16::try_from(saved_registers.len() * 4)?;
-                        self.push_code(&[
-                            addi(registers::STACK_POINTER, registers::STACK_POINTER, saved_registers_size)?
-                        ])?;
+                        self.push_code(&[addi(
+                            registers::STACK_POINTER,
+                            registers::STACK_POINTER,
+                            saved_registers_size,
+                        )?])?;
                         for (i, register) in saved_registers.iter().enumerate() {
-                            self.push_code(&[
-                                lw(*register, registers::STACK_POINTER, -i16::try_from(i * 4).unwrap()).unwrap()
-                            ])?;
+                            self.push_code(&[lw(
+                                *register,
+                                registers::STACK_POINTER,
+                                -i16::try_from(i * 4).unwrap(),
+                            )
+                            .unwrap()])?;
                         }
                     }
 
-                    self.push_code(&[
-                        jalr(registers::ZERO, registers::LINK, 0)?,
-                    ])?;
+                    self.push_code(&[jalr(registers::ZERO, registers::LINK, 0)?])?;
                 }
                 Ok(None)
-            },
+            }
         }
     }
 
@@ -386,24 +428,34 @@ impl<'a> Backend<'a> {
         match &self.module.values[value_id] {
             Value::Unit => Ok(registers::ZERO),
 
-            Value::Int(_) |
-            Value::String(_) |
-            Value::Function(_, _) |
-            Value::Phi(_) => self.allocate_register(value_id, target),
+            Value::Int(_) | Value::String(_) | Value::Function(_, _) | Value::Phi(_) => {
+                self.allocate_register(value_id, target)
+            }
 
-            Value::AddInt(left, right) => self.generate_binary(value_id, *left, *right, add, target),
-            Value::SubInt(left, right) => self.generate_binary(value_id, *left, *right, sub, target),
-            Value::MulInt(left, right) => self.generate_binary(value_id, *left, *right, mul, target),
-            Value::DivInt(left, right) => self.generate_binary(value_id, *left, *right, div, target),
+            Value::AddInt(left, right) => {
+                self.generate_binary(value_id, *left, *right, add, target)
+            }
+            Value::SubInt(left, right) => {
+                self.generate_binary(value_id, *left, *right, sub, target)
+            }
+            Value::MulInt(left, right) => {
+                self.generate_binary(value_id, *left, *right, mul, target)
+            }
+            Value::DivInt(left, right) => {
+                self.generate_binary(value_id, *left, *right, div, target)
+            }
 
             Value::Arg(index) => {
                 // FIXME this does not conform to the standard ABI.
                 let register = self.allocate_register(value_id, target)?;
-                self.push_code(&[
-                    lw(register, registers::FRAME_POINTER, -i16::try_from(*index * 4).unwrap()).unwrap(),
-                ])?;
+                self.push_code(&[lw(
+                    register,
+                    registers::FRAME_POINTER,
+                    -i16::try_from(*index * 4).unwrap(),
+                )
+                .unwrap()])?;
                 Ok(register)
-            },
+            }
 
             Value::Call(function, arguments) => {
                 let mut saved_bytes_total = 0;
@@ -420,17 +472,27 @@ impl<'a> Backend<'a> {
                 saved_bytes_total += arguments.len() * 4;
                 self.comment("Set up frame and stack")?;
                 self.push_code(&[
-                    addi(registers::FRAME_POINTER, registers::STACK_POINTER, -i16::try_from(saved_bytes_env)?)?,
-                    addi(registers::STACK_POINTER, registers::STACK_POINTER, -i16::try_from(saved_bytes_total)?)?,
+                    addi(
+                        registers::FRAME_POINTER,
+                        registers::STACK_POINTER,
+                        -i16::try_from(saved_bytes_env)?,
+                    )?,
+                    addi(
+                        registers::STACK_POINTER,
+                        registers::STACK_POINTER,
+                        -i16::try_from(saved_bytes_total)?,
+                    )?,
                 ])?;
 
                 let no_spill_length = self.no_spill.len();
                 self.comment("Generate arguments")?;
                 for (index, argument) in arguments.iter().enumerate() {
                     let register = self.allocate_register(*argument, None)?;
-                    self.push_code(&[
-                        sw(registers::FRAME_POINTER, -i16::try_from(index * 4)?, register)?,
-                    ])?;
+                    self.push_code(&[sw(
+                        registers::FRAME_POINTER,
+                        -i16::try_from(index * 4)?,
+                        register,
+                    )?])?;
                     self.no_spill.push(register);
                 }
 
@@ -438,14 +500,14 @@ impl<'a> Backend<'a> {
                 self.no_spill.truncate(no_spill_length);
                 let fn_address = self.allocate_register(*function, None).unwrap();
                 // TODO if function is Value::Function then generate a relocation and auipc + jalr instead
-                self.push_code(&[
-                    jalr(registers::LINK, fn_address, 0).unwrap(),
-                ])?;
+                self.push_code(&[jalr(registers::LINK, fn_address, 0).unwrap()])?;
 
                 self.comment("Restore stack pointer")?;
-                self.push_code(&[
-                    addi(registers::STACK_POINTER, registers::STACK_POINTER, i16::try_from(saved_bytes_total)?)?,
-                ])?;
+                self.push_code(&[addi(
+                    registers::STACK_POINTER,
+                    registers::STACK_POINTER,
+                    i16::try_from(saved_bytes_total)?,
+                )?])?;
 
                 if self.function_id.is_some() {
                     self.comment("Restore link and frame")?;
@@ -456,11 +518,9 @@ impl<'a> Backend<'a> {
                 }
 
                 let register = self.allocate_register(value_id, None)?;
-                self.push_code(&[
-                    addi(register, registers::RETURN_VALUE0, 0)?
-                ])?;
+                self.push_code(&[addi(register, registers::RETURN_VALUE0, 0)?])?;
                 Ok(register)
-            },
+            }
 
             value => unimplemented!("value {}: {:?}", value_id, value),
         }
@@ -470,7 +530,10 @@ impl<'a> Backend<'a> {
         let value = &self.module.values[value_id];
         let value_i32 = match value {
             Value::Int(value) => *value,
-            _ => panic!("cannot generate an immediate from value {}: {:?}", value_id, value),
+            _ => panic!(
+                "cannot generate an immediate from value {}: {:?}",
+                value_id, value
+            ),
         };
         self.generate_immediate_i32(register, value_i32)
     }
@@ -478,13 +541,9 @@ impl<'a> Backend<'a> {
     fn generate_immediate_i32(&mut self, register: u8, value: i32) -> GenericResult<()> {
         let value = ui_immediate(value)?;
         if value.upper == 0 {
-            self.push_code(&[
-                addi(register, registers::ZERO, value.lower).unwrap(),
-            ])?;
+            self.push_code(&[addi(register, registers::ZERO, value.lower).unwrap()])?;
         } else if value.lower == 0 {
-            self.push_code(&[
-                lui(register, value.upper).unwrap(),
-            ])?;
+            self.push_code(&[lui(register, value.upper).unwrap()])?;
         } else {
             self.push_code(&[
                 lui(register, value.upper).unwrap(),
@@ -495,9 +554,13 @@ impl<'a> Backend<'a> {
     }
 
     fn generate_binary(
-        &mut self, value_id: ValueId, left: ValueId, right: ValueId,
-        op: impl FnOnce(u8, u8, u8) -> risky::Result<u32>, target: Option<u8>) -> GenericResult<u8>
-    {
+        &mut self,
+        value_id: ValueId,
+        left: ValueId,
+        right: ValueId,
+        op: impl FnOnce(u8, u8, u8) -> risky::Result<u32>,
+        target: Option<u8>,
+    ) -> GenericResult<u8> {
         let no_spill_length = self.no_spill.len();
         let left = self.allocate_register(left, None)?;
         self.no_spill.push(left);
@@ -505,9 +568,7 @@ impl<'a> Backend<'a> {
         self.no_spill.push(right);
         let result = self.allocate_register(value_id, target)?;
         self.no_spill.truncate(no_spill_length);
-        self.push_code(&[
-            op(result, left, right)?
-        ])?;
+        self.push_code(&[op(result, left, right)?])?;
         Ok(result)
     }
 
@@ -524,16 +585,16 @@ impl<'a> Backend<'a> {
                         } else {
                             Some(self.allocate_u32(*value as u32).unwrap())
                         }
-                    },
+                    }
 
                     Value::String(_) => unimplemented!("allocate_value(): Value::String"),
 
                     Value::Phi(_) => Some(self.allocate_u32(0xDEAD_BEEF)?),
 
-                    Value::AddInt(_, _) |
-                    Value::SubInt(_, _) |
-                    Value::MulInt(_, _) |
-                    Value::DivInt(_, _) => Some(self.allocate_u32(0)?),
+                    Value::AddInt(_, _)
+                    | Value::SubInt(_, _)
+                    | Value::MulInt(_, _)
+                    | Value::DivInt(_, _) => Some(self.allocate_u32(0)?),
 
                     _ => None,
                 };
@@ -541,7 +602,7 @@ impl<'a> Backend<'a> {
                     self.data_offsets.insert(value_id, offset);
                 }
                 Ok(data_offset)
-            },
+            }
         }
     }
 
@@ -554,9 +615,7 @@ impl<'a> Backend<'a> {
     fn load_u32(&mut self, rd: u8, offset: u32) -> GenericResult<()> {
         let location = ui_immediate(i32::try_from(offset).unwrap())?;
         let result = if location.upper == 0 {
-            self.push_code(&[
-                lw(rd, registers::GLOBAL_POINTER, location.lower).unwrap(),
-            ])
+            self.push_code(&[lw(rd, registers::GLOBAL_POINTER, location.lower).unwrap()])
         } else {
             self.push_code(&[
                 lui(rd, location.upper).unwrap(),
@@ -570,9 +629,7 @@ impl<'a> Backend<'a> {
     fn store_u32(&mut self, register: u8, offset: u32) -> GenericResult<()> {
         let location = ui_immediate(i32::try_from(offset).unwrap())?;
         let result = if location.upper == 0 {
-            self.push_code(&[
-                sw(registers::GLOBAL_POINTER, location.lower, register).unwrap(),
-            ])
+            self.push_code(&[sw(registers::GLOBAL_POINTER, location.lower, register).unwrap()])
         } else {
             self.push_code(&[
                 lui(registers::TMP0, location.upper).unwrap(),
@@ -610,7 +667,8 @@ impl<'a> Backend<'a> {
             }
         }
 
-        let (register, source, previous_user) = self.registers.allocate(value_id, target, &*self.no_spill)?;
+        let (register, source, previous_user) =
+            self.registers.allocate(value_id, target, &*self.no_spill)?;
         if let Some(previous_user) = previous_user {
             if previous_user != value_id {
                 if let Some(&data_offset) = self.data_offsets.get(&previous_user) {
@@ -621,26 +679,29 @@ impl<'a> Backend<'a> {
 
         if let Some(source) = source {
             if source != register {
-                self.push_code(&[
-                    addi(register, source, 0)?,
-                ])?;
+                self.push_code(&[addi(register, source, 0)?])?;
             }
         } else if let Some(&data_offset) = self.data_offsets.get(&value_id) {
             self.load_u32(register, data_offset)?;
         } else {
             match &self.module.values[value_id] {
-                Value::Int(_) => if self.enable_immediate_integers {
-                    self.generate_immediate(register, value_id)?;
-                },
+                Value::Int(_) => {
+                    if self.enable_immediate_integers {
+                        self.generate_immediate(register, value_id)?;
+                    }
+                }
 
                 Value::Function(fn_id, _) => {
                     let relocation_offset = self.current_code_offset().unwrap();
-                    self.image.relocations.push(Relocation::new(relocation_offset, fn_id.clone()));
+                    self.image
+                        .relocations
+                        .push(Relocation::new(relocation_offset, fn_id.clone()));
                     self.push_code(&[
                         lui(register, 0).unwrap(),
                         addi(register, register, 0).unwrap(),
-                    ]).unwrap();
-                },
+                    ])
+                    .unwrap();
+                }
 
                 _ => (),
             }
@@ -659,16 +720,17 @@ impl<'a> Backend<'a> {
     }
 
     fn patch_jump(&mut self, patch_offset: u32, rd: u8, offset: i32) -> GenericResult<()> {
-        self.patch_at(patch_offset, &match self.check_jump_offset(offset)? {
-            JumpOffset::Short => [
-                nop()?,
-                jal(rd, offset)?,
-            ],
-            JumpOffset::Long(offset) => [
-                auipc(registers::TMP0, offset.upper)?,
-                jalr(rd, registers::TMP0, offset.lower)?,
-            ],
-        }).map_err(Into::into)
+        self.patch_at(
+            patch_offset,
+            &match self.check_jump_offset(offset)? {
+                JumpOffset::Short => [nop()?, jal(rd, offset)?],
+                JumpOffset::Long(offset) => [
+                    auipc(registers::TMP0, offset.upper)?,
+                    jalr(rd, registers::TMP0, offset.lower)?,
+                ],
+            },
+        )
+        .map_err(Into::into)
     }
 
     fn check_jump_offset(&self, offset: i32) -> Result<JumpOffset, TryFromIntError> {
@@ -689,18 +751,22 @@ impl CommentVec {
     }
 
     fn insert(&mut self, code_offset: u32, comment: &str) {
-        let index = match self.0.binary_search_by_key(&code_offset, |(offset, _)| *offset) {
+        let index = match self
+            .0
+            .binary_search_by_key(&code_offset, |(offset, _)| *offset)
+        {
             Ok(index) => index,
             Err(index) => {
                 self.0.insert(index, (code_offset, Vec::new()));
                 index
-            },
+            }
         };
         self.0[index].1.push(comment.to_owned());
     }
 
     pub(crate) fn find(&self, code_offset: u32) -> Option<impl Iterator<Item = &String>> {
-        self.0.binary_search_by_key(&code_offset, |(offset, _)| *offset)
+        self.0
+            .binary_search_by_key(&code_offset, |(offset, _)| *offset)
             .map(|index| self.0[index].1.iter())
             .ok()
     }
@@ -716,7 +782,11 @@ impl IntoIterator for CommentVec {
 }
 
 #[derive(Copy, Clone, PartialEq)]
-enum Allocation { None, Temporary, Permanent }
+enum Allocation {
+    None,
+    Temporary,
+    Permanent,
+}
 
 #[derive(Deref, Copy, Clone)]
 struct IsTarget(bool);
@@ -752,9 +822,15 @@ impl RegisterAllocator {
     }
 
     // TODO target variants: Specific(reg), Saved, Temp
-    fn allocate(&mut self, value_id: ValueId, target: Option<u8>, no_spill: &[u8]) -> GenericResult<(u8, Option<u8>, Option<ValueId>)> {
+    fn allocate(
+        &mut self,
+        value_id: ValueId,
+        target: Option<u8>,
+        no_spill: &[u8],
+    ) -> GenericResult<(u8, Option<u8>, Option<ValueId>)> {
         match target {
-            Some(target) => self.try_allocate(value_id, target, IsTarget(true), no_spill)
+            Some(target) => self
+                .try_allocate(value_id, target, IsTarget(true), no_spill)
                 .map(|(source, previous_user)| (target, source, previous_user))
                 .map_err(From::from),
 
@@ -762,16 +838,20 @@ impl RegisterAllocator {
                 if let Some(register) = self.values.get_by_left(&value_id) {
                     return Ok((*register, Some(*register), None));
                 }
-                for register in 0 .. u8::try_from(REGISTER_COUNT)? {
+                for register in 0..u8::try_from(REGISTER_COUNT)? {
                     if let Allocation::None = self.states[register as usize] {
-                        if let Ok((source, previous_user)) = self.try_allocate(value_id, register, IsTarget(false), no_spill) {
+                        if let Ok((source, previous_user)) =
+                            self.try_allocate(value_id, register, IsTarget(false), no_spill)
+                        {
                             return Ok((register, source, previous_user));
                         }
                     }
                 }
-                for register in 0 .. u8::try_from(REGISTER_COUNT)? {
+                for register in 0..u8::try_from(REGISTER_COUNT)? {
                     if let Allocation::Temporary = self.states[register as usize] {
-                        if let Ok((source, previous_user)) = self.try_allocate(value_id, register, IsTarget(false), no_spill) {
+                        if let Ok((source, previous_user)) =
+                            self.try_allocate(value_id, register, IsTarget(false), no_spill)
+                        {
                             return Ok((register, source, previous_user));
                         }
                     }
@@ -781,7 +861,13 @@ impl RegisterAllocator {
         }
     }
 
-    fn try_allocate(&mut self, value_id: ValueId, register: u8, IsTarget(is_target): IsTarget, no_spill: &[u8]) -> Result<(Option<u8>, Option<ValueId>), RegisterAllocationError> {
+    fn try_allocate(
+        &mut self,
+        value_id: ValueId,
+        register: u8,
+        IsTarget(is_target): IsTarget,
+        no_spill: &[u8],
+    ) -> Result<(Option<u8>, Option<ValueId>), RegisterAllocationError> {
         if self.values.get_by_left(&value_id) == Some(&register) {
             return Ok((Some(register), None));
         }
@@ -792,7 +878,7 @@ impl RegisterAllocator {
                 self.states[register as usize] = Allocation::Temporary;
                 self.used[register as usize] = true;
                 Ok((source, previous_user))
-            },
+            }
 
             Allocation::Temporary => {
                 let previous_user = self.values.get_by_right(&register).cloned();
@@ -808,7 +894,7 @@ impl RegisterAllocator {
                     self.used[register as usize] = true;
                     Ok((source, previous_user))
                 }
-            },
+            }
 
             Allocation::Permanent => {
                 if is_target {
@@ -818,15 +904,21 @@ impl RegisterAllocator {
                 } else {
                     Err(RegisterAllocationError)
                 }
-            },
+            }
         }
     }
 
-    fn associate(&mut self, value_id: ValueId, register: u8, previous_user: Option<ValueId>) -> Option<u8> {
+    fn associate(
+        &mut self,
+        value_id: ValueId,
+        register: u8,
+        previous_user: Option<ValueId>,
+    ) -> Option<u8> {
         if let Some(previous_user) = &previous_user {
             self.values.remove_by_left(previous_user);
         }
-        let source = self.values
+        let source = self
+            .values
             .remove_by_left(&value_id)
             .map(|(_, source)| source);
         if let Some(source) = &source {
@@ -865,7 +957,10 @@ pub(crate) fn write_code(writer: &mut impl Write, code: &[u32]) -> io::Result<()
     Ok(())
 }
 
-pub(crate) enum JumpOffset { Short, Long(ImmediateI) }
+pub(crate) enum JumpOffset {
+    Short,
+    Long(ImmediateI),
+}
 
 pub(crate) struct ImmediateI {
     pub(crate) upper: i32,
@@ -897,8 +992,5 @@ fn nop() -> risky::Result<u32> {
 }
 
 fn jump_placeholder() -> risky::Result<[u32; 2]> {
-    Ok([
-        nop()?,
-        nop()?,
-    ])
+    Ok([nop()?, nop()?])
 }

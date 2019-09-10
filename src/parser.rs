@@ -34,7 +34,11 @@ impl Debug for Parameter {
 
 #[derive(Copy, Clone)]
 pub(crate) enum BinaryOperation {
-    Assign, Add, Subtract, Multiply, Divide
+    Assign,
+    Add,
+    Subtract,
+    Multiply,
+    Divide,
 }
 
 impl Debug for BinaryOperation {
@@ -52,7 +56,7 @@ impl Debug for BinaryOperation {
 #[derive(Clone)]
 pub(crate) struct Block {
     pub(crate) statements: Vec<Statement>,
-    pub(crate) source: Source
+    pub(crate) source: Source,
 }
 
 #[derive(Clone)]
@@ -65,26 +69,26 @@ pub(crate) enum Expr {
         name: Option<Source>,
         source: Source,
         parameters: Vec<Parameter>,
-        body: Box<Expr>
+        body: Box<Expr>,
     },
     Binary {
         source: Source,
         operation: BinaryOperation,
         left: Box<Expr>,
-        right: Box<Expr>
+        right: Box<Expr>,
     },
     Application {
         source: Source,
         function: Box<Expr>,
-        arguments: Vec<Expr>
+        arguments: Vec<Expr>,
     },
     Conditional {
         source: Source,
         condition: Box<Expr>,
         then_branch: Box<Expr>,
-        else_branch: Option<Box<Expr>>
+        else_branch: Option<Box<Expr>>,
     },
-    Block(Block)
+    Block(Block),
 }
 
 impl Debug for Expr {
@@ -96,16 +100,15 @@ impl Debug for Expr {
 impl Expr {
     pub(crate) fn source(&self) -> &Source {
         match self {
-            Expr::Unit(source) |
-            Expr::String(source) |
-            Expr::Int(source) |
-            Expr::Id(source) |
-            Expr::Function { source, .. } |
-            Expr::Binary { source, .. } |
-            Expr::Application { source, .. } |
-            Expr::Conditional { source, .. } |
-            Expr::Block(Block { source, .. })
-            => source
+            Expr::Unit(source)
+            | Expr::String(source)
+            | Expr::Int(source)
+            | Expr::Id(source)
+            | Expr::Function { source, .. }
+            | Expr::Binary { source, .. }
+            | Expr::Application { source, .. }
+            | Expr::Conditional { source, .. }
+            | Expr::Block(Block { source, .. }) => source,
         }
     }
 }
@@ -116,15 +119,17 @@ pub(crate) enum Statement {
     Binding {
         name: Source,
         value: Expr,
-        source: Source
-    }
+        source: Source,
+    },
 }
 
 impl Debug for Statement {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Statement::Expr(expr) => expr.fmt(formatter),
-            Statement::Binding { name, value, .. } => write!(formatter, "let {:?} = {:?}", name, value)
+            Statement::Binding { name, value, .. } => {
+                write!(formatter, "let {:?} = {:?}", name, value)
+            }
         }
     }
 }
@@ -136,11 +141,13 @@ pub(crate) struct Parser {
     lexeme: Lexeme,
     lexeme_line: usize,
     previous_lexeme_line: usize,
-    previous_lexeme_source: Source
+    previous_lexeme_source: Source,
 }
 
 macro_rules! error {
-    ($self_: ident, $text: expr, $location: expr) => ($self_.error(line!(), $text, $location));
+    ($self_: ident, $text: expr, $location: expr) => {
+        $self_.error(line!(), $text, $location)
+    };
 }
 
 impl Parser {
@@ -165,7 +172,7 @@ impl Parser {
         }
         Ok(Block {
             statements,
-            source: start.extend(&self.lexeme.source)
+            source: start.extend(&self.lexeme.source),
         })
     }
 
@@ -196,7 +203,7 @@ impl Parser {
             name: Some(name.source.clone()),
             source: source.clone(),
             parameters,
-            body: Box::new(body)
+            body: Box::new(body),
         };
         Ok(Statement::Binding {
             name: name.source,
@@ -236,7 +243,7 @@ impl Parser {
             source: start.extend(&self.previous_lexeme_source),
             condition,
             then_branch: Box::new(then_branch),
-            else_branch: else_branch.map(Box::new)
+            else_branch: else_branch.map(Box::new),
         })
     }
 
@@ -253,10 +260,7 @@ impl Parser {
         let source = expr.source().clone();
 
         let statements = vec![Statement::Expr(expr)];
-        Ok(Expr::Block(Block {
-            source,
-            statements
-        }))
+        Ok(Expr::Block(Block { source, statements }))
     }
 
     fn parse_block(&mut self) -> ParseResult<Expr> {
@@ -267,10 +271,7 @@ impl Parser {
         }
         let end = self.expect(Token::RBrace, "}")?.source;
         let source = start.extend(&end);
-        Ok(Expr::Block(Block {
-            source,
-            statements
-        }))
+        Ok(Expr::Block(Block { source, statements }))
     }
 
     fn parse_binary(&mut self, precedence: Precedence) -> ParseResult<Expr> {
@@ -285,27 +286,35 @@ impl Parser {
         let start = self.lexeme.source.clone();
         let mut result = parse_next(self, precedence.next_binary_precedence())?;
         let first_lexeme_token = self.lexeme.token;
-        if self.previous_lexeme_line != self.lexeme_line || !first_lexeme_token.is_binary_operator() {
-            return Ok(result)
+        if self.previous_lexeme_line != self.lexeme_line || !first_lexeme_token.is_binary_operator()
+        {
+            return Ok(result);
         }
 
         let first_operator_precedence = first_lexeme_token.precedence();
         if first_operator_precedence >= precedence {
             loop {
                 let operator = self.lexeme.token;
-                if self.previous_lexeme_line != self.lexeme_line || !operator.is_binary_operator() ||
-                    operator.precedence() < first_operator_precedence {
-                    break
+                if self.previous_lexeme_line != self.lexeme_line
+                    || !operator.is_binary_operator()
+                    || operator.precedence() < first_operator_precedence
+                {
+                    break;
                 }
                 self.read_lexeme()?;
-                let right_precedence = Some(first_operator_precedence)
-                    .and_then(|p| if operator.is_left_associative() { p.next_binary_precedence() } else { Some(p) });
+                let right_precedence = Some(first_operator_precedence).and_then(|p| {
+                    if operator.is_left_associative() {
+                        p.next_binary_precedence()
+                    } else {
+                        Some(p)
+                    }
+                });
                 let right_operand = parse_next(self, right_precedence)?;
                 result = Expr::Binary {
                     source: start.extend(&self.previous_lexeme_source),
                     operation: operator.binary_operation(),
                     left: Box::new(result),
-                    right: Box::new(right_operand)
+                    right: Box::new(right_operand),
                 };
             }
         }
@@ -322,16 +331,15 @@ impl Parser {
             arguments.push(self.parse_primary()?);
         }
 
-        let result =
-            if arguments.is_empty() {
-                first_expr
-            } else {
-                Expr::Application {
-                    source: start.extend(&self.previous_lexeme_source),
-                    function: Box::new(first_expr),
-                    arguments
-                }
-            };
+        let result = if arguments.is_empty() {
+            first_expr
+        } else {
+            Expr::Application {
+                source: start.extend(&self.previous_lexeme_source),
+                function: Box::new(first_expr),
+                arguments,
+            }
+        };
         Ok(result)
     }
 
@@ -348,7 +356,7 @@ impl Parser {
                 } else {
                     Ok(Expr::Id(primary.source))
                 }
-            },
+            }
             Token::Int => Ok(Expr::Int(primary.source)),
             Token::String => Ok(Expr::String(primary.source)),
             Token::Lambda => self.parse_lambda(&primary.source),
@@ -363,7 +371,11 @@ impl Parser {
                     Ok(expr)
                 }
             }
-            _ => error!(self, &format!("expected an expression, found: {}", primary), &primary.source)
+            _ => error!(
+                self,
+                &format!("expected an expression, found: {}", primary),
+                &primary.source
+            ),
         }
     }
 
@@ -375,7 +387,7 @@ impl Parser {
         Ok(Statement::Binding {
             name: name.source,
             value,
-            source
+            source,
         })
     }
 
@@ -387,7 +399,7 @@ impl Parser {
             name: None,
             source: start.extend(&self.previous_lexeme_source),
             parameters,
-            body: Box::new(body)
+            body: Box::new(body),
         })
     }
 
@@ -400,7 +412,7 @@ impl Parser {
             parameters.push(Parameter {
                 name: source.clone(),
                 source,
-                type_: Type::Unit
+                type_: Type::Unit,
             });
         } else {
             let mut first = true;
@@ -414,7 +426,8 @@ impl Parser {
                 if let Some(previous_definition) = already_declared.get(parameter_name_str) {
                     let message = format!(
                         "redefinition of parameter `{}', previous definition is at {}",
-                        parameter_name_str, previous_definition);
+                        parameter_name_str, previous_definition
+                    );
                     return error!(self, &message, &parameter.name);
                 }
                 already_declared.insert(parameter_name_str.to_owned(), parameter.name.clone());
@@ -425,7 +438,11 @@ impl Parser {
         }
 
         if parameters.is_empty() {
-            error!(self, &format!("expected an argument list, found: {}", self.lexeme), &self.lexeme.source)
+            error!(
+                self,
+                &format!("expected an argument list, found: {}", self.lexeme),
+                &self.lexeme.source
+            )
         } else {
             Ok(parameters)
         }
@@ -438,7 +455,7 @@ impl Parser {
         Ok(Parameter {
             name: id.source.clone(),
             source: id.source.extend(&self.previous_lexeme_source),
-            type_
+            type_,
         })
     }
 
@@ -449,7 +466,13 @@ impl Parser {
             (Token::Id, "num") => Ok(Type::Int),
             (Token::Id, "str") => Ok(Type::String),
             (Token::Lambda, _) => self.parse_function_type(),
-            _ => return error!(self, &format!("expected a type, found: {}", source.text()), &source)
+            _ => {
+                return error!(
+                    self,
+                    &format!("expected a type, found: {}", source.text()),
+                    &source
+                )
+            }
         }
     }
 
@@ -459,7 +482,7 @@ impl Parser {
         let result = self.parse_type()?;
         Ok(Type::Function(FunctionTypeRef::new(FunctionType {
             parameters,
-            result
+            result,
         })))
     }
 
@@ -467,9 +490,23 @@ impl Parser {
         let lexeme = self.lexeme.clone();
         if lexeme.token != token {
             let starts_with_a_letter = name.chars().next().into_iter().all(char::is_alphanumeric);
-            let (opening_quote, closing_quote) = if starts_with_a_letter { ("`", "'") } else { ("", "") };
-            error!(self, &format!("expected {} {}{}{}, found: {}",
-                                  article(name), opening_quote, name, closing_quote, lexeme), &lexeme.source)
+            let (opening_quote, closing_quote) = if starts_with_a_letter {
+                ("`", "'")
+            } else {
+                ("", "")
+            };
+            error!(
+                self,
+                &format!(
+                    "expected {} {}{}{}, found: {}",
+                    article(name),
+                    opening_quote,
+                    name,
+                    closing_quote,
+                    lexeme
+                ),
+                &lexeme.source
+            )
         } else {
             self.read_lexeme()?;
             Ok(lexeme)
@@ -506,7 +543,7 @@ impl Precedence {
         let next_precedence = match self {
             Precedence::Assignment => Some(Precedence::Additive),
             Precedence::Additive => Some(Precedence::Multiplicative),
-            _ => None
+            _ => None,
         };
         if let Some(next_precedence) = next_precedence {
             assert!(next_precedence > self)
@@ -517,7 +554,14 @@ impl Precedence {
 
 impl Token {
     fn is_binary_operator(self) -> bool {
-        matches!(self, Token::Eq, Token::Plus, Token::Minus, Token::Star, Token::Slash)
+        matches!(
+            self,
+            Token::Eq,
+            Token::Plus,
+            Token::Minus,
+            Token::Star,
+            Token::Slash
+        )
     }
 
     fn precedence(self) -> Precedence {
@@ -525,7 +569,7 @@ impl Token {
             Token::Eq => Precedence::Assignment,
             Token::Plus | Token::Minus => Precedence::Additive,
             Token::Star | Token::Slash => Precedence::Multiplicative,
-            _ => unreachable!()
+            _ => unreachable!(),
         }
     }
 
@@ -540,7 +584,7 @@ impl Token {
             Token::Minus => BinaryOperation::Subtract,
             Token::Star => BinaryOperation::Multiply,
             Token::Slash => BinaryOperation::Divide,
-            _ => unreachable!()
+            _ => unreachable!(),
         }
     }
 }
@@ -553,7 +597,8 @@ impl Lexeme {
 }
 
 fn article(word: &str) -> &str {
-    "aouie".chars()
+    "aouie"
+        .chars()
         .find(|&c| word.starts_with(c))
         .map_or("a", |_| "an")
 }

@@ -9,7 +9,7 @@ use crate::unique_rc::UniqueRc;
 #[derive(Copy, Clone)]
 pub(crate) struct Position {
     line: usize,
-    column: usize
+    column: usize,
 }
 
 impl Debug for Position {
@@ -25,14 +25,22 @@ pub(crate) struct Source {
 }
 
 impl Source {
-    pub(crate) fn new(file: SourceFileRef, range: Range<usize>) -> Self { Self { file, range } }
-    pub(crate) fn file(&self) -> &SourceFileRef { &self.file }
-    pub(crate) fn range(&self) -> &Range<usize> { &self.range }
+    pub(crate) fn new(file: SourceFileRef, range: Range<usize>) -> Self {
+        Self { file, range }
+    }
+
+    pub(crate) fn file(&self) -> &SourceFileRef {
+        &self.file
+    }
+
+    pub(crate) fn range(&self) -> &Range<usize> {
+        &self.range
+    }
 }
 
 impl Source {
     pub(crate) fn text(&self) -> &str {
-        &self.file.text[self.range.start .. self.range.end]
+        &self.file.text[self.range.start..self.range.end]
     }
 
     pub(crate) fn extend(&self, until: &Source) -> Source {
@@ -40,13 +48,18 @@ impl Source {
         let end = until.range.end;
         assert!(end >= self.range.end);
         assert!(end <= self.file.text.len());
-        Source::new(self.file.clone(), self.range.start .. end)
+        Source::new(self.file.clone(), self.range.start..end)
     }
 }
 
 impl Display for Source {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(formatter, "{}({:?})", self.file.name, self.file.position(self))
+        write!(
+            formatter,
+            "{}({:?})",
+            self.file.name,
+            self.file.position(self)
+        )
     }
 }
 
@@ -66,8 +79,8 @@ pub(crate) struct SourceFile {
 impl SourceFile {
     pub(crate) fn load(path: &str) -> Result<SourceFileRef, Box<dyn Error>> {
         use std::fs::File;
-        use std::io::Read;
         use std::io::BufReader;
+        use std::io::Read;
 
         let file = File::open(path)?;
         let mut buf_reader = BufReader::new(file);
@@ -84,25 +97,47 @@ impl SourceFile {
         Self::from_text(name, text.to_owned(), size)
     }
 
-    pub(crate) fn name(&self) -> &str { &self.name }
-    pub(crate) fn text(&self) -> &str { &self.text }
-    pub(crate) fn lines(&self) -> &[Range<usize>] { &self.lines }
-    pub(crate) fn size(&self) -> usize { self.size }
+    pub(crate) fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub(crate) fn text(&self) -> &str {
+        &self.text
+    }
+
+    pub(crate) fn lines(&self) -> &[Range<usize>] {
+        &self.lines
+    }
+
+    pub(crate) fn size(&self) -> usize {
+        self.size
+    }
 
     fn from_text(name: String, text: String, size: usize) -> SourceFileRef {
         let lines = Self::collect_lines(&text);
-        SourceFileRef::from(SourceFile { name, text, lines, size })
+        SourceFileRef::from(SourceFile {
+            name,
+            text,
+            lines,
+            size,
+        })
     }
 
     fn decode(data: &[u8], path: &str) -> Result<String, Box<dyn Error>> {
         let offset = match Self::detect_bom(&data) {
-            Some(bom) => if let BOM::UTF8 = bom {
-                Ok(bom.bytes().len())
-            } else {
-                Err(format!("{:?}: encoding {} is not supported, convert the file to {}",
-                            path, bom.name(), BOM::UTF8.name()))
-            },
-            None => Ok(0)
+            Some(bom) => {
+                if let BOM::UTF8 = bom {
+                    Ok(bom.bytes().len())
+                } else {
+                    Err(format!(
+                        "{:?}: encoding {} is not supported, convert the file to {}",
+                        path,
+                        bom.name(),
+                        BOM::UTF8.name()
+                    ))
+                }
+            }
+            None => Ok(0),
         }?;
 
         use std::str::from_utf8;
@@ -110,7 +145,13 @@ impl SourceFile {
     }
 
     fn detect_bom(data: &[u8]) -> Option<&'static BOM> {
-        const BOMS: [BOM; 5] = [ BOM::UTF8, BOM::UTF32LE, BOM::UTF32BE, BOM::UTF16LE, BOM::UTF16BE ];
+        const BOMS: [BOM; 5] = [
+            BOM::UTF8,
+            BOM::UTF32LE,
+            BOM::UTF32BE,
+            BOM::UTF16LE,
+            BOM::UTF16BE,
+        ];
         BOMS.iter().find(|bom| data.starts_with(bom.bytes()))
     }
 
@@ -122,7 +163,7 @@ impl SourceFile {
         let eof = (text.len(), '\n');
         for (offset, character) in text.char_indices().chain(once(eof)) {
             if character == '\n' {
-                lines.push(line_start .. offset);
+                lines.push(line_start..offset);
                 line_start = offset + 1;
             }
         }
@@ -146,15 +187,21 @@ impl SourceFileRef {
             if offset <= line.end {
                 return Position {
                     line: index,
-                    column: offset - line.start
-                }
+                    column: offset - line.start,
+                };
             }
         }
         unreachable!("{:?}: offset {} is out of range", self.name, offset)
     }
 }
 
-enum BOM { UTF8, UTF16LE, UTF16BE, UTF32LE, UTF32BE }
+enum BOM {
+    UTF8,
+    UTF16LE,
+    UTF16BE,
+    UTF32LE,
+    UTF32BE,
+}
 
 impl BOM {
     fn bytes(&self) -> &[u8] {
