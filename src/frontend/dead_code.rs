@@ -69,7 +69,7 @@ fn remove_unused_definitions(
         })
         .collect_vec();
     for value_id in unused_values {
-        unuse(value_id, cfg, values, value_usage, definitions);
+        disuse(value_id, cfg, values, value_usage, definitions);
     }
 
     let (unused_values, dead_code): (Vec<_>, Vec<_>) = value_usage
@@ -89,7 +89,7 @@ fn remove_unused_definitions(
     remove_statements(dead_code, cfg);
 }
 
-fn unuse(
+fn disuse(
     value_id: ValueId,
     cfg: &ControlFlowGraph,
     values: &ValueStorage,
@@ -105,7 +105,7 @@ fn unuse(
         let location = &definitions[&value_id];
         let statement = &cfg[location.block][location.index];
         for operand in get_statement_value_operands(&values, statement) {
-            unuse(operand, cfg, values, value_usage, definitions);
+            disuse(operand, cfg, values, value_usage, definitions);
         }
     }
 }
@@ -156,7 +156,7 @@ fn merge_consecutive_basic_blocks(
         let successor = successors[0];
         if cfg.edges_directed(successor, Direction::Incoming).count() == 1 {
             if let Some(Statement::CondJump(condition, _, _)) = cfg[block].find_last() {
-                unuse(*condition, cfg, values, value_usage, definitions);
+                disuse(*condition, cfg, values, value_usage, definitions);
                 cfg[block].pop();
             }
 
