@@ -47,6 +47,7 @@ mod semantics;
 mod source;
 mod tracking_allocator;
 mod unique_rc;
+mod stable_vec;
 
 type TrackingAllocator = tracking_allocator::TrackingAllocator<System>;
 

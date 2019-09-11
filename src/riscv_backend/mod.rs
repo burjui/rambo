@@ -284,10 +284,8 @@ impl<'a> Backend<'a> {
     fn generate_block(&mut self, block: NodeIndex) -> GenericResult<Option<NodeIndex>> {
         let mut next_block = Some(block);
         let basic_block = &self.module.cfg[block];
-        let basic_block_length = basic_block.len();
-        for (index, statement) in basic_block.iter().enumerate() {
+        for statement in basic_block.iter() {
             next_block = self.generate_statement(block, statement)?;
-            assert!(next_block.is_none() || index == basic_block_length - 1);
         }
         Ok(next_block)
     }

@@ -321,7 +321,7 @@ fn unit_statements_count(module: &IRModule) -> usize {
     module
         .cfg
         .node_indices()
-        .map(|block| module.cfg[block].len())
+        .map(|block| module.cfg[block].count())
         .chain(functions.map(|function_cfg| unit_statements_count(&function_cfg.borrow())))
         .sum()
 }

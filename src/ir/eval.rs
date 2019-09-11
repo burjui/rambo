@@ -48,7 +48,7 @@ impl<'a> EvalContext<'a> {
         loop {
             let basic_block = &self.module.cfg[state.block];
             let mut statement = None;
-            while statement.is_none() && state.statement_index < basic_block.next_index() {
+            while statement.is_none() && state.statement_index < basic_block.len() {
                 statement = basic_block.get(state.statement_index);
                 state.statement_index += 1;
             }

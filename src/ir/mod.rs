@@ -13,7 +13,7 @@ use std::rc::Rc;
 use itertools::Itertools;
 use petgraph::graph::NodeIndex;
 use petgraph::stable_graph::StableDiGraph;
-use stable_vec::StableVec;
+use crate::stable_vec::StableVec;
 
 use crate::ir::value_storage::ValueId;
 use crate::ir::value_storage::ValueStorage;
@@ -30,17 +30,8 @@ impl BasicBlock {
         Self(StableVec::new())
     }
 
-    pub(crate) fn len(&self) -> usize {
-        self.0.num_elements()
-    }
-}
-
-impl IntoIterator for BasicBlock {
-    type Item = Statement;
-    type IntoIter = std::vec::IntoIter<Statement>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.0.into_vec().into_iter()
+    pub(crate) fn into_iter(self) -> impl IntoIterator<Item = Statement> {
+        self.0.into_iter()
     }
 }
 
