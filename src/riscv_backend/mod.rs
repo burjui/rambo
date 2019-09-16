@@ -1,4 +1,3 @@
-use std::cmp::Ordering;
 use std::collections::btree_set::BTreeSet;
 use std::collections::HashMap;
 use std::convert::TryFrom;
@@ -88,24 +87,6 @@ impl RICSVImage {
             function_offsets: HashMap::new(),
             entry: 0,
         }
-    }
-}
-
-#[derive(Copy, Clone, PartialEq, Eq)]
-struct PhiValue {
-    block: NodeIndex,
-    value_id: ValueId,
-}
-
-impl PartialOrd for PhiValue {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        other.block.partial_cmp(&self.block)
-    }
-}
-
-impl Ord for PhiValue {
-    fn cmp(&self, other: &Self) -> Ordering {
-        other.block.cmp(&self.block)
     }
 }
 
@@ -767,15 +748,6 @@ impl CommentVec {
             .binary_search_by_key(&code_offset, |(offset, _)| *offset)
             .map(|index| self.0[index].1.iter())
             .ok()
-    }
-}
-
-impl IntoIterator for CommentVec {
-    type Item = (u32, Vec<String>);
-    type IntoIter = std::vec::IntoIter<Self::Item>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.0.into_iter()
     }
 }
 
