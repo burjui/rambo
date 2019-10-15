@@ -10,10 +10,10 @@ use std::ops::Deref;
 use std::ops::DerefMut;
 use std::rc::Rc;
 
+use crate::stable_vec::StableVec;
 use itertools::Itertools;
 use petgraph::graph::NodeIndex;
 use petgraph::stable_graph::StableDiGraph;
-use crate::stable_vec::StableVec;
 
 use crate::ir::value_storage::ValueId;
 use crate::ir::value_storage::ValueStorage;
@@ -198,9 +198,7 @@ pub(crate) fn fmt_statement(
         Statement::Comment(comment) => {
             writeln!(sink, "// {}", comment.split(|c| c == '\n').format("\n// "))
         }
-        Statement::Definition(value_id) => {
-            write!(sink, "{} ← {:?}", value_id, &values[*value_id])
-        }
+        Statement::Definition(value_id) => write!(sink, "{} ← {:?}", value_id, &values[*value_id]),
         Statement::CondJump(value_id, then_branch, else_branch) => write!(
             sink,
             "condjump {}, {}, {}",

@@ -45,9 +45,9 @@ mod parser;
 mod pipeline;
 mod semantics;
 mod source;
+mod stable_vec;
 mod tracking_allocator;
 mod unique_rc;
-mod stable_vec;
 
 type TrackingAllocator = tracking_allocator::TrackingAllocator<System>;
 
