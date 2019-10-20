@@ -1,13 +1,8 @@
 use std::error::Error;
-use std::io;
-use std::io::Write;
 use std::mem::swap;
 use std::ops::Range;
-use termcolor::Color;
 use termcolor::ColorChoice;
-use termcolor::ColorSpec;
 use termcolor::StandardStream;
-use termcolor::WriteColor;
 
 pub(crate) type GenericResult<T> = std::result::Result<T, Box<dyn Error>>;
 
@@ -166,26 +161,4 @@ impl<T: Default + Copy> VecUtils<T> for Vec<T> {
         self.copy_within(range.clone(), new_len - range.end + range.start);
         (&mut self[index..slice_end]).copy_from_slice(src)
     }
-}
-
-pub(crate) fn dump_memory(ram: &[u8], base_address: u32) -> io::Result<()> {
-    let stderr = &mut stderr();
-    for (index, &byte) in ram.iter().enumerate() {
-        if index % 4 == 0 {
-            if index > 0 {
-                writeln!(stderr)?;
-            }
-            write!(stderr, "[{:08x}] ", base_address + index as u32)?;
-        } else {
-            write!(stderr, " ")?;
-        }
-        stderr.set_color(
-            ColorSpec::new()
-                .set_fg(Some(Color::Black))
-                .set_intense(true),
-        )?;
-        write!(stderr, "{:02x}", byte)?;
-        stderr.reset()?;
-    }
-    writeln!(stderr, "\n")
 }

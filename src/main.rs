@@ -14,7 +14,7 @@ use crate::pipeline::StandardStreamUtils;
 use crate::pipeline::VerifySemantics;
 use crate::pipeline::COMPILER_PASS_NAMES;
 use crate::pipeline::IR;
-use crate::utils::stdout;
+use crate::utils::{stderr, stdout};
 use elapsed::measure_time;
 use getopts::Options;
 use number_prefix::NumberPrefix;
@@ -53,7 +53,7 @@ type TrackingAllocator = tracking_allocator::TrackingAllocator<System>;
 static ALLOCATOR: TrackingAllocator = TrackingAllocator::new(System);
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let stdout = &mut stdout();
+    let stderr = &mut stderr();
     let result = parse_command_line().and_then(|command_line| {
         if command_line.input_files.is_empty() {
             println!("{}: no input files", command_line.program_name);
@@ -69,13 +69,13 @@ fn main() -> Result<(), Box<dyn Error>> {
     match result {
         Ok(_) => {}
         Err(error) => {
-            stdout.set_color(ColorSpec::new().set_fg(Some(Color::Red)).set_bold(true))?;
-            write!(stdout, "error: ")?;
-            stdout.reset()?;
-            writeln!(stdout, "{}", error)?;
+            stderr.set_color(ColorSpec::new().set_fg(Some(Color::Red)).set_bold(true))?;
+            write!(stderr, "error: ")?;
+            stderr.reset()?;
+            writeln!(stderr, "{}", error)?;
         }
     }
-    stdout.reset()?;
+    stderr.reset()?;
     Ok(())
 }
 

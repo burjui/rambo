@@ -29,9 +29,8 @@ use termcolor::WriteColor;
 
 use crate::riscv_backend::ui_immediate;
 use crate::riscv_backend::RICSVImage;
-use crate::utils::dump_memory;
 use crate::utils::intersection;
-use crate::utils::stderr;
+use crate::utils::stdout;
 
 #[cfg(test)]
 mod tests;
@@ -91,7 +90,7 @@ pub(crate) fn run(image: &RICSVImage, dump_state: DumpState) -> Result<Simulator
             .unwrap();
     }
 
-    let stderr = &mut stderr();
+    let stdout = &mut stdout();
     let mut simulator = Simulator::new(CODE_START_ADDRESS, dram);
     simulator.cpu.x.iter_mut().for_each(|x| *x = 0xAAAA_AAAA);
     simulator.cpu.x[registers::ZERO as usize] = 0;
@@ -101,13 +100,13 @@ pub(crate) fn run(image: &RICSVImage, dump_state: DumpState) -> Result<Simulator
     simulator.cpu.x[registers::GLOBAL_POINTER as usize] = DATA_START_ADDRESS;
 
     let dump_simulator_state =
-        |stderr: &mut StandardStream, simulator: &mut Simulator| -> Result<(), Box<dyn Error>> {
-            dump_registers(&simulator.cpu)?;
+        |output: &mut StandardStream, simulator: &mut Simulator| -> Result<(), Box<dyn Error>> {
+            dump_registers(output, &simulator.cpu)?;
 
             let data_bank = simulator.dram.find_bank_mut(DATA_START_ADDRESS).unwrap();
             if !image.data.is_empty() {
-                write_title(stderr, "RAM")?;
-                dump_memory(&data_bank[..image.data.len()], DATA_START_ADDRESS)?;
+                write_title(output, "RAM")?;
+                dump_memory(output, &data_bank[..image.data.len()], DATA_START_ADDRESS)?;
             }
 
             dump_stack(&simulator.cpu, &data_bank, DATA_START_ADDRESS, ram_size)?;
@@ -119,18 +118,18 @@ pub(crate) fn run(image: &RICSVImage, dump_state: DumpState) -> Result<Simulator
     simulator.cpu.pc = CODE_START_ADDRESS + image.entry;
     loop {
         if dump_state >= DumpState::Everything {
-            dump_simulator_state(stderr, &mut simulator)?;
+            dump_simulator_state(stdout, &mut simulator)?;
         }
 
         if dump_state >= DumpState::Instructions {
             if let Some(comments) = image.comments.find(simulator.cpu.pc - CODE_START_ADDRESS) {
                 for comment in comments {
-                    stderr.set_color(
+                    stdout.set_color(
                         ColorSpec::new()
                             .set_fg(Some(Color::Black))
                             .set_intense(true),
                     )?;
-                    writeln!(stderr, "// {}", comment)?;
+                    writeln!(stdout, "// {}", comment)?;
                 }
             }
         }
@@ -142,22 +141,22 @@ pub(crate) fn run(image: &RICSVImage, dump_state: DumpState) -> Result<Simulator
         match simulator.step() {
             Ok(op) => {
                 if dump_state >= DumpState::Instructions {
-                    stderr.set_color(ColorSpec::new().set_fg(Some(Color::White)).set_bold(true))?;
-                    write!(stderr, "[0x{:08x}]", pc)?;
-                    stderr.reset()?;
-                    writeln!(stderr, " {:?}", riscv::decoder::Op(op))?;
-                    stderr.flush()?;
+                    stdout.set_color(ColorSpec::new().set_fg(Some(Color::White)).set_bold(true))?;
+                    write!(stdout, "[0x{:08x}]", pc)?;
+                    stdout.reset()?;
+                    writeln!(stdout, " {:?}", riscv::decoder::Op(op))?;
+                    stdout.flush()?;
                 }
             }
 
             Err((error, op)) => match error {
                 CpuError::Ebreak => break,
                 _ => {
-                    dump_registers(&simulator.cpu)?;
+                    dump_registers(stdout, &simulator.cpu)?;
                     let data_bank = simulator.dram.find_bank_mut(DATA_START_ADDRESS).unwrap();
                     dump_stack(&simulator.cpu, &data_bank, DATA_START_ADDRESS, ram_size)?;
-                    write_title(stderr, "RAM")?;
-                    dump_memory(&data_bank, DATA_START_ADDRESS)?;
+                    write_title(stdout, "RAM")?;
+                    dump_memory(stdout, &data_bank, DATA_START_ADDRESS)?;
                     return Err(format!(
                         "[0x{:08x}] op: {:?}, error: {:?}",
                         pc,
@@ -181,31 +180,30 @@ pub(crate) fn run(image: &RICSVImage, dump_state: DumpState) -> Result<Simulator
     Ok(simulator)
 }
 
-fn dump_registers(cpu: &CpuState) -> io::Result<()> {
+fn dump_registers(output: &mut StandardStream, cpu: &CpuState) -> io::Result<()> {
     const REGISTERS_PER_ROW: usize = 4;
     const REGISTERS_PER_COLUMN: usize = REGISTER_COUNT / REGISTERS_PER_ROW;
 
-    let stderr = &mut stderr();
     for i in 0..REGISTER_COUNT {
         if i % REGISTERS_PER_ROW == 0 {
             if i > 0 {
-                writeln!(stderr)?;
+                writeln!(output)?;
             }
         } else {
-            write!(stderr, "  |  ")?;
+            write!(output, "  |  ")?;
         }
 
         let register = (i % REGISTERS_PER_ROW) * REGISTERS_PER_COLUMN + i / REGISTERS_PER_ROW;
-        write!(stderr, "x{:<2}", register)?;
-        stderr.set_color(
+        write!(output, "x{:<2}", register)?;
+        output.set_color(
             ColorSpec::new()
                 .set_fg(Some(Color::Black))
                 .set_intense(true),
         )?;
-        write!(stderr, "  0x{:08x}", cpu.x[register])?;
-        stderr.reset()?;
+        write!(output, "  0x{:08x}", cpu.x[register])?;
+        output.reset()?;
     }
-    writeln!(stderr, "\n")
+    writeln!(output, "\n")
 }
 
 fn dump_stack(
@@ -214,11 +212,12 @@ fn dump_stack(
     ram_base_address: u32,
     ram_size: u32,
 ) -> io::Result<()> {
-    let stderr = &mut stderr();
-    write_title(stderr, "STACK")?;
+    let stdout = &mut stdout();
+    write_title(stdout, "STACK")?;
     let stack_pointer = cpu.x[registers::STACK_POINTER as usize];
     let stack_offset = stack_pointer - ram_base_address;
     dump_memory(
+        stdout,
         &ram[stack_offset as usize..ram_size as usize],
         stack_pointer,
     )
@@ -389,4 +388,29 @@ impl Write for DRAMBank {
     fn flush(&mut self) -> io::Result<()> {
         Ok(())
     }
+}
+
+pub(crate) fn dump_memory(
+    output: &mut StandardStream,
+    ram: &[u8],
+    base_address: u32,
+) -> io::Result<()> {
+    for (index, &byte) in ram.iter().enumerate() {
+        if index % 4 == 0 {
+            if index > 0 {
+                writeln!(output)?;
+            }
+            write!(output, "[{:08x}] ", base_address + index as u32)?;
+        } else {
+            write!(output, " ")?;
+        }
+        output.set_color(
+            ColorSpec::new()
+                .set_fg(Some(Color::Black))
+                .set_intense(true),
+        )?;
+        write!(output, "{:02x}", byte)?;
+        output.reset()?;
+    }
+    writeln!(output, "\n")
 }
