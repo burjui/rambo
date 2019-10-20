@@ -43,6 +43,7 @@ pub(crate) struct PipelineOptions {
     pub(crate) enable_cfp: bool,
     pub(crate) enable_dce: bool,
     pub(crate) enable_immediate_integers: bool,
+    pub(crate) eval_ir: bool,
     pub(crate) verbosity: u8,
 }
 

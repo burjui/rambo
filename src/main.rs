@@ -94,12 +94,14 @@ fn parse_command_line() -> Result<CommandLine, Box<dyn Error>> {
     static NO_CFP_OPTION: &str = "no-cfp";
     static NO_DCE_OPTION: &str = "no-dce";
     static NO_IMMINT_OPTION: &str = "no-immint";
+    static EVAL_IR: &str = "e";
     static VERBOSE_OPTION: &str = "v";
 
     let args: Vec<String> = program_args().collect();
     let mut spec = Options::new();
     spec.optflag(HELP_OPTION, "help", "print this help menu");
     spec.optflag(WARNINGS_OPTION, "", "suppress warnings");
+    spec.optflag(EVAL_IR, "", "evaluate the generated IR");
     spec.optflag("", DUMP_CFG_OPTION, "dump CFG");
     spec.optflag("", IR_COMMENTS_OPTION, "comment the generated IR");
     spec.optflag(
@@ -111,14 +113,13 @@ fn parse_command_line() -> Result<CommandLine, Box<dyn Error>> {
     spec.optflag(
         "",
         NO_IMMINT_OPTION,
-        "disable do not emit integers as immediates, load from memory instead",
+        "do not emit integers as immediates, load from memory instead",
     );
     spec.optflagmulti(
         VERBOSE_OPTION,
         "verbose",
         "print individual passes;\nuse twice to dump intermediate results",
     );
-
     let pass_name_list: String = COMPILER_PASS_NAMES.join(", ");
     spec.optopt(
         PASS_OPTION,
@@ -170,6 +171,7 @@ fn parse_command_line() -> Result<CommandLine, Box<dyn Error>> {
         enable_cfp: !matches.opt_present(NO_CFP_OPTION),
         enable_dce: !matches.opt_present(NO_DCE_OPTION),
         enable_immediate_integers: !matches.opt_present(NO_IMMINT_OPTION),
+        eval_ir: matches.opt_present(EVAL_IR),
         verbosity: verbosity as u8,
     };
     let input_files = matches.free;
@@ -186,15 +188,15 @@ fn process(path: String, options: &PipelineOptions) -> Result<(), Box<dyn Error>
     stdout.reset()?;
     stdout.flush()?;
     let (elapsed, result) = measure_time(|| {
-        Pipeline::new(path, options)
+        let mut pipeline = Pipeline::new(path, options)
             .map(Load)?
             .map(Parse)?
             .map(VerifySemantics)?
-            .map(IR)?
-            .map(EvaluateIR)?
-            .map(RISCVBackend)?
-            .map(RISCVSimulator)
-            .map(|_| ())
+            .map(IR)?;
+        if options.eval_ir {
+            pipeline = pipeline.map(EvaluateIR)?;
+        }
+        pipeline.map(RISCVBackend)?.map(RISCVSimulator).map(|_| ())
     });
     println!("Execution time: {}", elapsed);
     println!(
