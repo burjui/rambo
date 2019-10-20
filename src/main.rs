@@ -3,18 +3,6 @@
 #[macro_use]
 extern crate derive_deref;
 
-use std::alloc::System;
-use std::env::args as program_args;
-use std::error::Error;
-use std::io::Write;
-
-use elapsed::measure_time;
-use getopts::Options;
-use number_prefix::NumberPrefix;
-use termcolor::Color;
-use termcolor::ColorSpec;
-use termcolor::WriteColor;
-
 use crate::pipeline::EvaluateIR;
 use crate::pipeline::Load;
 use crate::pipeline::Parse;
@@ -27,6 +15,16 @@ use crate::pipeline::VerifySemantics;
 use crate::pipeline::COMPILER_PASS_NAMES;
 use crate::pipeline::IR;
 use crate::utils::stdout;
+use elapsed::measure_time;
+use getopts::Options;
+use number_prefix::NumberPrefix;
+use std::alloc::System;
+use std::env::args as program_args;
+use std::error::Error;
+use std::io::Write;
+use termcolor::Color;
+use termcolor::ColorSpec;
+use termcolor::WriteColor;
 
 #[macro_use]
 mod utils;

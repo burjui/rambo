@@ -1,14 +1,12 @@
-use std::error::Error;
-use std::io::Cursor;
-
-use risky::instructions::*;
-use rvsim::CpuError;
-use rvsim::Op;
-
 use crate::riscv_backend::write_code;
 use crate::riscv_simulator::AccessMode;
 use crate::riscv_simulator::Simulator;
 use crate::riscv_simulator::DRAM;
+use risky::instructions::*;
+use rvsim::CpuError;
+use rvsim::Op;
+use std::error::Error;
+use std::io::Cursor;
 
 macro_rules! assert_step {
     ($simulator: ident, $op: pat) => {{

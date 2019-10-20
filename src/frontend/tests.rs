@@ -1,16 +1,15 @@
-use std::collections::HashSet;
-use std::ffi::OsStr;
-use std::fmt;
-use std::fs::File;
-use std::path::Path;
-use std::rc::Rc;
-
 use crate::frontend::FrontEnd;
 use crate::frontend::FrontEndState;
 use crate::graphviz::graphviz_dot_write_cfg;
 use crate::ir::IRModule;
 use crate::ir::Value;
 use crate::utils::TestResult;
+use std::collections::HashSet;
+use std::ffi::OsStr;
+use std::fmt;
+use std::fs::File;
+use std::path::Path;
+use std::rc::Rc;
 
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
 enum ForbiddenPermutation {

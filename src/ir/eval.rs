@@ -1,3 +1,12 @@
+use crate::ir::value_storage::ValueId;
+use crate::ir::FunctionMap;
+use crate::ir::IRModule;
+use crate::ir::Statement;
+use crate::ir::Value;
+use itertools::Itertools;
+use petgraph::graph::NodeIndex;
+use petgraph::prelude::Direction::Outgoing;
+use petgraph::visit::EdgeRef;
 use std::collections::HashMap;
 use std::mem::replace;
 use std::ops::Deref;
@@ -5,17 +14,6 @@ use std::ops::DerefMut;
 use std::ops::Index;
 use std::ops::IndexMut;
 use std::rc::Rc;
-
-use itertools::Itertools;
-use petgraph::graph::NodeIndex;
-use petgraph::prelude::Direction::Outgoing;
-use petgraph::visit::EdgeRef;
-
-use crate::ir::value_storage::ValueId;
-use crate::ir::FunctionMap;
-use crate::ir::IRModule;
-use crate::ir::Statement;
-use crate::ir::Value;
 
 pub(crate) struct EvalContext<'a> {
     module: &'a IRModule,

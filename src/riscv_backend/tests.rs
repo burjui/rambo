@@ -1,8 +1,3 @@
-use std::ffi::OsStr;
-use std::fs::File;
-use std::io::Write;
-use std::path::Path;
-
 use crate::frontend::FrontEnd;
 use crate::frontend::FrontEndState;
 use crate::graphviz::graphviz_dot_write_cfg;
@@ -15,6 +10,10 @@ use crate::riscv_simulator;
 use crate::riscv_simulator::DumpState;
 use crate::utils::stderr;
 use crate::utils::GenericResult;
+use std::ffi::OsStr;
+use std::fs::File;
+use std::io::Write;
+use std::path::Path;
 
 struct BackEndPermutation(usize);
 

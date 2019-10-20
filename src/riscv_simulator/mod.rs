@@ -1,15 +1,4 @@
-use std::cell::UnsafeCell;
-use std::convert::TryFrom;
-use std::error::Error;
-use std::fmt;
-use std::io;
-use std::io::Cursor;
-use std::io::Read;
-use std::io::Write;
-use std::ops::Deref;
-use std::ops::DerefMut;
-use std::ops::Range;
-
+use bitflags::bitflags;
 use byteorder::ReadBytesExt;
 use byteorder::WriteBytesExt;
 use itertools::Itertools;
@@ -22,12 +11,21 @@ use rvsim::Memory;
 use rvsim::MemoryAccess;
 use rvsim::Op;
 use rvsim::SimpleClock;
+use std::cell::UnsafeCell;
+use std::convert::TryFrom;
+use std::error::Error;
+use std::fmt;
+use std::io;
+use std::io::Cursor;
+use std::io::Read;
+use std::io::Write;
+use std::ops::Deref;
+use std::ops::DerefMut;
+use std::ops::Range;
 use termcolor::Color;
 use termcolor::ColorSpec;
 use termcolor::StandardStream;
 use termcolor::WriteColor;
-
-use bitflags::bitflags;
 
 use crate::riscv_backend::ui_immediate;
 use crate::riscv_backend::RICSVImage;

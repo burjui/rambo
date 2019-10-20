@@ -1,4 +1,11 @@
+use crate::ir::value_storage::ValueId;
+use crate::ir::value_storage::ValueStorage;
+use crate::source::Source;
+use crate::stable_vec::StableVec;
 use core::cmp;
+use itertools::Itertools;
+use petgraph::graph::NodeIndex;
+use petgraph::stable_graph::StableDiGraph;
 use std::collections::HashMap;
 use std::fmt;
 use std::hash::Hash;
@@ -9,15 +16,6 @@ use std::iter::once;
 use std::ops::Deref;
 use std::ops::DerefMut;
 use std::rc::Rc;
-
-use crate::stable_vec::StableVec;
-use itertools::Itertools;
-use petgraph::graph::NodeIndex;
-use petgraph::stable_graph::StableDiGraph;
-
-use crate::ir::value_storage::ValueId;
-use crate::ir::value_storage::ValueStorage;
-use crate::source::Source;
 
 pub(crate) mod eval;
 pub(crate) mod value_storage;

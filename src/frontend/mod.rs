@@ -7,16 +7,6 @@ In: Jhala R., De Bosschere K. (eds) Compiler Construction. CC 2013.
 Lecture Notes in Computer Science, vol 7791. Springer, Berlin, Heidelberg
 */
 
-use std::collections::HashMap;
-use std::collections::HashSet;
-use std::rc::Rc;
-
-use itertools::free::chain;
-use itertools::Itertools;
-use petgraph::graph::NodeIndex;
-use petgraph::visit::EdgeRef;
-use petgraph::Direction;
-
 use crate::frontend::dead_code::remove_dead_code;
 use crate::ir::get_value_operands;
 use crate::ir::normalize;
@@ -39,6 +29,14 @@ use crate::semantics::ExprRef;
 use crate::semantics::TypedExpr;
 use crate::semantics::TypedStatement;
 use crate::source::Source;
+use itertools::free::chain;
+use itertools::Itertools;
+use petgraph::graph::NodeIndex;
+use petgraph::visit::EdgeRef;
+use petgraph::Direction;
+use std::collections::HashMap;
+use std::collections::HashSet;
+use std::rc::Rc;
 
 mod dead_code;
 #[cfg(test)]

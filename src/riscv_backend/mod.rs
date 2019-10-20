@@ -1,13 +1,12 @@
-use std::collections::btree_set::BTreeSet;
-use std::collections::HashMap;
-use std::convert::TryFrom;
-use std::error::Error;
-use std::fmt;
-use std::io;
-use std::io::Cursor;
-use std::io::Write;
-use std::num::TryFromIntError;
-
+use crate::ir::value_storage::ValueId;
+use crate::ir::FnId;
+use crate::ir::IRModule;
+use crate::ir::Phi;
+use crate::ir::Statement;
+use crate::ir::Value;
+use crate::utils::stderr;
+use crate::utils::GenericResult;
+use crate::utils::VecUtils;
 use bimap::BiMap;
 use byteorder::WriteBytesExt;
 use itertools::Itertools;
@@ -21,20 +20,19 @@ use riscv::DataByteOrder;
 use riscv::InstructionByteOrder;
 use risky::instructions::*;
 use smallvec::SmallVec;
+use std::collections::btree_set::BTreeSet;
+use std::collections::HashMap;
+use std::convert::TryFrom;
+use std::error::Error;
+use std::fmt;
+use std::io;
+use std::io::Cursor;
+use std::io::Write;
+use std::num::TryFromIntError;
 use termcolor::Color;
 use termcolor::ColorSpec;
 use termcolor::StandardStream;
 use termcolor::WriteColor;
-
-use crate::ir::value_storage::ValueId;
-use crate::ir::FnId;
-use crate::ir::IRModule;
-use crate::ir::Phi;
-use crate::ir::Statement;
-use crate::ir::Value;
-use crate::utils::stderr;
-use crate::utils::GenericResult;
-use crate::utils::VecUtils;
 
 #[cfg(test)]
 mod tests;

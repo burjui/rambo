@@ -1,19 +1,3 @@
-use core::borrow::Borrow;
-use std::error::Error;
-use std::ffi::OsStr;
-use std::fs::File;
-use std::io::BufWriter;
-use std::io::Write;
-use std::path::Path;
-
-use itertools::Itertools;
-use number_prefix::NumberPrefix;
-use riscv::registers;
-use termcolor::Color;
-use termcolor::ColorSpec;
-use termcolor::StandardStream;
-use termcolor::WriteColor;
-
 use crate::frontend::FrontEnd;
 use crate::frontend::FrontEndState;
 use crate::graphviz::graphviz_dot_write_cfg;
@@ -35,6 +19,20 @@ use crate::semantics::SemanticsChecker;
 use crate::source::SourceFile;
 use crate::source::SourceFileRef;
 use crate::utils::stdout;
+use core::borrow::Borrow;
+use itertools::Itertools;
+use number_prefix::NumberPrefix;
+use riscv::registers;
+use std::error::Error;
+use std::ffi::OsStr;
+use std::fs::File;
+use std::io::BufWriter;
+use std::io::Write;
+use std::path::Path;
+use termcolor::Color;
+use termcolor::ColorSpec;
+use termcolor::StandardStream;
+use termcolor::WriteColor;
 
 #[derive(Clone)]
 pub(crate) struct PipelineOptions {

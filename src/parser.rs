@@ -1,9 +1,3 @@
-use std::collections::HashMap;
-use std::error::Error;
-use std::fmt::Debug;
-use std::fmt::Formatter;
-use std::fmt::Write;
-
 use crate::lexer::Lexeme;
 use crate::lexer::Lexer;
 use crate::lexer::LexerStats;
@@ -12,6 +6,11 @@ use crate::semantics::FunctionType;
 use crate::semantics::FunctionTypeRef;
 use crate::semantics::Type;
 use crate::source::Source;
+use std::collections::HashMap;
+use std::error::Error;
+use std::fmt::Debug;
+use std::fmt::Formatter;
+use std::fmt::Write;
 
 #[derive(Clone)]
 pub(crate) struct Parameter {

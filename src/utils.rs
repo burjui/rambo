@@ -1,16 +1,14 @@
+use copy_in_place::copy_in_place;
 use std::error::Error;
 use std::io;
 use std::io::Write;
 use std::mem::swap;
 use std::ops::Range;
-
 use termcolor::Color;
 use termcolor::ColorChoice;
 use termcolor::ColorSpec;
 use termcolor::StandardStream;
 use termcolor::WriteColor;
-
-use copy_in_place::copy_in_place;
 
 pub(crate) type GenericResult<T> = std::result::Result<T, Box<dyn Error>>;
 

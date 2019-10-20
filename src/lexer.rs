@@ -1,14 +1,12 @@
+use crate::source::Source;
+use crate::source::SourceFileRef;
+use itertools::Itertools;
 use std::error::Error;
 use std::fmt::Debug;
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::iter::once;
 use std::ops::Range;
-
-use itertools::Itertools;
-
-use crate::source::Source;
-use crate::source::SourceFileRef;
 
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub(crate) enum Token {

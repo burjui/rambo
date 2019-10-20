@@ -1,15 +1,3 @@
-use core::fmt::Write;
-use std::fmt;
-use std::io;
-use std::iter::once;
-use std::iter::FlatMap;
-use std::iter::Once;
-use std::mem::replace;
-use std::str::Chars;
-
-use itertools::Itertools;
-use petgraph::graph::NodeIndex;
-
 use crate::ir::value_storage::ValueId;
 use crate::ir::value_storage::ValueStorage;
 use crate::ir::ControlFlowGraph;
@@ -17,6 +5,16 @@ use crate::ir::IRModule;
 use crate::ir::Phi;
 use crate::ir::Statement;
 use crate::ir::Value;
+use core::fmt::Write;
+use itertools::Itertools;
+use petgraph::graph::NodeIndex;
+use std::fmt;
+use std::io;
+use std::iter::once;
+use std::iter::FlatMap;
+use std::iter::Once;
+use std::mem::replace;
+use std::str::Chars;
 
 pub(crate) fn graphviz_dot_write_cfg(
     output: &mut impl io::Write,

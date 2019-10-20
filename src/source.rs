@@ -1,10 +1,9 @@
+use crate::unique_rc::UniqueRc;
 use std::error::Error;
 use std::fmt::Debug;
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::ops::Range;
-
-use crate::unique_rc::UniqueRc;
 
 #[derive(Copy, Clone)]
 pub(crate) struct Position {

@@ -1,12 +1,3 @@
-use std::error::Error;
-use std::fmt::Debug;
-use std::fmt::Formatter;
-use std::mem::replace;
-use std::ops::Deref;
-use std::rc::Rc;
-
-use itertools::Itertools;
-
 use crate::env::Environment;
 use crate::parser::BinaryOperation;
 use crate::parser::Block as ASTBlock;
@@ -15,6 +6,13 @@ use crate::parser::Parameter;
 use crate::parser::Statement;
 use crate::source::Source;
 use crate::unique_rc::UniqueRc;
+use itertools::Itertools;
+use std::error::Error;
+use std::fmt::Debug;
+use std::fmt::Formatter;
+use std::mem::replace;
+use std::ops::Deref;
+use std::rc::Rc;
 
 pub(crate) struct SemanticsChecker {
     env: Environment<Rc<String>, BindingRef>,

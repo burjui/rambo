@@ -1,8 +1,7 @@
+use byteorder::ReadBytesExt;
 use std::fmt;
 use std::io::Cursor;
 use std::ops::Deref;
-
-use byteorder::ReadBytesExt;
 
 use crate::InstructionByteOrder;
 

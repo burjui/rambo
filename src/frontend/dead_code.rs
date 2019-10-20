@@ -1,14 +1,3 @@
-use std::collections::HashMap;
-use std::iter::once;
-use std::iter::repeat;
-use std::iter::FromIterator;
-use std::mem::replace;
-
-use itertools::Itertools;
-use petgraph::graph::NodeIndex;
-use petgraph::visit::EdgeRef;
-use petgraph::Direction;
-
 use crate::ir::get_statement_operands_mut;
 use crate::ir::get_statement_value_operands;
 use crate::ir::get_value_operands_mut;
@@ -20,6 +9,15 @@ use crate::ir::FunctionMap;
 use crate::ir::Statement;
 use crate::ir::StatementLocation;
 use crate::ir::Value;
+use itertools::Itertools;
+use petgraph::graph::NodeIndex;
+use petgraph::visit::EdgeRef;
+use petgraph::Direction;
+use std::collections::HashMap;
+use std::iter::once;
+use std::iter::repeat;
+use std::iter::FromIterator;
+use std::mem::replace;
 
 pub(crate) fn remove_dead_code(
     entry_block: NodeIndex,

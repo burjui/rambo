@@ -1,11 +1,10 @@
+use crate::ir::Value;
+use crate::utils::RetainIndices;
 use std::collections::HashMap;
 use std::fmt;
 use std::ops::Deref;
 use std::ops::Index;
 use std::ops::IndexMut;
-
-use crate::ir::Value;
-use crate::utils::RetainIndices;
 
 pub(crate) struct Reused(bool);
 
