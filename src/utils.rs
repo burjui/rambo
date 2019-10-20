@@ -1,4 +1,3 @@
-use copy_in_place::copy_in_place;
 use std::error::Error;
 use std::io;
 use std::io::Write;
@@ -164,7 +163,7 @@ impl<T: Default + Copy> VecUtils<T> for Vec<T> {
         let new_len = self.len();
         let slice_end = index + slice_len;
         let range = index..new_len - slice_len;
-        copy_in_place(self, range.clone(), new_len - range.end + range.start);
+        self.copy_within(range.clone(), new_len - range.end + range.start);
         (&mut self[index..slice_end]).copy_from_slice(src)
     }
 }
