@@ -11,7 +11,6 @@ use rvsim::Memory;
 use rvsim::MemoryAccess;
 use rvsim::Op;
 use rvsim::SimpleClock;
-use std::cell::UnsafeCell;
 use std::convert::TryFrom;
 use std::error::Error;
 use std::fmt;
@@ -346,7 +345,7 @@ impl Memory for DRAM {
 
 struct DRAMBank {
     address_range: Range<u32>,
-    memory: UnsafeCell<Box<[u8]>>,
+    memory: Box<[u8]>,
     access_mode: AccessMode,
 }
 
@@ -354,7 +353,7 @@ impl DRAMBank {
     fn new(base_address: u32, size: u32, access_mode: AccessMode) -> Self {
         Self {
             address_range: base_address..base_address + size,
-            memory: UnsafeCell::new(vec![0; size as usize].into_boxed_slice()),
+            memory: vec![0; size as usize].into_boxed_slice(),
             access_mode,
         }
     }
@@ -364,13 +363,13 @@ impl Deref for DRAMBank {
     type Target = [u8];
 
     fn deref(&self) -> &Self::Target {
-        unsafe { &**self.memory.get() }
+        &self.memory
     }
 }
 
 impl DerefMut for DRAMBank {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        unsafe { &mut **self.memory.get() }
+        &mut self.memory
     }
 }
 
