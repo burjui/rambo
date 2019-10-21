@@ -96,6 +96,10 @@ fn parse_command_line() -> Result<CommandLine, Box<dyn Error>> {
     static NO_IMMINT_OPTION: &str = "no-immint";
     static EVAL_IR: &str = "e";
     static VERBOSE_OPTION: &str = "v";
+    static DUMP_AST_OPTION: &str = "dump-ast";
+    static DUMP_HIR_OPTION: &str = "dump-hir";
+    static DUMP_IR_OPTION: &str = "dump-ir";
+    static DUMP_TARGET_CODE_OPTION: &str = "dump-tc";
 
     let args: Vec<String> = program_args().collect();
     let mut spec = Options::new();
@@ -130,6 +134,10 @@ fn parse_command_line() -> Result<CommandLine, Box<dyn Error>> {
         ),
         "PASS",
     );
+    spec.optflag("", DUMP_AST_OPTION, "dump AST");
+    spec.optflag("", DUMP_HIR_OPTION, "dump HIR");
+    spec.optflag("", DUMP_IR_OPTION, "dump IR");
+    spec.optflag("", DUMP_TARGET_CODE_OPTION, "dump target code");
 
     let matches = spec.parse(&args[1..])?;
     let program_name = args[0].clone();
@@ -173,6 +181,10 @@ fn parse_command_line() -> Result<CommandLine, Box<dyn Error>> {
         enable_immediate_integers: !matches.opt_present(NO_IMMINT_OPTION),
         eval_ir: matches.opt_present(EVAL_IR),
         verbosity: verbosity as u8,
+        dump_ast: matches.opt_present(DUMP_AST_OPTION),
+        dump_hir: matches.opt_present(DUMP_HIR_OPTION),
+        dump_ir: matches.opt_present(DUMP_IR_OPTION),
+        dump_target_code: matches.opt_present(DUMP_TARGET_CODE_OPTION),
     };
     let input_files = matches.free;
     Ok(CommandLine {

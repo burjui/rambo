@@ -45,6 +45,10 @@ pub(crate) struct PipelineOptions {
     pub(crate) enable_immediate_integers: bool,
     pub(crate) eval_ir: bool,
     pub(crate) verbosity: u8,
+    pub(crate) dump_ast: bool,
+    pub(crate) dump_hir: bool,
+    pub(crate) dump_ir: bool,
+    pub(crate) dump_target_code: bool,
 }
 
 pub(crate) struct Pipeline<'a, T> {
@@ -175,7 +179,7 @@ impl CompilerPass<SourceFileRef, (Block, SourceFileRef)> for Parse {
         if options.verbosity >= 1 {
             writeln!(stdout, "{} lexemes", stats.lexeme_count)?;
         }
-        if options.verbosity >= 2 {
+        if options.dump_ast {
             writeln!(stdout, "{:?}", ast.statements.iter().format("\n"))?;
         }
         Ok((ast, source_file))
@@ -192,7 +196,7 @@ impl CompilerPass<(Block, SourceFileRef), (ExprRef, SourceFileRef)> for VerifySe
     ) -> Result<(ExprRef, SourceFileRef), Box<dyn Error>> {
         let checker = SemanticsChecker::new();
         let hir = checker.check_module(&ast)?;
-        if options.verbosity >= 2 {
+        if options.dump_hir {
             writeln!(&mut stdout(), "{:?}", hir)?;
         }
         Ok((hir, source_file))
@@ -222,7 +226,7 @@ impl CompilerPass<(ExprRef, SourceFileRef), IRModule> for IR {
                 unit_statements_count(&module.borrow())
             )?;
         }
-        if options.verbosity >= 2 {
+        if options.dump_ir {
             dump_module(&module, &module.name, &mut stdout)?;
         }
         if options.dump_cfg {
@@ -263,7 +267,7 @@ impl CompilerPass<IRModule, RICSVImage> for RISCVBackend {
     fn apply(module: IRModule, options: &PipelineOptions) -> Result<RICSVImage, Box<dyn Error>> {
         let image = riscv_backend::generate(
             &module,
-            DumpCode(options.verbosity >= 2),
+            DumpCode(options.dump_target_code),
             EnableImmediateIntegers(options.enable_immediate_integers),
         )?;
         if options.verbosity >= 1 {
