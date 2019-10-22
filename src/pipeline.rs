@@ -1,6 +1,6 @@
 use crate::frontend::FrontEnd;
 use crate::frontend::FrontEndState;
-use crate::graphviz::graphviz_dot_write_cfg;
+use crate::graphviz::IrGraphvizFile;
 use crate::ir::eval::EvalContext;
 use crate::ir::fmt_statement;
 use crate::ir::IRModule;
@@ -25,8 +25,6 @@ use number_prefix::NumberPrefix;
 use riscv::registers;
 use std::error::Error;
 use std::ffi::OsStr;
-use std::fs::File;
-use std::io::BufWriter;
 use std::io::Write;
 use std::path::Path;
 use termcolor::Color;
@@ -240,8 +238,8 @@ impl CompilerPass<(ExprRef, SourceFileRef), IRModule> for IR {
                         src_path.display()
                     )
                 });
-            let file = File::create(&format!("{}_cfg.dot", src_file_name))?;
-            graphviz_dot_write_cfg(&mut BufWriter::new(file), &module)?;
+            let file = IrGraphvizFile::create(format!("{}_cfg.dot", src_file_name))?;
+            file.write(&module)?;
         }
         Ok(module)
     }

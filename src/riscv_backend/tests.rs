@@ -1,6 +1,6 @@
 use crate::frontend::FrontEnd;
 use crate::frontend::FrontEndState;
-use crate::graphviz::graphviz_dot_write_cfg;
+use crate::graphviz::IrGraphvizFile;
 use crate::riscv_backend;
 use crate::riscv_backend::registers;
 use crate::riscv_backend::DumpCode;
@@ -11,7 +11,6 @@ use crate::riscv_simulator::DumpState;
 use crate::utils::stderr;
 use crate::utils::GenericResult;
 use std::ffi::OsStr;
-use std::fs::File;
 use std::io::Write;
 use std::path::Path;
 
@@ -63,12 +62,12 @@ macro_rules! test_backend {
                         "failed to extract the file name from path: {}",
                         test_src_path.display()
                     ));
-            let mut file = File::create(format!(
+            let file = IrGraphvizFile::create(format!(
                 "riscv_backend_{}_{}_cfg.dot",
                 test_src_file_name,
                 line!()
             ))?;
-            graphviz_dot_write_cfg(&mut file, &module)?;
+            file.write(&module)?;
 
             let stderr = &mut stderr();
             let dump_code = DumpCode(false);

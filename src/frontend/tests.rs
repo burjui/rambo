@@ -1,13 +1,12 @@
 use crate::frontend::FrontEnd;
 use crate::frontend::FrontEndState;
-use crate::graphviz::graphviz_dot_write_cfg;
+use crate::graphviz::IrGraphvizFile;
 use crate::ir::IRModule;
 use crate::ir::Value;
 use crate::utils::TestResult;
 use std::collections::HashSet;
 use std::ffi::OsStr;
 use std::fmt;
-use std::fs::File;
 use std::path::Path;
 use std::rc::Rc;
 
@@ -104,8 +103,8 @@ macro_rules! test_frontend {
                     .file_name()
                     .and_then(OsStr::to_str)
                     .expect(&format!("failed to extract the file name from path: {}", test_src_path.display()));
-                let mut file = File::create(format!("frontend_{}_{}_cfg.dot", test_src_file_name, line!()))?;
-                graphviz_dot_write_cfg(&mut file, &module)?;
+                let file = IrGraphvizFile::create(format!("frontend_{}_{}_cfg.dot", test_src_file_name, line!()))?;
+                file.write(&module)?;
                 let check: fn(IRModule) = $check;
                 check(module);
 
