@@ -150,6 +150,7 @@ pub(crate) fn run(image: &RICSVImage, dump_state: DumpState) -> Result<Simulator
 
             Err((error, op)) => match error {
                 CpuError::Ebreak => break,
+                CpuError::Ecall if simulator.cpu.x[registers::ARGUMENT7 as usize] == 93 => break,
                 _ => {
                     dump_registers(stdout, &simulator.cpu)?;
                     let data_bank = simulator.dram.find_bank_mut(DATA_START_ADDRESS).unwrap();

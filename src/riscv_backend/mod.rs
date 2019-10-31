@@ -191,7 +191,11 @@ impl<'a> Backend<'a> {
         }
 
         if self.function_id.is_none() {
-            self.push_code(&[ebreak().unwrap()]).unwrap();
+            self.push_code(&[
+                addi(registers::ARGUMENT7, registers::ZERO, 93).unwrap(),
+                ecall().unwrap(),
+            ])
+            .unwrap();
         }
         self.comment(&format!("---- END {}", &self.module.name))?;
 
