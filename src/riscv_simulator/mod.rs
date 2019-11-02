@@ -93,10 +93,9 @@ pub(crate) fn run(image: &RICSVImage, dump_state: DumpState) -> Result<Simulator
     let mut simulator = Simulator::new(CODE_START_ADDRESS, dram);
     simulator.cpu.x.iter_mut().for_each(|x| *x = 0xAAAA_AAAA);
     simulator.cpu.x[registers::ZERO as usize] = 0;
-    simulator.cpu.x[registers::STACK_POINTER as usize] = DATA_START_ADDRESS + ram_size - 4;
-    simulator.cpu.x[registers::FRAME_POINTER as usize] =
-        simulator.cpu.x[registers::STACK_POINTER as usize];
-    simulator.cpu.x[registers::GLOBAL_POINTER as usize] = DATA_START_ADDRESS;
+    simulator.cpu.x[registers::SP as usize] = DATA_START_ADDRESS + ram_size - 4;
+    simulator.cpu.x[registers::FP as usize] = simulator.cpu.x[registers::SP as usize];
+    simulator.cpu.x[registers::GP as usize] = DATA_START_ADDRESS;
 
     let dump_simulator_state =
         |output: &mut StandardStream, simulator: &mut Simulator| -> Result<(), Box<dyn Error>> {
@@ -113,7 +112,7 @@ pub(crate) fn run(image: &RICSVImage, dump_state: DumpState) -> Result<Simulator
         };
 
     let code_end = CODE_START_ADDRESS + u32::try_from(image.code.len()).unwrap();
-    simulator.cpu.x[registers::LINK as usize] = code_end;
+    simulator.cpu.x[registers::RA as usize] = code_end;
     simulator.cpu.pc = CODE_START_ADDRESS + image.entry;
     loop {
         if dump_state >= DumpState::Everything {
@@ -150,7 +149,7 @@ pub(crate) fn run(image: &RICSVImage, dump_state: DumpState) -> Result<Simulator
 
             Err((error, op)) => match error {
                 CpuError::Ebreak => break,
-                CpuError::Ecall if simulator.cpu.x[registers::ARGUMENT7 as usize] == 93 => break,
+                CpuError::Ecall if simulator.cpu.x[registers::A7 as usize] == 93 => break,
                 _ => {
                     dump_registers(stdout, &simulator.cpu)?;
                     let data_bank = simulator.dram.find_bank_mut(DATA_START_ADDRESS).unwrap();
@@ -168,9 +167,7 @@ pub(crate) fn run(image: &RICSVImage, dump_state: DumpState) -> Result<Simulator
             },
         }
 
-        if simulator.cpu.x[registers::STACK_POINTER as usize]
-            < DATA_START_ADDRESS + ram_size - STACK_SIZE
-        {
+        if simulator.cpu.x[registers::SP as usize] < DATA_START_ADDRESS + ram_size - STACK_SIZE {
             return Err("stack overflow".into());
         }
 
@@ -214,7 +211,7 @@ fn dump_stack(
 ) -> io::Result<()> {
     let stdout = &mut stdout();
     write_title(stdout, "STACK")?;
-    let stack_pointer = cpu.x[registers::STACK_POINTER as usize];
+    let stack_pointer = cpu.x[registers::SP as usize];
     let stack_offset = stack_pointer - ram_base_address;
     dump_memory(
         stdout,

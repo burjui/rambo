@@ -107,7 +107,7 @@ test_backend! {
     ",
     |image| {
         let simulator = riscv_simulator::run(&image, DumpState::None)?;
-        assert_eq!(399, simulator.cpu.x[registers::RETURN_VALUE0 as usize]);
+        assert_eq!(399, simulator.cpu.x[registers::A0 as usize]);
         Ok(())
     }
 }
@@ -125,7 +125,7 @@ test_backend! {
     ",
     |image| {
         let simulator = riscv_simulator::run(&image, DumpState::None)?;
-        assert_eq!(3, simulator.cpu.x[registers::RETURN_VALUE0 as usize]);
+        assert_eq!(3, simulator.cpu.x[registers::A0 as usize]);
         Ok(())
     }
 }
@@ -139,7 +139,7 @@ test_backend! {
     ",
     |image| {
         let simulator = riscv_simulator::run(&image, DumpState::None)?;
-        assert_eq!(3, simulator.cpu.x[registers::RETURN_VALUE0 as usize]);
+        assert_eq!(3, simulator.cpu.x[registers::A0 as usize]);
         Ok(())
     }
 }
@@ -155,7 +155,7 @@ test_backend! {
     ",
     |image| {
         let simulator = riscv_simulator::run(&image, DumpState::None)?;
-        assert_eq!(15, simulator.cpu.x[registers::RETURN_VALUE0 as usize]);
+        assert_eq!(15, simulator.cpu.x[registers::A0 as usize]);
         Ok(())
     }
 }

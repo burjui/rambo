@@ -305,9 +305,9 @@ impl CompilerPass<RICSVImage, ()> for RISCVSimulator {
             writeln!(
                 &mut stdout(),
                 "result at x{} = 0x{:08x} ({})",
-                registers::RETURN_VALUE0,
-                state.cpu.x[registers::RETURN_VALUE0 as usize],
-                state.cpu.x[registers::RETURN_VALUE0 as usize]
+                registers::A0,
+                state.cpu.x[registers::A0 as usize],
+                state.cpu.x[registers::A0 as usize]
             )?;
         }
         Ok(())
