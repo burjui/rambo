@@ -98,13 +98,17 @@ macro_rules! test_frontend {
                     .enable_cfp(frontend_permutation.enable_cfp())
                     .enable_dce(frontend_permutation.enable_dce())
                     .build(&code);
-                let test_src_path = Path::new(file!());
-                let test_src_file_name = test_src_path
-                    .file_name()
-                    .and_then(OsStr::to_str)
-                    .expect(&format!("failed to extract the file name from path: {}", test_src_path.display()));
-                let file = IrGraphvizFile::create(format!("frontend_{}_{}_cfg.dot", test_src_file_name, line!()))?;
-                file.write(&module)?;
+
+                if crate::test_config::EMIT_MODULE_GRAPHVIZ_FILE {
+                    let test_src_path = Path::new(file!());
+                    let test_src_file_name = test_src_path
+                        .file_name()
+                        .and_then(OsStr::to_str)
+                        .expect(&format!("failed to extract the file name from path: {}", test_src_path.display()));
+                    let file = IrGraphvizFile::create(format!("frontend_{}_{}_cfg.dot", test_src_file_name, line!()))?;
+                    file.write(&module)?;
+                }
+
                 let check: fn(IRModule) = $check;
                 check(module);
 

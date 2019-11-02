@@ -44,6 +44,7 @@ mod pipeline;
 mod semantics;
 mod source;
 mod stable_vec;
+mod test_config;
 mod tracking_allocator;
 mod unique_rc;
 
