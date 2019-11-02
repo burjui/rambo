@@ -51,12 +51,17 @@ pub(crate) fn typecheck(name: String, text: &str) -> GenericResult<crate::semant
 }
 
 pub(crate) fn stdout() -> StandardStream {
-    let is_tty = unsafe { libc::isatty(libc::STDOUT_FILENO as i32) } != 0;
-    let color_choice = if is_tty {
-        ColorChoice::Always
-    } else {
-        ColorChoice::Never
+    #[cfg(not(test))]
+    let color_choice = {
+        let is_tty = unsafe { libc::isatty(libc::STDOUT_FILENO as i32) } != 0;
+        if is_tty {
+            ColorChoice::Always
+        } else {
+            ColorChoice::Never
+        }
     };
+    #[cfg(test)]
+    let color_choice = ColorChoice::Never;
     StandardStream::stdout(color_choice)
 }
 

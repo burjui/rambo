@@ -263,14 +263,18 @@ impl CompilerPass<IRModule, RICSVImage> for RISCVBackend {
     const TITLE: &'static str = "Generating RISC-V code";
 
     fn apply(module: IRModule, options: &PipelineOptions) -> Result<RICSVImage, Box<dyn Error>> {
+        let stdout = &mut stdout();
         let image = riscv_backend::generate(
             &module,
-            DumpCode(options.dump_target_code),
+            if options.dump_target_code {
+                DumpCode::Yes(stdout)
+            } else {
+                DumpCode::No
+            },
             EnableImmediateIntegers(options.enable_immediate_integers),
         )?;
         if options.verbosity >= 1 {
             // FIXME "image.code.len() / 4" is only correct for 32-bit instructions
-            let stdout = &mut stdout();
             writeln!(
                 stdout,
                 "code: {} ({} instructions)",
@@ -295,15 +299,16 @@ impl CompilerPass<RICSVImage, ()> for RISCVSimulator {
     const TITLE: &'static str = "Executing RISC-V code";
 
     fn apply(image: RICSVImage, options: &PipelineOptions) -> Result<(), Box<dyn Error>> {
+        let stdout = &mut stdout();
         let dump_state = match options.verbosity {
-            2 => DumpState::Instructions,
-            3 => DumpState::Everything,
+            2 => DumpState::Instructions(stdout),
+            3 => DumpState::Everything(stdout),
             _ => DumpState::None,
         };
         let state = riscv_simulator::run(&image, dump_state)?;
         if options.verbosity >= 1 {
             writeln!(
-                &mut stdout(),
+                stdout,
                 "result at x{} = 0x{:08x} ({})",
                 registers::A0,
                 state.cpu.x[registers::A0 as usize],

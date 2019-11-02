@@ -26,22 +26,24 @@ use termcolor::ColorSpec;
 use termcolor::StandardStream;
 use termcolor::WriteColor;
 
-use crate::riscv_backend::ui_immediate;
 use crate::riscv_backend::RICSVImage;
+use crate::riscv_backend::{ui_immediate, RelocationKind};
 use crate::utils::intersection;
 use crate::utils::stdout;
 
 #[cfg(test)]
 mod tests;
 
-#[derive(PartialOrd, PartialEq)]
-pub(crate) enum DumpState {
+pub(crate) enum DumpState<'a> {
     None,
-    Instructions,
-    Everything,
+    Instructions(&'a mut StandardStream),
+    Everything(&'a mut StandardStream),
 }
 
-pub(crate) fn run(image: &RICSVImage, dump_state: DumpState) -> Result<Simulator, Box<dyn Error>> {
+pub(crate) fn run(
+    image: &RICSVImage,
+    mut dump_state: DumpState<'_>,
+) -> Result<Simulator, Box<dyn Error>> {
     const STACK_SIZE: u32 = 1024;
     const CODE_START_ADDRESS: u32 = 0x2000_0000;
     const DATA_START_ADDRESS: u32 = 0x8000_0000;
@@ -67,25 +69,44 @@ pub(crate) fn run(image: &RICSVImage, dump_state: DumpState) -> Result<Simulator
     code_bank.write_all(&image.code)?;
 
     for relocation in &image.relocations {
+        let target_offset = match relocation.kind {
+            RelocationKind::Function => CODE_START_ADDRESS,
+            RelocationKind::DataLoad | RelocationKind::DataStore => DATA_START_ADDRESS,
+        };
+        let target = (relocation.target + target_offset) as i32;
+        let immediate = ui_immediate(target).unwrap();
+
         let offset = relocation.offset as usize;
         let u_instruction_range = offset..offset + 4;
-        let i_instruction_range = offset + 4..offset + 8;
         let mut u_instruction = (&code_bank[u_instruction_range.clone()])
             .read_u32::<riscv::InstructionByteOrder>()
             .unwrap();
-        let mut i_instruction = (&code_bank[i_instruction_range.clone()])
-            .read_u32::<riscv::InstructionByteOrder>()
-            .unwrap();
-        let function_offset =
-            i32::try_from(image.function_offsets[&relocation.target] + CODE_START_ADDRESS).unwrap();
-        let immediate = ui_immediate(function_offset).unwrap();
         u_instruction = u_instruction & 0x0000_0FFF | immediate.upper as u32;
-        i_instruction = i_instruction & 0x000F_FFFF | ((immediate.lower as u32) << 20);
         (&mut code_bank[u_instruction_range])
             .write_u32::<riscv::InstructionByteOrder>(u_instruction)
             .unwrap();
-        (&mut code_bank[i_instruction_range])
-            .write_u32::<riscv::InstructionByteOrder>(i_instruction)
+
+        let next_instruction_range = offset + 4..offset + 8;
+        let next_instruction = (&code_bank[next_instruction_range.clone()])
+            .read_u32::<riscv::InstructionByteOrder>()
+            .unwrap();
+        let next_instruction = match relocation.kind {
+            RelocationKind::Function | RelocationKind::DataLoad => {
+                next_instruction & 0x000F_FFFF | ((immediate.lower as u32) << 20)
+            }
+            RelocationKind::DataStore => {
+                const LOW_MASK: u32 = 0b11111;
+                const LOW_OFFSET: u32 = 7;
+                const HIGH_MASK: u32 = 0b1111111;
+                const HIGH_OFFSET: u32 = 25;
+                next_instruction & !(LOW_MASK << LOW_OFFSET | HIGH_MASK << HIGH_OFFSET)
+                    | ((immediate.lower as u32 & LOW_MASK) << LOW_OFFSET)
+                    | (((immediate.lower >> 5) as u32 & HIGH_MASK) << HIGH_OFFSET)
+            }
+        };
+
+        (&mut code_bank[next_instruction_range])
+            .write_u32::<riscv::InstructionByteOrder>(next_instruction)
             .unwrap();
     }
 
@@ -115,19 +136,19 @@ pub(crate) fn run(image: &RICSVImage, dump_state: DumpState) -> Result<Simulator
     simulator.cpu.x[registers::RA as usize] = code_end;
     simulator.cpu.pc = CODE_START_ADDRESS + image.entry;
     loop {
-        if dump_state >= DumpState::Everything {
-            dump_simulator_state(stdout, &mut simulator)?;
+        if let DumpState::Everything(output) = &mut dump_state {
+            dump_simulator_state(*output, &mut simulator)?;
         }
 
-        if dump_state >= DumpState::Instructions {
+        if let DumpState::Instructions(output) | DumpState::Everything(output) = &mut dump_state {
             if let Some(comments) = image.comments.find(simulator.cpu.pc - CODE_START_ADDRESS) {
                 for comment in comments {
-                    stdout.set_color(
+                    output.set_color(
                         ColorSpec::new()
                             .set_fg(Some(Color::Black))
                             .set_intense(true),
                     )?;
-                    writeln!(stdout, "// {}", comment)?;
+                    writeln!(output, "// {}", comment)?;
                 }
             }
         }
@@ -136,14 +157,17 @@ pub(crate) fn run(image: &RICSVImage, dump_state: DumpState) -> Result<Simulator
         if pc == code_end {
             break;
         }
+
         match simulator.step() {
             Ok(op) => {
-                if dump_state >= DumpState::Instructions {
-                    stdout.set_color(ColorSpec::new().set_fg(Some(Color::White)).set_bold(true))?;
-                    write!(stdout, "[0x{:08x}]", pc)?;
-                    stdout.reset()?;
-                    writeln!(stdout, " {:?}", riscv::decoder::Op(op))?;
-                    stdout.flush()?;
+                if let DumpState::Instructions(output) | DumpState::Everything(output) =
+                    &mut dump_state
+                {
+                    output.set_color(ColorSpec::new().set_fg(Some(Color::White)).set_bold(true))?;
+                    write!(output, "[0x{:08x}]", pc)?;
+                    output.reset()?;
+                    writeln!(output, " {:?}", riscv::decoder::Op(op))?;
+                    output.flush()?;
                 }
             }
 

@@ -4,7 +4,6 @@ use crate::ir::IRModule;
 use crate::ir::Phi;
 use crate::ir::Statement;
 use crate::ir::Value;
-use crate::utils::stderr;
 use crate::utils::GenericResult;
 use crate::utils::VecUtils;
 use bimap::BiMap;
@@ -37,32 +36,52 @@ use termcolor::WriteColor;
 #[cfg(test)]
 mod tests;
 
-#[derive(Deref, Copy, Clone)]
-pub(crate) struct DumpCode(pub(crate) bool);
+pub(crate) enum DumpCode<'a> {
+    No,
+    Yes(&'a mut StandardStream),
+}
 
 #[derive(Deref)]
 pub(crate) struct EnableImmediateIntegers(pub(crate) bool);
 
 pub(crate) fn generate(
     module: &IRModule,
-    dump_code: DumpCode,
+    dump_code: DumpCode<'_>,
     enable_immediate_integers: EnableImmediateIntegers,
 ) -> GenericResult<RICSVImage> {
-    let mut image = RICSVImage::new();
-    let backend = Backend::new(&mut image, module, dump_code, enable_immediate_integers);
+    let mut state = SharedState::new();
+    let backend = Backend::new(&mut state, module, dump_code, enable_immediate_integers);
     backend.generate()?;
-    image.entry = 0;
-    Ok(image)
+    for (offset, fn_id) in &state.function_relocations {
+        let target = state.function_offsets[fn_id];
+        state
+            .image
+            .relocations
+            .push(Relocation::new(*offset, target, RelocationKind::Function));
+    }
+    Ok(state.image)
+}
+
+#[derive(Debug)]
+pub(crate) enum RelocationKind {
+    Function,
+    DataLoad,
+    DataStore,
 }
 
 pub(crate) struct Relocation {
     pub(crate) offset: u32,
-    pub(crate) target: FnId,
+    pub(crate) target: u32,
+    pub(crate) kind: RelocationKind,
 }
 
 impl Relocation {
-    fn new(offset: u32, target: FnId) -> Self {
-        Self { offset, target }
+    fn new(offset: u32, target: u32, kind: RelocationKind) -> Self {
+        Self {
+            offset,
+            target,
+            kind,
+        }
     }
 }
 
@@ -71,7 +90,6 @@ pub(crate) struct RICSVImage {
     pub(crate) data: Vec<u8>,
     pub(crate) comments: CommentVec,
     pub(crate) relocations: Vec<Relocation>,
-    pub(crate) function_offsets: HashMap<FnId, u32>,
     pub(crate) entry: u32,
 }
 
@@ -82,34 +100,48 @@ impl RICSVImage {
             data: Vec::new(),
             comments: CommentVec::new(),
             relocations: Vec::new(),
-            function_offsets: HashMap::new(),
             entry: 0,
         }
     }
 }
 
+struct SharedState {
+    image: RICSVImage,
+    function_offsets: HashMap<FnId, u32>,
+    function_relocations: Vec<(u32, FnId)>,
+}
+
+impl SharedState {
+    fn new() -> Self {
+        Self {
+            image: RICSVImage::new(),
+            function_offsets: HashMap::new(),
+            function_relocations: Vec::new(),
+        }
+    }
+}
+
 struct Backend<'a> {
-    image: &'a mut RICSVImage,
+    state: &'a mut SharedState,
     module: &'a IRModule,
-    dump_code: bool,
+    dump_code: DumpCode<'a>,
     enable_immediate_integers: bool,
     registers: RegisterAllocator,
     data_offsets: HashMap<ValueId, u32>,
     no_spill: SmallVec<[u8; REGISTER_COUNT]>,
     function_id: Option<FnId>,
-    stderr: StandardStream,
     phis: HashMap<ValueId, BTreeSet<(NodeIndex, ValueId)>>,
 }
 
 impl<'a> Backend<'a> {
     fn new(
-        image: &'a mut RICSVImage,
+        state: &'a mut SharedState,
         module: &'a IRModule,
-        DumpCode(dump_code): DumpCode,
+        dump_code: DumpCode<'a>,
         EnableImmediateIntegers(enable_immediate_integers): EnableImmediateIntegers,
     ) -> Self {
         Self {
-            image,
+            state,
             module,
             dump_code,
             enable_immediate_integers,
@@ -117,7 +149,6 @@ impl<'a> Backend<'a> {
             data_offsets: HashMap::new(),
             no_spill: SmallVec::new(),
             function_id: None,
-            stderr: stderr(),
             phis: HashMap::new(),
         }
     }
@@ -167,12 +198,24 @@ impl<'a> Backend<'a> {
             )?;
 
             let comment_fixup_offset = register_saving_code.len() as u32;
-            self.image
+            self.state
+                .image
                 .code
                 .insert_slice(usize::try_from(code_start).unwrap(), &register_saving_code);
-            for (comment_offset, _) in self.image.comments.iter_mut() {
+            for (comment_offset, _) in self.state.image.comments.iter_mut().rev() {
                 if *comment_offset > code_start {
                     *comment_offset += comment_fixup_offset;
+                } else {
+                    break;
+                }
+            }
+            for relocation in self.state.image.relocations.iter_mut().rev() {
+                if relocation.offset > code_start {
+                    if let RelocationKind::DataLoad | RelocationKind::DataStore = relocation.kind {
+                        relocation.offset += comment_fixup_offset;
+                    }
+                } else {
+                    break;
                 }
             }
 
@@ -201,57 +244,57 @@ impl<'a> Backend<'a> {
             .collect_vec();
         for (fn_id, fn_cfg) in functions {
             let fn_offset = self.current_code_offset()?;
-            self.image.function_offsets.insert(fn_id.clone(), fn_offset);
+            self.state.function_offsets.insert(fn_id.clone(), fn_offset);
 
             let mut backend = Backend::new(
-                self.image,
+                self.state,
                 &fn_cfg,
-                DumpCode(false),
+                DumpCode::No,
                 EnableImmediateIntegers(self.enable_immediate_integers),
             );
             backend.function_id = Some(fn_id);
             backend.generate()?;
         }
 
-        if self.dump_code {
-            self.stderr.reset()?;
-            writeln!(self.stderr, "---- CODE DUMP: {} ----", &self.module.name)?;
-            for (op, offset) in decode(&self.image.code) {
+        if let DumpCode::Yes(output) = self.dump_code {
+            output.reset()?;
+            writeln!(output, "---- CODE DUMP: {} ----", &self.module.name)?;
+            for (op, offset) in decode(&self.state.image.code) {
                 let offset = u32::try_from(offset)?;
-                if let Some(comments) = self.image.comments.find(offset) {
+                if let Some(comments) = self.state.image.comments.find(offset) {
                     for comment in comments {
-                        writeln!(self.stderr, "// {}", comment)?;
+                        writeln!(output, "// {}", comment)?;
                     }
                 }
-                self.stderr.set_color(
+                output.set_color(
                     ColorSpec::new()
                         .set_fg(Some(Color::Black))
                         .set_intense(true),
                 )?;
-                writeln!(self.stderr, "[0x{:08x}]  {:?}", u32::try_from(offset)?, op)?;
-                self.stderr.reset()?;
+                writeln!(output, "[0x{:08x}]  {:?}", u32::try_from(offset)?, op)?;
+                output.reset()?;
             }
 
-            if !self.image.data.is_empty() {
-                writeln!(self.stderr, "---- DATA DUMP: {} ----", &self.module.name)?;
-                for (index, &byte) in self.image.data.iter().enumerate() {
+            if !self.state.image.data.is_empty() {
+                writeln!(output, "---- DATA DUMP: {} ----", &self.module.name)?;
+                for (index, &byte) in self.state.image.data.iter().enumerate() {
                     if index % 4 == 0 {
                         if index > 0 {
-                            writeln!(self.stderr)?;
+                            writeln!(output)?;
                         }
-                        write!(self.stderr, "[{:08x}] ", index)?;
+                        write!(output, "[{:08x}] ", index)?;
                     } else {
-                        write!(self.stderr, " ")?;
+                        write!(output, " ")?;
                     }
-                    self.stderr.set_color(
+                    output.set_color(
                         ColorSpec::new()
                             .set_fg(Some(Color::Black))
                             .set_intense(true),
                     )?;
-                    write!(self.stderr, "{:02x}", byte)?;
-                    self.stderr.reset()?;
+                    write!(output, "{:02x}", byte)?;
+                    output.reset()?;
                 }
-                writeln!(self.stderr, "\n")?;
+                writeln!(output, "\n")?;
             }
         }
         Ok(())
@@ -327,14 +370,14 @@ impl<'a> Backend<'a> {
                 }
 
                 // TODO store code in a format suitable for deletion
-                let end_offset = i32::try_from(self.image.code.len())?
+                let end_offset = i32::try_from(self.state.image.code.len())?
                     .checked_sub(i32::try_from(after_jump_to_end)?)
                     .and_then(|difference| difference.checked_add(4)) // j 4(pc)
                     .unwrap();
                 self.patch_jump(jump_to_end, registers::ZERO, end_offset)?;
                 if after_jump_to_end == self.current_code_offset()? {
                     for _ in 0..4 {
-                        self.image.code.remove(jump_to_end as usize);
+                        self.state.image.code.remove(jump_to_end as usize);
                     }
                     let else_branch_offset = else_branch_offset - 4;
                     self.patch_at(
@@ -577,55 +620,52 @@ impl<'a> Backend<'a> {
     }
 
     fn allocate_u32(&mut self, data: u32) -> GenericResult<u32> {
-        let offset = u32::try_from(self.image.data.len())?;
-        self.image.data.write_u32::<DataByteOrder>(data)?;
+        let offset = u32::try_from(self.state.image.data.len())?;
+        self.state.image.data.write_u32::<DataByteOrder>(data)?;
         Ok(offset)
     }
 
     fn load_u32(&mut self, rd: u8, offset: u32) -> GenericResult<()> {
-        let location = ui_immediate(i32::try_from(offset).unwrap())?;
-        let result = if location.upper == 0 {
-            self.push_code(&[lw(rd, registers::GP, location.lower).unwrap()])
-        } else {
-            self.push_code(&[
-                lui(rd, location.upper).unwrap(),
-                add(rd, rd, registers::GP).unwrap(),
-                lw(rd, rd, location.lower).unwrap(),
-            ])
-        };
-        result.map(|_| ())
+        let relocation_offset = self.current_code_offset().unwrap();
+        self.state.image.relocations.push(Relocation::new(
+            relocation_offset,
+            offset,
+            RelocationKind::DataLoad,
+        ));
+        self.push_code(&[lui(rd, 0).unwrap(), lw(rd, rd, 0).unwrap()])
+            .map(|_| ())
     }
 
     fn store_u32(&mut self, register: u8, offset: u32) -> GenericResult<()> {
-        let location = ui_immediate(i32::try_from(offset).unwrap())?;
-        let result = if location.upper == 0 {
-            self.push_code(&[sw(registers::GP, location.lower, register).unwrap()])
-        } else {
-            self.push_code(&[
-                lui(registers::T0, location.upper).unwrap(),
-                add(registers::T0, registers::T0, registers::GP).unwrap(),
-                sw(registers::T0, location.lower, register).unwrap(),
-            ])
-        };
-        result.map(|_| ())
+        let relocation_offset = self.current_code_offset().unwrap();
+        self.state.image.relocations.push(Relocation::new(
+            relocation_offset,
+            offset,
+            RelocationKind::DataStore,
+        ));
+        self.push_code(&[
+            lui(registers::T0, 0).unwrap(),
+            sw(registers::T0, 0, register).unwrap(),
+        ])
+        .map(|_| ())
     }
 
     fn push_code(&mut self, instructions: &[u32]) -> GenericResult<u32> {
-        let code_start = self.image.code.len();
-        let mut cursor = Cursor::new(&mut self.image.code);
+        let code_start = self.state.image.code.len();
+        let mut cursor = Cursor::new(&mut self.state.image.code);
         cursor.set_position(u64::try_from(code_start)?);
         write_code(&mut cursor, instructions)?;
         u32::try_from(code_start).map_err(From::from)
     }
 
     fn patch_at(&mut self, patch_offset: u32, instructions: &[u32]) -> io::Result<()> {
-        let mut cursor = Cursor::new(&mut self.image.code);
+        let mut cursor = Cursor::new(&mut self.state.image.code);
         cursor.set_position(u64::from(patch_offset));
         write_code(&mut cursor, instructions)
     }
 
     fn current_code_offset(&self) -> Result<u32, TryFromIntError> {
-        u32::try_from(self.image.code.len())
+        u32::try_from(self.state.image.code.len())
     }
 
     fn allocate_register(&mut self, value_id: ValueId, target: Option<u8>) -> GenericResult<u8> {
@@ -663,9 +703,9 @@ impl<'a> Backend<'a> {
 
                 Value::Function(fn_id, _) => {
                     let relocation_offset = self.current_code_offset().unwrap();
-                    self.image
-                        .relocations
-                        .push(Relocation::new(relocation_offset, fn_id.clone()));
+                    self.state
+                        .function_relocations
+                        .push((relocation_offset, fn_id.clone()));
                     self.push_code(&[
                         lui(register, 0).unwrap(),
                         addi(register, register, 0).unwrap(),
@@ -685,7 +725,7 @@ impl<'a> Backend<'a> {
     }
 
     fn last_comment_at(&mut self, offset: u32, comment: &str) -> GenericResult<()> {
-        self.image.comments.insert(offset, comment);
+        self.state.image.comments.insert(offset, comment);
         Ok(())
     }
 

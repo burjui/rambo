@@ -2,14 +2,15 @@ use crate::frontend::FrontEnd;
 use crate::frontend::FrontEndState;
 use crate::graphviz::IrGraphvizFile;
 use crate::riscv_backend;
-use crate::riscv_backend::DumpCode;
+use crate::riscv_backend::ui_immediate;
 use crate::riscv_backend::EnableImmediateIntegers;
 use crate::riscv_backend::RICSVImage;
-use crate::riscv_backend::{registers, ui_immediate};
+use crate::riscv_backend::{DumpCode, RelocationKind};
 use crate::riscv_simulator;
 use crate::riscv_simulator::DumpState;
 use crate::utils::stderr;
 use crate::utils::GenericResult;
+use bitflags::_core::any::type_name;
 use bytes::Bytes;
 use ckb_vm::memory::{round_page_up, FLAG_EXECUTABLE, FLAG_WRITABLE};
 use ckb_vm::registers::{A0, SP};
@@ -22,7 +23,7 @@ use std::path::Path;
 struct BackEndPermutation(usize);
 
 impl BackEndPermutation {
-    const PARAMETER_COUNT: usize = 3;
+    const PARAMETER_COUNT: usize = 1;
     const PERMUTATION_COUNT: usize = 1 << Self::PARAMETER_COUNT;
 
     fn new() -> Self {
@@ -54,7 +55,7 @@ macro_rules! test_backend {
             let mut state = FrontEndState::new();
             let module = FrontEnd::new(&location!(), &mut state)
                 .enable_warnings(false)
-                .include_comments(true)
+                //                .include_comments(true)
                 .enable_cfp(false)
                 .enable_dce(false)
                 .build(&code);
@@ -77,8 +78,8 @@ macro_rules! test_backend {
             }
 
             let stderr = &mut stderr();
-            let dump_code = DumpCode(false);
-            if *dump_code {
+            let dump_code = false;
+            if dump_code {
                 writeln!(stderr)?;
             }
 
@@ -86,9 +87,14 @@ macro_rules! test_backend {
             while !backend_permutation.is_empty() {
                 let enable_immediate_integers =
                     EnableImmediateIntegers(backend_permutation.enable_immediate_integers());
+                let dump_code = if dump_code {
+                    DumpCode::Yes(stderr)
+                } else {
+                    DumpCode::No
+                };
                 let image = riscv_backend::generate(&module, dump_code, enable_immediate_integers)?;
-                let check: fn(RICSVImage) -> GenericResult<()> = $check;
-                check(image)?;
+                let check: fn(RICSVImage) -> () = $check;
+                check(image);
                 backend_permutation.next();
             }
             Ok(())
@@ -107,11 +113,7 @@ test_backend! {
     (14 / 15) * (16 - 17)
     (a + 18) * (b + 19)
     ",
-    |image| {
-        let simulator = riscv_simulator::run(&image, DumpState::None)?;
-        assert_eq!(399, simulator.cpu.x[registers::A0 as usize]);
-        Ok(())
-    }
+    |image| check(&image, 399)
 }
 
 test_backend! {
@@ -125,11 +127,7 @@ test_backend! {
         if (b) 5 else 6
     }
     ",
-    |image| {
-        let simulator = riscv_simulator::run(&image, DumpState::None)?;
-        assert_eq!(3, simulator.cpu.x[registers::A0 as usize]);
-        Ok(())
-    }
+    |image| check(&image, 3)
 }
 
 test_backend! {
@@ -139,11 +137,7 @@ test_backend! {
     let g = \\ (h: \\ (a: num) -> num) -> h 2
     g f
     ",
-    |image| {
-        let simulator = riscv_simulator::run(&image, DumpState::None)?;
-        assert_eq!(3, simulator.cpu.x[registers::A0 as usize]);
-        Ok(())
-    }
+    |image| check(&image, 3)
 }
 
 test_backend! {
@@ -155,91 +149,116 @@ test_backend! {
     // 11 * 2 + 1 + 11 / 2 + 1 - 11 - 2 - 1
     // 22 + 1 + 5 - 13 = 15
     ",
-    |image| {
-        let simulator = riscv_simulator::run(&image, DumpState::None)?;
-        assert_eq!(15, simulator.cpu.x[registers::A0 as usize]);
-        Ok(())
+    |image| check(&image, 15)
+}
+
+fn check(image: &RICSVImage, expected_result: u32) {
+    let rvsim_backend = Rvsim;
+    let ckbvm_backend = Ckbvm;
+    let backends: &[&dyn VmBackend] = &[&rvsim_backend, &ckbvm_backend];
+    for &backend in backends {
+        let result = backend.run(image);
+        assert_eq!(result, expected_result, "{}", backend.name());
     }
 }
 
-// TODO port to riscv_simulator
-#[test]
-fn ckb() {
-    let code = typecheck!(
-        "
-        let f = \\ (x: num) -> x + 1
-        let a = 10 + 1
-        f (a * 2) + f (a / 2) - f (a + 2)
-        // 11 * 2 + 1 + 11 / 2 + 1 - 11 - 2 - 1
-        // 22 + 1 + 5 - 13 = 15
-    "
-    )
-    .unwrap();
-    let mut state = FrontEndState::new();
-    let module = FrontEnd::new(&location!(), &mut state)
-        .enable_warnings(false)
-        .include_comments(true)
-        .enable_cfp(false)
-        .enable_dce(false)
-        .build(&code);
-    let image =
-        riscv_backend::generate(&module, DumpCode(false), EnableImmediateIntegers(true)).unwrap();
-    type Register = u32;
-    let mut machine = DefaultMachine::<
-        DefaultCoreMachine<Register, WXorXMemory<Register, SparseMemory<Register>>>,
-    >::default();
-
-    const CODE_START_ADDRESS: u32 = 0x0000_0000;
-    machine
-        .memory_mut()
-        .init_pages(
-            u64::from(CODE_START_ADDRESS),
-            round_page_up(u64::try_from(image.code.len()).unwrap()),
-            FLAG_EXECUTABLE,
-            Some(Bytes::from(image.code.as_slice())),
-            0,
-        )
-        .unwrap();
-
-    for relocation in &image.relocations {
-        let u_instruction_offset = CODE_START_ADDRESS + relocation.offset;
-        let i_instruction_offset = u_instruction_offset + 4;
-        let mut u_instruction = machine.memory_mut().load32(&u_instruction_offset).unwrap();
-        let mut i_instruction = machine.memory_mut().load32(&i_instruction_offset).unwrap();
-        let function_offset =
-            i32::try_from(image.function_offsets[&relocation.target] + CODE_START_ADDRESS).unwrap();
-        let immediate = ui_immediate(function_offset).unwrap();
-        u_instruction = u_instruction & 0x0000_0FFF | immediate.upper as u32;
-        i_instruction = i_instruction & 0x000F_FFFF | ((immediate.lower as u32) << 20);
-        let code_memory = machine.memory_mut().inner_mut();
-        code_memory
-            .store32(&u_instruction_offset, &u_instruction)
-            .unwrap();
-        code_memory
-            .store32(&i_instruction_offset, &i_instruction)
-            .unwrap();
+trait VmBackend {
+    fn name(&self) -> &'static str {
+        type_name::<Self>()
     }
 
-    const DATA_START_ADDRESS: u64 = 0x0010_0000;
-    const STACK_SIZE: usize = 1024;
-    let total_data_size = image.data.len() + STACK_SIZE;
-    machine
-        .memory_mut()
-        .init_pages(
-            DATA_START_ADDRESS,
-            round_page_up(u64::try_from(total_data_size).unwrap()),
-            FLAG_WRITABLE,
-            Some(Bytes::from(image.data.as_slice())),
-            0,
-        )
-        .unwrap();
+    fn run(&self, image: &RICSVImage) -> u32;
+}
 
-    machine.set_pc(image.entry);
-    machine.set_register(
-        SP,
-        u32::try_from(DATA_START_ADDRESS + u64::try_from(total_data_size).unwrap()).unwrap(),
-    );
+struct Rvsim;
 
-    machine.run().unwrap();
-    assert_eq!(machine.registers()[A0], 15);
+impl VmBackend for Rvsim {
+    fn run(&self, image: &RICSVImage) -> u32 {
+        let simulator = riscv_simulator::run(&image, DumpState::None).unwrap();
+        simulator.cpu.x[A0 as usize]
+    }
+}
+
+struct Ckbvm;
+
+impl VmBackend for Ckbvm {
+    fn run(&self, image: &RICSVImage) -> u32 {
+        type Register = u32;
+
+        let mut machine = DefaultMachine::<
+            DefaultCoreMachine<Register, WXorXMemory<Register, SparseMemory<Register>>>,
+        >::default();
+
+        const CODE_START_ADDRESS: u32 = 0x0000_0000;
+        machine
+            .memory_mut()
+            .init_pages(
+                u64::from(CODE_START_ADDRESS),
+                round_page_up(u64::try_from(image.code.len()).unwrap()),
+                FLAG_EXECUTABLE,
+                Some(Bytes::from(image.code.as_slice())),
+                0,
+            )
+            .unwrap();
+
+        const DATA_START_ADDRESS: u32 = 0x0010_0000;
+        const STACK_SIZE: usize = 1024;
+        let total_data_size = image.data.len() + STACK_SIZE;
+        machine
+            .memory_mut()
+            .init_pages(
+                u64::from(DATA_START_ADDRESS),
+                round_page_up(u64::try_from(total_data_size).unwrap()),
+                FLAG_WRITABLE,
+                Some(Bytes::from(image.data.as_slice())),
+                0,
+            )
+            .unwrap();
+
+        for relocation in &image.relocations {
+            let target_offset = match relocation.kind {
+                RelocationKind::Function => CODE_START_ADDRESS,
+                RelocationKind::DataLoad | RelocationKind::DataStore => DATA_START_ADDRESS,
+            };
+            let target = i32::try_from(relocation.target + target_offset).unwrap();
+            let immediate = ui_immediate(target).unwrap();
+            let code_memory = machine.memory_mut().inner_mut();
+
+            let u_instruction_offset = CODE_START_ADDRESS + relocation.offset;
+            let next_instruction_offset = u_instruction_offset + 4;
+            let mut u_instruction = code_memory.load32(&u_instruction_offset).unwrap();
+            u_instruction = u_instruction & 0x0000_0FFF | immediate.upper as u32;
+            code_memory
+                .store32(&u_instruction_offset, &u_instruction)
+                .unwrap();
+
+            let next_instruction = code_memory.load32(&next_instruction_offset).unwrap();
+            let next_instruction = match relocation.kind {
+                RelocationKind::Function | RelocationKind::DataLoad => {
+                    next_instruction & 0x000F_FFFF | ((immediate.lower as u32) << 20)
+                }
+                RelocationKind::DataStore => {
+                    const LOW_MASK: u32 = 0b11111;
+                    const LOW_OFFSET: u32 = 7;
+                    const HIGH_MASK: u32 = 0b1111111;
+                    const HIGH_OFFSET: u32 = 25;
+                    next_instruction & !(LOW_MASK << LOW_OFFSET | HIGH_MASK << HIGH_OFFSET)
+                        | ((immediate.lower as u32 & LOW_MASK) << LOW_OFFSET)
+                        | (((immediate.lower >> 5) as u32 & HIGH_MASK) << HIGH_OFFSET)
+                }
+            };
+            code_memory
+                .store32(&next_instruction_offset, &next_instruction)
+                .unwrap();
+        }
+
+        machine.set_pc(image.entry);
+        machine.set_register(
+            SP,
+            DATA_START_ADDRESS + u32::try_from(total_data_size).unwrap(),
+        );
+
+        machine.run().unwrap();
+        machine.registers()[A0]
+    }
 }
