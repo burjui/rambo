@@ -44,9 +44,11 @@ mod pipeline;
 mod semantics;
 mod source;
 mod stable_vec;
-mod test_config;
 mod tracking_allocator;
 mod unique_rc;
+
+#[cfg(test)]
+mod test_config;
 
 type TrackingAllocator = tracking_allocator::TrackingAllocator<System>;
 
