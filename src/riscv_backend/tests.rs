@@ -13,7 +13,7 @@ use crate::utils::GenericResult;
 use bytes::Bytes;
 use ckb_vm::memory::{round_page_up, FLAG_EXECUTABLE, FLAG_WRITABLE};
 use ckb_vm::registers::{A0, SP};
-use ckb_vm::{CoreMachine, DefaultCoreMachine, DefaultMachine, FlatMemory, Memory};
+use ckb_vm::{CoreMachine, DefaultCoreMachine, DefaultMachine, Memory, SparseMemory, WXorXMemory};
 use std::convert::TryFrom;
 use std::ffi::OsStr;
 use std::io::Write;
@@ -185,8 +185,9 @@ fn ckb() {
     let image =
         riscv_backend::generate(&module, DumpCode(false), EnableImmediateIntegers(true)).unwrap();
     type Register = u32;
-    let mut machine =
-        DefaultMachine::<DefaultCoreMachine<Register, FlatMemory<Register>>>::default();
+    let mut machine = DefaultMachine::<
+        DefaultCoreMachine<Register, WXorXMemory<Register, SparseMemory<Register>>>,
+    >::default();
 
     const CODE_START_ADDRESS: u32 = 0x0000_0000;
     machine
@@ -210,12 +211,11 @@ fn ckb() {
         let immediate = ui_immediate(function_offset).unwrap();
         u_instruction = u_instruction & 0x0000_0FFF | immediate.upper as u32;
         i_instruction = i_instruction & 0x000F_FFFF | ((immediate.lower as u32) << 20);
-        machine
-            .memory_mut()
+        let code_memory = machine.memory_mut().inner_mut();
+        code_memory
             .store32(&u_instruction_offset, &u_instruction)
             .unwrap();
-        machine
-            .memory_mut()
+        code_memory
             .store32(&i_instruction_offset, &i_instruction)
             .unwrap();
     }
