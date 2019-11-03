@@ -55,7 +55,7 @@ macro_rules! test_backend {
             let mut state = FrontEndState::new();
             let module = FrontEnd::new(&location!(), &mut state)
                 .enable_warnings(false)
-                //                .include_comments(true)
+                .include_comments(true)
                 .enable_cfp(false)
                 .enable_dce(false)
                 .build(&code);
