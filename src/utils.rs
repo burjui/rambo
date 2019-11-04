@@ -31,14 +31,6 @@ macro_rules! location {
 }
 
 #[cfg(test)]
-macro_rules! typecheck {
-    ($text: expr) => {{
-        use crate::utils::typecheck;
-        typecheck(location!(), $text)
-    }};
-}
-
-#[cfg(test)]
 pub(crate) fn typecheck(name: String, text: &str) -> GenericResult<crate::semantics::ExprRef> {
     let file = crate::source::SourceFile::create(name, text);
     let lexer = crate::lexer::Lexer::new(file);

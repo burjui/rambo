@@ -8,7 +8,7 @@ use crate::riscv_backend::RICSVImage;
 use crate::riscv_backend::{DumpCode, RelocationKind};
 use crate::riscv_simulator;
 use crate::riscv_simulator::DumpState;
-use crate::utils::stderr;
+use crate::utils::{stderr, typecheck};
 use bitflags::_core::any::type_name;
 use bytes::Bytes;
 use ckb_vm::memory::{round_page_up, FLAG_EXECUTABLE, FLAG_WRITABLE};
@@ -46,69 +46,72 @@ impl BackEndPermutation {
     }
 }
 
-macro_rules! test_backend {
-    ($name: ident, $code: literal, $expected_result: expr) => {
-        #[test]
-        fn $name() -> () {
-            test_backend($code, $expected_result);
+#[test]
+fn proper_spilling() {
+    test_backend(
+        location!(),
+        "
+        let a = 1
+        let b = 2
+        (a + 3) * (4 + 5)
+        (a + 6) / (7 * 8 + 9)
+        (a + 10) * 11 * (b - 12) / 13
+        (14 / 15) * (16 - 17)
+        (a + 18) * (b + 19)
+        ",
+        399,
+    );
+}
+
+#[test]
+fn branching() {
+    test_backend(
+        location!(),
+        "
+        let a = 1
+        let b = 2
+        if a {
+            if (b) 3 else 4
+        } else {
+            if (b) 5 else 6
         }
-    };
+        ",
+        3,
+    );
 }
 
-test_backend! {
-    proper_spilling,
-    "
-    let a = 1
-    let b = 2
-    (a + 3) * (4 + 5)
-    (a + 6) / (7 * 8 + 9)
-    (a + 10) * 11 * (b - 12) / 13
-    (14 / 15) * (16 - 17)
-    (a + 18) * (b + 19)
-    ",
-    399
+#[test]
+fn functions() {
+    test_backend(
+        location!(),
+        "
+        let f = \\ (a: num) -> a + 1
+        let g = \\ (h: \\ (a: num) -> num) -> h 2
+        g f
+        ",
+        3,
+    );
 }
 
-test_backend! {
-    branching,
-    "
-    let a = 1
-    let b = 2
-    if a {
-        if (b) 3 else 4
-    } else {
-        if (b) 5 else 6
-    }
-    ",
-    3
+#[test]
+fn function_return() {
+    test_backend(
+        location!(),
+        "
+        let f = \\ (x: num) -> x + 1
+        let a = 10 + 1
+        f (a * 2) + f (a / 2) - f (a + 2)
+        // 11 * 2 + 1 + 11 / 2 + 1 - 11 - 2 - 1
+        // 22 + 1 + 5 - 13 = 15
+        ",
+        15,
+    );
 }
 
-test_backend! {
-    functions,
-    "
-    let f = \\ (a: num) -> a + 1
-    let g = \\ (h: \\ (a: num) -> num) -> h 2
-    g f
-    ",
-    3
-}
-
-test_backend! {
-    function_return,
-    "
-    let f = \\ (x: num) -> x + 1
-    let a = 10 + 1
-    f (a * 2) + f (a / 2) - f (a + 2)
-    // 11 * 2 + 1 + 11 / 2 + 1 - 11 - 2 - 1
-    // 22 + 1 + 5 - 13 = 15
-    ",
-    15
-}
-
-fn test_backend(code: &str, expected_result: u32) {
-    let code = typecheck!(code).unwrap();
+fn test_backend(source_name: String, source_code: &str, expected_result: u32) {
+    let code = typecheck(source_name.clone(), source_code).unwrap();
     let mut state = FrontEndState::new();
-    let module = FrontEnd::new(&location!(), &mut state)
+    let module = FrontEnd::new(&source_name, &mut state)
         .enable_warnings(false)
         .include_comments(true)
         .enable_cfp(false)

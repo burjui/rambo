@@ -146,10 +146,10 @@ fn test_frontend(
     forbidden_cfp_variant: Option<bool>,
     check: fn(IRModule),
 ) {
-    let code = typecheck(source_name, source_code).unwrap();
+    let code = typecheck(source_name.clone(), source_code).unwrap();
     for config in frontend_config_permutations(forbidden_cfp_variant) {
         let mut state = FrontEndState::new();
-        let module = FrontEnd::new(&location!(), &mut state)
+        let module = FrontEnd::new(&source_name, &mut state)
             .enable_warnings(false)
             .include_comments(config.include_comments)
             .enable_cfp(config.enable_cfp)
