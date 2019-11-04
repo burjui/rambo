@@ -15,9 +15,7 @@ use ckb_vm::memory::{round_page_up, FLAG_EXECUTABLE, FLAG_WRITABLE};
 use ckb_vm::registers::{A0, SP};
 use ckb_vm::{CoreMachine, DefaultCoreMachine, DefaultMachine, Memory, SparseMemory, WXorXMemory};
 use std::convert::TryFrom;
-use std::ffi::OsStr;
 use std::io::Write;
-use std::path::Path;
 
 struct BackEndPermutation(usize);
 
@@ -118,21 +116,9 @@ fn test_backend(source_name: String, source_code: &str, expected_result: u32) {
         .enable_dce(false)
         .build(&code);
     if crate::test_config::EMIT_MODULE_GRAPHVIZ_FILE {
-        let test_src_path = Path::new(file!());
-        let test_src_file_name =
-            test_src_path
-                .file_name()
-                .and_then(OsStr::to_str)
-                .expect(&format!(
-                    "failed to extract the file name from path: {}",
-                    test_src_path.display()
-                ));
-        let file = IrGraphvizFile::create(format!(
-            "riscv_backend_{}_{}_cfg.dot",
-            test_src_file_name,
-            line!()
-        ))
-        .unwrap();
+        eprintln!("{}", &source_name);
+        let file =
+            IrGraphvizFile::create(format!("riscv_backend_{}_cfg.dot", source_name)).unwrap();
         file.write(&module).unwrap();
     }
 

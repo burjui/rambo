@@ -5,9 +5,7 @@ use crate::ir::eval::eval;
 use crate::ir::IRModule;
 use crate::ir::Value;
 use crate::utils::typecheck;
-use std::ffi::OsStr;
 use std::iter::{once, Chain, Once};
-use std::path::Path;
 use std::rc::Rc;
 
 #[test]
@@ -157,21 +155,7 @@ fn test_frontend(
             .build(&code);
 
         if crate::test_config::EMIT_MODULE_GRAPHVIZ_FILE {
-            let test_src_path = Path::new(file!());
-            let test_src_file_name =
-                test_src_path
-                    .file_name()
-                    .and_then(OsStr::to_str)
-                    .expect(&format!(
-                        "failed to extract the file name from path: {}",
-                        test_src_path.display()
-                    ));
-            let file = IrGraphvizFile::create(format!(
-                "frontend_{}_{}_cfg.dot",
-                test_src_file_name,
-                line!()
-            ))
-            .unwrap();
+            let file = IrGraphvizFile::create(format!("frontend_{}_cfg.dot", source_name)).unwrap();
             file.write(&module).unwrap();
         }
 

@@ -26,8 +26,23 @@ macro_rules! warning_at {
 #[cfg(test)]
 macro_rules! location {
     () => {
-        format!("{}({})", file!(), line!())
+        crate::utils::location(file!(), line!())
     };
+}
+
+#[cfg(test)]
+pub(crate) fn location(path: &str, line: u32) -> String {
+    use std::ffi::OsStr;
+    use std::path::Path;
+
+    let path = Path::new(path);
+    let file_name = path.file_name().and_then(OsStr::to_str).unwrap_or_else(|| {
+        panic!(
+            "failed to extract the file name from path: {}",
+            path.display()
+        )
+    });
+    format!("{}_{}", file_name, line)
 }
 
 #[cfg(test)]
