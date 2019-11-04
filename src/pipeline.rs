@@ -1,7 +1,7 @@
 use crate::frontend::FrontEnd;
 use crate::frontend::FrontEndState;
 use crate::graphviz::IrGraphvizFile;
-use crate::ir::eval::EvalContext;
+use crate::ir::eval::eval;
 use crate::ir::fmt_statement;
 use crate::ir::IRModule;
 use crate::ir::Value;
@@ -250,7 +250,7 @@ impl CompilerPass<IRModule, IRModule> for EvaluateIR {
     const TITLE: &'static str = "Evaluating IR";
 
     fn apply(module: IRModule, options: &PipelineOptions) -> Result<IRModule, Box<dyn Error>> {
-        let value = EvalContext::new(&module, &module.functions).eval();
+        let value = eval(&module);
         if options.verbosity >= 1 {
             writeln!(&mut stdout(), "{:?}", value)?;
         }

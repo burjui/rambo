@@ -15,7 +15,11 @@ use std::ops::Index;
 use std::ops::IndexMut;
 use std::rc::Rc;
 
-pub(crate) struct EvalContext<'a> {
+pub(crate) fn eval(module: &IRModule) -> Value {
+    EvalContext::new(module, &module.functions).eval()
+}
+
+struct EvalContext<'a> {
     module: &'a IRModule,
     functions: &'a FunctionMap,
     env: EvalEnv,
@@ -25,7 +29,7 @@ pub(crate) struct EvalContext<'a> {
 }
 
 impl<'a> EvalContext<'a> {
-    pub(crate) fn new(module: &'a IRModule, functions: &'a FunctionMap) -> Self {
+    fn new(module: &'a IRModule, functions: &'a FunctionMap) -> Self {
         Self {
             module,
             functions,
@@ -36,7 +40,7 @@ impl<'a> EvalContext<'a> {
         }
     }
 
-    pub(crate) fn eval(mut self) -> Value {
+    fn eval(mut self) -> Value {
         self.eval_impl(self.module.entry_block)
     }
 
