@@ -9,7 +9,6 @@ use crate::riscv_backend::{DumpCode, RelocationKind};
 use crate::riscv_simulator;
 use crate::riscv_simulator::DumpState;
 use crate::utils::stderr;
-use crate::utils::GenericResult;
 use bitflags::_core::any::type_name;
 use bytes::Bytes;
 use ckb_vm::memory::{round_page_up, FLAG_EXECUTABLE, FLAG_WRITABLE};
@@ -48,56 +47,10 @@ impl BackEndPermutation {
 }
 
 macro_rules! test_backend {
-    ($name: ident, $code: expr, $check: expr) => {
+    ($name: ident, $code: literal, $expected_result: expr) => {
         #[test]
-        fn $name() -> GenericResult<()> {
-            let code = typecheck!($code)?;
-            let mut state = FrontEndState::new();
-            let module = FrontEnd::new(&location!(), &mut state)
-                .enable_warnings(false)
-                .include_comments(true)
-                .enable_cfp(false)
-                .enable_dce(false)
-                .build(&code);
-            if crate::test_config::EMIT_MODULE_GRAPHVIZ_FILE {
-                let test_src_path = Path::new(file!());
-                let test_src_file_name =
-                    test_src_path
-                        .file_name()
-                        .and_then(OsStr::to_str)
-                        .expect(&format!(
-                            "failed to extract the file name from path: {}",
-                            test_src_path.display()
-                        ));
-                let file = IrGraphvizFile::create(format!(
-                    "riscv_backend_{}_{}_cfg.dot",
-                    test_src_file_name,
-                    line!()
-                ))?;
-                file.write(&module)?;
-            }
-
-            let stderr = &mut stderr();
-            let dump_code = false;
-            if dump_code {
-                writeln!(stderr)?;
-            }
-
-            let mut backend_permutation = BackEndPermutation::new();
-            while !backend_permutation.is_empty() {
-                let enable_immediate_integers =
-                    EnableImmediateIntegers(backend_permutation.enable_immediate_integers());
-                let dump_code = if dump_code {
-                    DumpCode::Yes(stderr)
-                } else {
-                    DumpCode::No
-                };
-                let image = riscv_backend::generate(&module, dump_code, enable_immediate_integers)?;
-                let check: fn(RICSVImage) -> () = $check;
-                check(image);
-                backend_permutation.next();
-            }
-            Ok(())
+        fn $name() -> () {
+            test_backend($code, $expected_result);
         }
     };
 }
@@ -113,7 +66,7 @@ test_backend! {
     (14 / 15) * (16 - 17)
     (a + 18) * (b + 19)
     ",
-    |image| check(&image, 399)
+    399
 }
 
 test_backend! {
@@ -127,7 +80,7 @@ test_backend! {
         if (b) 5 else 6
     }
     ",
-    |image| check(&image, 3)
+    3
 }
 
 test_backend! {
@@ -137,7 +90,7 @@ test_backend! {
     let g = \\ (h: \\ (a: num) -> num) -> h 2
     g f
     ",
-    |image| check(&image, 3)
+    3
 }
 
 test_backend! {
@@ -149,16 +102,68 @@ test_backend! {
     // 11 * 2 + 1 + 11 / 2 + 1 - 11 - 2 - 1
     // 22 + 1 + 5 - 13 = 15
     ",
-    |image| check(&image, 15)
+    15
 }
 
-fn check(image: &RICSVImage, expected_result: u32) {
+fn test_backend(code: &str, expected_result: u32) {
+    let code = typecheck!(code).unwrap();
+    let mut state = FrontEndState::new();
+    let module = FrontEnd::new(&location!(), &mut state)
+        .enable_warnings(false)
+        .include_comments(true)
+        .enable_cfp(false)
+        .enable_dce(false)
+        .build(&code);
+    if crate::test_config::EMIT_MODULE_GRAPHVIZ_FILE {
+        let test_src_path = Path::new(file!());
+        let test_src_file_name =
+            test_src_path
+                .file_name()
+                .and_then(OsStr::to_str)
+                .expect(&format!(
+                    "failed to extract the file name from path: {}",
+                    test_src_path.display()
+                ));
+        let file = IrGraphvizFile::create(format!(
+            "riscv_backend_{}_{}_cfg.dot",
+            test_src_file_name,
+            line!()
+        ))
+        .unwrap();
+        file.write(&module).unwrap();
+    }
+
+    let stderr = &mut stderr();
+    let dump_code = false;
+    if dump_code {
+        writeln!(stderr).unwrap();
+    }
+
     let rvsim_backend = Rvsim;
     let ckbvm_backend = Ckbvm;
     let backends: &[&dyn VmBackend] = &[&rvsim_backend, &ckbvm_backend];
-    for &backend in backends {
-        let result = backend.run(image);
-        assert_eq!(result, expected_result, "{}", backend.name());
+    let mut backend_permutation = BackEndPermutation::new();
+    while !backend_permutation.is_empty() {
+        let enable_immediate_integers =
+            EnableImmediateIntegers(backend_permutation.enable_immediate_integers());
+        let dump_code = if dump_code {
+            DumpCode::Yes(stderr)
+        } else {
+            DumpCode::No
+        };
+        let image = riscv_backend::generate(&module, dump_code, enable_immediate_integers).unwrap();
+
+        for &backend in backends {
+            let result = backend.run(&image);
+            assert_eq!(
+                result,
+                expected_result,
+                "\nin VM backend: {}",
+                backend.name()
+            );
+        }
+
+        backend_permutation.next();
     }
 }
 
