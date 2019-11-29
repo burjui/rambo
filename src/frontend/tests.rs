@@ -1,3 +1,6 @@
+use std::iter::{once, Chain, Once};
+use std::rc::Rc;
+
 use crate::frontend::FrontEnd;
 use crate::frontend::FrontEndState;
 use crate::graphviz::IrGraphvizFile;
@@ -5,13 +8,11 @@ use crate::ir::eval::eval;
 use crate::ir::IRModule;
 use crate::ir::Value;
 use crate::utils::typecheck;
-use std::iter::{once, Chain, Once};
-use std::rc::Rc;
 
 #[test]
 fn generic() {
     test_frontend(
-        location!(),
+        function_name!().to_owned(),
         "
         let x = 47
         let y = 29
@@ -42,7 +43,7 @@ fn generic() {
         let result = s1 + s2
         result
         ",
-        None,
+        ForbiddenPermutations::none(),
         |module| assert_eq!(eval(&module), Value::String(Rc::new("(hello; world)<bye, world; seeya>".to_owned())))
     );
 }
@@ -50,7 +51,7 @@ fn generic() {
 #[test]
 fn block_removal() {
     test_frontend(
-        location!(),
+        function_name!().to_owned(),
         "
         let x = 0
         let y = 999
@@ -66,7 +67,7 @@ fn block_removal() {
         }
         x
         ",
-        None,
+        ForbiddenPermutations::none(),
         |module| assert_eq!(eval(&module), Value::Int(3)),
     );
 }
@@ -74,7 +75,7 @@ fn block_removal() {
 #[test]
 fn block_removal2() {
     test_frontend(
-        location!(),
+        function_name!().to_owned(),
         &"
         let x = \"abc\"
         let y = \"efg\"
@@ -92,7 +93,7 @@ fn block_removal2() {
         let nn = 1
         "
         .repeat(7),
-        None,
+        ForbiddenPermutations::none(),
         |module| assert_eq!(eval(&module), Value::Unit),
     );
 }
@@ -100,7 +101,7 @@ fn block_removal2() {
 #[test]
 fn marker_eval() {
     test_frontend(
-        location!(),
+        function_name!().to_owned(),
         "
         let a = 1
         let b = 2
@@ -114,7 +115,7 @@ fn marker_eval() {
         (a + 1) * (b - 1)
         a = 10
         ",
-        None,
+        ForbiddenPermutations::none(),
         |module| assert_eq!(eval(&module), Value::Int(10)),
     );
 }
@@ -122,7 +123,7 @@ fn marker_eval() {
 #[test]
 fn conditional_cfp() {
     test_frontend(
-        location!(),
+        function_name!().to_owned(),
         "
         let f = λ (a: num, b: num) -> a + b
         let x = 0
@@ -133,19 +134,66 @@ fn conditional_cfp() {
         }
         x
         ",
-        Some(false),
-        |module| assert_eq!(module.cfg.edge_count(), 0),
+        ForbiddenPermutations::none()
+            .enable_cfp(false)
+            .enable_dce(true),
+        |module| {
+            assert_eq!(
+                module.functions[module.main_fn_id.as_ref().unwrap()]
+                    .cfg
+                    .edge_count(),
+                0
+            );
+        },
     );
+}
+
+struct ForbiddenPermutations {
+    include_comments: Option<bool>,
+    enable_cfp: Option<bool>,
+    enable_dce: Option<bool>,
+}
+
+#[allow(unused)]
+impl ForbiddenPermutations {
+    fn none() -> Self {
+        Self {
+            include_comments: None,
+            enable_cfp: None,
+            enable_dce: None,
+        }
+    }
+
+    fn include_comments(self, include_comments: bool) -> Self {
+        Self {
+            include_comments: Some(include_comments),
+            ..self
+        }
+    }
+
+    fn enable_cfp(self, enable_cfp: bool) -> Self {
+        Self {
+            enable_cfp: Some(enable_cfp),
+            ..self
+        }
+    }
+
+    fn enable_dce(self, enable_dce: bool) -> Self {
+        Self {
+            enable_dce: Some(enable_dce),
+            ..self
+        }
+    }
 }
 
 fn test_frontend(
     source_name: String,
     source_code: &str,
-    forbidden_cfp_variant: Option<bool>,
+    forbidden_permutations: ForbiddenPermutations,
     check: fn(IRModule),
 ) {
     let code = typecheck(source_name.clone(), source_code).unwrap();
-    for config in frontend_config_permutations(forbidden_cfp_variant) {
+    for config in frontend_config_permutations(forbidden_permutations) {
         let mut state = FrontEndState::new();
         let module = FrontEnd::new(&source_name, &mut state)
             .enable_warnings(false)
@@ -170,7 +218,7 @@ struct FrontendConfig {
 }
 
 fn frontend_config_permutations(
-    forbidden_cfp_variant: Option<bool>,
+    forbidden_permutations: ForbiddenPermutations,
 ) -> impl Iterator<Item = FrontendConfig> {
     bool_variants()
         .flat_map(move |include_comments| {
@@ -183,9 +231,15 @@ fn frontend_config_permutations(
             })
         })
         .filter(move |config| {
-            forbidden_cfp_variant
-                .filter(|enable_cfp| *enable_cfp == config.enable_cfp)
-                .is_none()
+            forbidden_permutations
+                .include_comments
+                .map_or(true, |it| it != config.include_comments)
+                && forbidden_permutations
+                    .enable_cfp
+                    .map_or(true, |it| it != config.enable_cfp)
+                && forbidden_permutations
+                    .enable_dce
+                    .map_or(true, |it| it != config.enable_dce)
         })
 }
 

@@ -1,3 +1,12 @@
+use std::convert::TryFrom;
+use std::io::Write;
+
+use bitflags::_core::any::type_name;
+use bytes::Bytes;
+use ckb_vm::memory::{round_page_up, FLAG_EXECUTABLE, FLAG_WRITABLE};
+use ckb_vm::registers::{A0, SP};
+use ckb_vm::{CoreMachine, DefaultCoreMachine, DefaultMachine, Memory, SparseMemory, WXorXMemory};
+
 use crate::frontend::FrontEnd;
 use crate::frontend::FrontEndState;
 use crate::graphviz::IrGraphvizFile;
@@ -9,13 +18,6 @@ use crate::riscv_backend::{DumpCode, RelocationKind};
 use crate::riscv_simulator;
 use crate::riscv_simulator::DumpState;
 use crate::utils::{stderr, typecheck};
-use bitflags::_core::any::type_name;
-use bytes::Bytes;
-use ckb_vm::memory::{round_page_up, FLAG_EXECUTABLE, FLAG_WRITABLE};
-use ckb_vm::registers::{A0, SP};
-use ckb_vm::{CoreMachine, DefaultCoreMachine, DefaultMachine, Memory, SparseMemory, WXorXMemory};
-use std::convert::TryFrom;
-use std::io::Write;
 
 struct BackEndPermutation(usize);
 
@@ -47,7 +49,7 @@ impl BackEndPermutation {
 #[test]
 fn proper_spilling() {
     test_backend(
-        location!(),
+        function_name!().to_owned(),
         "
         let a = 1
         let b = 2
@@ -64,7 +66,7 @@ fn proper_spilling() {
 #[test]
 fn branching() {
     test_backend(
-        location!(),
+        function_name!().to_owned(),
         "
         let a = 1
         let b = 2
@@ -81,7 +83,7 @@ fn branching() {
 #[test]
 fn functions() {
     test_backend(
-        location!(),
+        function_name!().to_owned(),
         "
         let f = \\ (a: num) -> a + 1
         let g = \\ (h: \\ (a: num) -> num) -> h 2
@@ -94,7 +96,7 @@ fn functions() {
 #[test]
 fn function_return() {
     test_backend(
-        location!(),
+        function_name!().to_owned(),
         "
         let f = \\ (x: num) -> x + 1
         let a = 10 + 1
@@ -116,7 +118,6 @@ fn test_backend(source_name: String, source_code: &str, expected_result: u32) {
         .enable_dce(false)
         .build(&code);
     if crate::test_config::EMIT_MODULE_GRAPHVIZ_FILE {
-        eprintln!("{}", &source_name);
         let file =
             IrGraphvizFile::create(format!("riscv_backend_{}_cfg.dot", source_name)).unwrap();
         file.write(&module).unwrap();

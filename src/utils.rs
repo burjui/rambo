@@ -1,6 +1,7 @@
 use std::error::Error;
 use std::mem::swap;
 use std::ops::Range;
+
 use termcolor::ColorChoice;
 use termcolor::StandardStream;
 
@@ -24,12 +25,6 @@ macro_rules! warning_at {
 }
 
 #[cfg(test)]
-macro_rules! location {
-    () => {
-        crate::utils::location(file!(), line!())
-    };
-}
-
 macro_rules! function {
     () => {{
         struct X;
@@ -39,18 +34,10 @@ macro_rules! function {
 }
 
 #[cfg(test)]
-pub(crate) fn location(path: &str, line: u32) -> String {
-    use std::ffi::OsStr;
-    use std::path::Path;
-
-    let path = Path::new(path);
-    let file_name = path.file_name().and_then(OsStr::to_str).unwrap_or_else(|| {
-        panic!(
-            "failed to extract the file name from path: {}",
-            path.display()
-        )
-    });
-    format!("{}_{}", file_name, line)
+macro_rules! function_name {
+    () => {
+        function!().split("::").last().unwrap()
+    };
 }
 
 #[cfg(test)]
