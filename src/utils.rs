@@ -30,6 +30,14 @@ macro_rules! location {
     };
 }
 
+macro_rules! function {
+    () => {{
+        struct X;
+        let name = core::any::type_name::<X>();
+        &name[..name.len() - 3]
+    }};
+}
+
 #[cfg(test)]
 pub(crate) fn location(path: &str, line: u32) -> String {
     use std::ffi::OsStr;
