@@ -36,7 +36,7 @@ macro_rules! function {
 #[cfg(test)]
 macro_rules! function_name {
     () => {
-        function!().split("::").last().unwrap()
+        function!().rsplit("::").next().unwrap()
     };
 }
 

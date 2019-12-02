@@ -4,8 +4,9 @@ use crate::source::Source;
 use crate::stable_vec::StableVec;
 use core::cmp;
 use itertools::Itertools;
-use petgraph::graph::NodeIndex;
-use petgraph::stable_graph::StableDiGraph;
+use petgraph::graph::{DefaultIx, NodeIndex};
+use petgraph::stable_graph::{EdgeIndex, EdgeIndices, Edges, NodeIndices, StableDiGraph};
+use petgraph::{Directed, Direction};
 use std::collections::HashMap;
 use std::fmt;
 use std::hash::Hash;
@@ -16,6 +17,8 @@ use std::iter::once;
 use std::ops::Deref;
 use std::ops::DerefMut;
 use std::rc::Rc;
+use std::ops::Index;
+use std::ops::IndexMut;
 
 pub(crate) mod eval;
 pub(crate) mod value_storage;
@@ -54,25 +57,70 @@ impl DerefMut for BasicBlock {
 }
 
 #[derive(Clone)]
-pub(crate) struct ControlFlowGraph(StableDiGraph<BasicBlock, ()>);
+pub(crate) struct ControlFlowGraph {
+    graph: StableDiGraph<BasicBlock, ()>,
+}
 
 impl ControlFlowGraph {
     pub(crate) fn new() -> Self {
-        Self(StableDiGraph::new())
+        Self {
+            graph: StableDiGraph::new(),
+        }
+    }
+
+    pub(crate) fn add_edge(&mut self, from: NodeIndex, to: NodeIndex) {
+        self.graph.add_edge(from, to, ());
+    }
+
+    pub(crate) fn remove_node(&mut self, node: NodeIndex) {
+        self.graph.remove_node(node);
+    }
+
+    pub(crate) fn edges_directed(
+        &self,
+        node: NodeIndex,
+        direction: Direction,
+    ) -> Edges<'_, (), Directed, DefaultIx> {
+        self.graph.edges_directed(node, direction)
+    }
+
+    pub(crate) fn has_edge(&self, from: NodeIndex, to: NodeIndex) -> bool {
+        self.graph.find_edge(from, to).is_some()
+    }
+
+    pub(crate) fn edge_indices(&self) -> EdgeIndices<'_, (), DefaultIx> {
+        self.graph.edge_indices()
+    }
+
+    pub(crate) fn edge_endpoints(&self, edge: EdgeIndex) -> Option<(NodeIndex, NodeIndex)> {
+        self.graph.edge_endpoints(edge)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn edge_count(&self) -> usize {
+        self.graph.edge_count()
+    }
+
+    pub(crate) fn node_indices(&self) -> NodeIndices<'_, BasicBlock, DefaultIx> {
+        self.graph.node_indices()
+    }
+
+    pub(crate) fn add_new_block(&mut self) -> NodeIndex {
+        self.graph.add_node(BasicBlock::new())
     }
 }
 
-impl Deref for ControlFlowGraph {
-    type Target = StableDiGraph<BasicBlock, ()>;
+impl Index<NodeIndex> for ControlFlowGraph {
+    type Output = BasicBlock;
 
-    fn deref(&self) -> &Self::Target {
-        &self.0
+    fn index(&self, index: NodeIndex) -> &Self::Output {
+        &self.graph[index]
     }
 }
 
-impl DerefMut for ControlFlowGraph {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
+impl IndexMut<NodeIndex> for ControlFlowGraph {
+    fn index_mut(&mut self, index: NodeIndex<u32>) -> &mut Self::Output {
+        &mut self.graph[index]
     }
 }
 
@@ -365,27 +413,5 @@ pub(crate) fn get_value_operands_mut<'a>(
 
         Value::Phi(phi) => Box::new(phi.iter_mut()),
         Value::Call(function, arguments) => Box::new(once(function).chain(arguments.iter_mut())),
-    }
-}
-
-pub(crate) fn normalize(value: Value) -> Value {
-    match &value {
-        Value::Unit
-        | Value::Int(_)
-        | Value::String(_)
-        | Value::Function { .. }
-        | Value::SubInt(_, _)
-        | Value::DivInt(_, _)
-        | Value::AddString(_, _)
-        | Value::Call(_, _)
-        | Value::Arg(_) => value,
-
-        Value::AddInt(left, right) => Value::AddInt(*left.min(&right), *left.max(&right)),
-        Value::MulInt(left, right) => Value::MulInt(*left.min(&right), *left.max(&right)),
-
-        Value::Phi(Phi(operands)) => {
-            let sorted_operands = operands.iter().cloned().sorted().collect_vec();
-            Value::Phi(Phi(sorted_operands))
-        }
     }
 }

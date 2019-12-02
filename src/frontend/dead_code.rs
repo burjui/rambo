@@ -127,8 +127,8 @@ fn remove_empty_blocks(cfg: &mut ControlFlowGraph) {
             if sources.len() == 1 && targets.len() == 1 {
                 let source = sources[0];
                 let target = targets[0];
-                if cfg.find_edge(source, target).is_none() {
-                    cfg.add_edge(source, target, ());
+                if !cfg.has_edge(source, target) {
+                    cfg.add_edge(source, target);
                 }
                 cfg.remove_node(block);
             }
@@ -165,6 +165,8 @@ fn merge_consecutive_basic_blocks(
                     let definition = definitions.get_mut(&value_id).unwrap();
                     definition.block = block;
                     definition.index = basic_block.push(statement);
+                } else {
+                    basic_block.push(statement);
                 }
             }
 
@@ -173,7 +175,7 @@ fn merge_consecutive_basic_blocks(
                 .map(|edge| edge.target())
                 .collect_vec();
             for target in targets {
-                cfg.add_edge(block, target, ());
+                cfg.add_edge(block, target);
             }
             cfg.remove_node(successor);
         }

@@ -9,12 +9,10 @@ Lecture Notes in Computer Science, vol 7791. Springer, Berlin, Heidelberg
 
 use crate::frontend::dead_code::remove_dead_code;
 use crate::ir::get_value_operands;
-use crate::ir::normalize;
 use crate::ir::replace_value_id;
 use crate::ir::value_storage::ValueId;
 use crate::ir::value_storage::ValueStorage;
 use crate::ir::value_storage::UNDEFINED_VALUE;
-use crate::ir::BasicBlock;
 use crate::ir::ControlFlowGraph;
 use crate::ir::FnId;
 use crate::ir::FnIdGenerator;
@@ -101,7 +99,7 @@ impl<'a> FrontEnd<'a> {
             undefined_users: Vec::new(),
             markers: Vec::new(),
         };
-        instance.entry_block = instance.new_block();
+        instance.entry_block = instance.cfg.add_new_block();
         instance.seal_block(instance.entry_block);
         instance
     }
@@ -132,12 +130,11 @@ impl<'a> FrontEnd<'a> {
         self.assert_no_undefined_variables();
 
         if self.enable_warnings {
-            let variables = self
+            let redundant_bindings = self
                 .variables
-                .into_iter()
-                .map(|(variable, _)| variable)
-                .collect::<HashSet<_>>();
-            let redundant_bindings = variables.difference(&self.variables_read);
+                .keys()
+                .filter(|variable| !self.variables_read.contains(variable))
+                .collect();
             warn_about_redundant_bindings(redundant_bindings);
         }
 
@@ -253,8 +250,8 @@ impl<'a> FrontEnd<'a> {
                     };
                 }
 
-                let then_branch_block = self.new_block();
-                let else_branch_block = self.new_block();
+                let then_branch_block = self.cfg.add_new_block();
+                let else_branch_block = self.cfg.add_new_block();
 
                 self.cfg[block].push(Statement::CondJump(
                     condition,
@@ -263,8 +260,8 @@ impl<'a> FrontEnd<'a> {
                 ));
                 self.record_phi_and_undefined_usages(condition);
 
-                self.cfg.add_edge(block, then_branch_block, ());
-                self.cfg.add_edge(block, else_branch_block, ());
+                self.cfg.add_edge(block, then_branch_block);
+                self.cfg.add_edge(block, else_branch_block);
                 self.seal_block(then_branch_block);
                 self.seal_block(else_branch_block);
                 let (then_branch_exit_block, then_branch) =
@@ -272,12 +269,12 @@ impl<'a> FrontEnd<'a> {
                 let (else_branch_exit_block, else_branch) =
                     self.process_expr(else_branch, else_branch_block);
 
-                let exit = self.new_block();
-                self.cfg.add_edge(then_branch_exit_block, exit, ());
-                self.cfg.add_edge(else_branch_exit_block, exit, ());
+                let exit = self.cfg.add_new_block();
+                self.cfg.add_edge(then_branch_exit_block, exit);
+                self.cfg.add_edge(else_branch_exit_block, exit);
                 self.seal_block(exit);
-                let result_phi = self.define_phi(exit, &[then_branch, else_branch]);
-                (exit, self.try_remove_trivial_phi(result_phi))
+                let phi = self.define_phi(exit, &[then_branch, else_branch]);
+                (exit, self.try_remove_trivial_phi(phi))
             }
 
             TypedExpr::Assign(binding, value, source) => {
@@ -530,26 +527,23 @@ impl<'a> FrontEnd<'a> {
     }
 
     fn define(&mut self, block: NodeIndex, value: Value) -> ValueId {
-        let value = normalize(value);
-        let (value_id, reused) = self.values.insert(value);
-        if !*reused {
-            if self.enable_cfp {
-                fold_constants(
-                    block,
-                    &self.definitions,
-                    &mut self.values,
-                    &self.functions,
-                    value_id,
-                );
-            }
-            let basic_block = &mut self.cfg[block];
-            let statement_index = basic_block.push(Statement::Definition(value_id));
-            let location = StatementLocation::new(block, statement_index);
-            self.definitions.insert(value_id, location);
-            self.record_phi_and_undefined_usages(value_id);
-            if let Value::Phi(_) = &self.values[value_id] {
-                self.phi_users.insert(value_id, HashSet::new());
-            }
+        let value_id = self.values.insert(value);
+        if self.enable_cfp {
+            fold_constants(
+                block,
+                &self.definitions,
+                &mut self.values,
+                &self.functions,
+                value_id,
+            );
+        }
+        let basic_block = &mut self.cfg[block];
+        let statement_index = basic_block.push(Statement::Definition(value_id));
+        let location = StatementLocation::new(block, statement_index);
+        self.definitions.insert(value_id, location);
+        self.record_phi_and_undefined_usages(value_id);
+        if let Value::Phi(_) = &self.values[value_id] {
+            self.phi_users.insert(value_id, HashSet::new());
         }
         value_id
     }
@@ -608,10 +602,6 @@ impl<'a> FrontEnd<'a> {
         }
     }
 
-    fn new_block(&mut self) -> NodeIndex {
-        self.cfg.add_node(BasicBlock::new())
-    }
-
     fn reset_markers(&mut self) {
         let len = self.markers.len();
         self.markers.truncate(0);
@@ -648,10 +638,10 @@ enum Marker {
     Phi(ValueId),
 }
 
-fn warn_about_redundant_bindings<'a>(redundant_bindings: impl Iterator<Item = &'a BindingRef>) {
-    let redundant_bindings =
-        redundant_bindings.sorted_by_key(|binding| binding.source.range().start);
-    for binding in redundant_bindings {
+#[allow(clippy::boxed_local)]
+fn warn_about_redundant_bindings(mut redundant_bindings: Box<[&BindingRef]>) {
+    redundant_bindings.sort_by_key(|binding| binding.source.range().start);
+    for binding in redundant_bindings.iter() {
         warning_at!(
             binding.source,
             "unused definition: {}",

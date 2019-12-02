@@ -31,12 +31,12 @@ fn generic() {
         z
         r + 1
         z + 1
-    
+
         z = 6
         z + 7
         z = 8
         z + 9
-    
+
         let f = λ (g: λ (u:str, v:str) -> str, u:str, v:str) -> g u v
         let s1 = f (λ (u:str, v:str) -> \"(\" + u + \"; \" + v + \")\") \"hello\" \"world\"
         let s2 = f (λ (u:str, v:str) -> \"<\" + u + \"; \" + v + \">\") (\"bye, \" + \"world\") \"seeya\"
@@ -144,6 +144,27 @@ fn conditional_cfp() {
                     .edge_count(),
                 0
             );
+        },
+    );
+}
+
+#[test]
+fn not_stealing_definitions_from_other_branches() {
+    test_frontend(
+        function_name!().to_owned(),
+        "
+        if 1 {
+        } else {
+        }
+        ",
+        ForbiddenPermutations::none().enable_cfp(true),
+        |module| {
+            assert_eq!(
+                module.functions[module.main_fn_id.as_ref().unwrap()]
+                    .cfg
+                    .edge_count(),
+                4
+            )
         },
     );
 }

@@ -1,45 +1,23 @@
 use crate::ir::Value;
 use crate::utils::RetainIndices;
-use std::collections::HashMap;
 use std::fmt;
-use std::ops::Deref;
 use std::ops::Index;
 use std::ops::IndexMut;
 
-pub(crate) struct Reused(bool);
-
-impl Deref for Reused {
-    type Target = bool;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
 #[derive(Clone)]
 pub(crate) struct ValueStorage {
-    value_to_id: HashMap<Value, ValueId>,
     values: Vec<Value>,
 }
 
 impl ValueStorage {
     pub(crate) fn new() -> Self {
-        Self {
-            value_to_id: HashMap::new(),
-            values: Vec::new(),
-        }
+        Self { values: Vec::new() }
     }
 
-    pub(crate) fn insert(&mut self, value: Value) -> (ValueId, Reused) {
-        match self.value_to_id.get(&value) {
-            Some(index) => (*index, Reused(true)),
-            None => {
-                let index = self.values.len();
-                self.values.push(value.clone());
-                self.value_to_id.insert(value, ValueId(index));
-                (ValueId(index), Reused(false))
-            }
-        }
+    pub(crate) fn insert(&mut self, value: Value) -> ValueId {
+        let index = self.values.len();
+        self.values.push(value);
+        ValueId(index)
     }
 
     pub(crate) fn iter(&self) -> impl Iterator<Item = (&Value, ValueId)> {
@@ -61,7 +39,6 @@ impl ValueStorage {
         mut predicate: impl FnMut(ValueId) -> bool,
         mut remap: impl FnMut(ValueId, ValueId),
     ) {
-        self.value_to_id.retain(|_, index| predicate(*index));
         self.values.retain_indices(
             |_, index| predicate(ValueId(index)),
             |_, from, to| remap(ValueId(from), ValueId(to)),

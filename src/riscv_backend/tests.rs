@@ -1,7 +1,6 @@
 use std::convert::TryFrom;
 use std::io::Write;
 
-use bitflags::_core::any::type_name;
 use bytes::Bytes;
 use ckb_vm::memory::{round_page_up, FLAG_EXECUTABLE, FLAG_WRITABLE};
 use ckb_vm::registers::{A0, SP};
@@ -159,7 +158,7 @@ fn test_backend(source_name: String, source_code: &str, expected_result: u32) {
 
 trait VmBackend {
     fn name(&self) -> &'static str {
-        type_name::<Self>()
+        core::any::type_name::<Self>()
     }
 
     fn run(&self, image: &RICSVImage) -> u32;
