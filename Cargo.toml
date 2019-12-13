@@ -11,21 +11,21 @@ name = "rambo"
 [dependencies]
 riscv = { path = "riscv" }
 getopts = "0.2.21"
-itertools = "0.8.0"
+itertools = "0.8.2"
 petgraph = "0.4.13"
 termcolor = "1.0.5"
-libc = "0.2.64"
+libc = "0.2.66"
 elapsed = "0.1.2"
 number_prefix = "0.3.0"
 bitflags = "1.2.1"
 risky = "0.2.3"
-smallvec = "0.6.10"
+smallvec = "1.0.0"
 derive_deref = "1.1.0"
 bimap = "0.4.0"
 byteorder = "1.3.2"
 rvsim = "0.2.1"
-ckb-vm = "0.18.0"
-bytes = "0.4.12"
+ckb-vm = "0.18.1"
+bytes = "0.5.3"
 
 [profile.release]
 debug = true
