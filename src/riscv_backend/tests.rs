@@ -235,7 +235,7 @@ impl VmBackend for Ckbvm {
                 RelocationKind::DataStore => {
                     const LOW_MASK: u32 = 0b11111;
                     const LOW_OFFSET: u32 = 7;
-                    const HIGH_MASK: u32 = 0b1111111;
+                    const HIGH_MASK: u32 = 0b111_1111;
                     const HIGH_OFFSET: u32 = 25;
                     next_instruction & !(LOW_MASK << LOW_OFFSET | HIGH_MASK << HIGH_OFFSET)
                         | ((immediate.lower as u32 & LOW_MASK) << LOW_OFFSET)

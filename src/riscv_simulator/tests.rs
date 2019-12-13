@@ -46,7 +46,7 @@ fn riscv_simulator() -> Result<(), Box<dyn Error>> {
             lb(1, 1, 0)?,
             lb(2, 2, 0)?,
             add(1, 1, 2)?,
-            lui(2, 0x01000000)?,
+            lui(2, 0x0100_0000)?,
             lh(2, 2, 0)?,
             add(1, 1, 2)?,
             ebreak()?,
