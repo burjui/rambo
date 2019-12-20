@@ -99,7 +99,7 @@ impl SemanticsChecker {
             Expr::Id(name) => {
                 let binding = self.resolve(name)?;
                 Ok(new_expr(TypedExpr::Reference(
-                    binding.clone(),
+                    binding,
                     name.clone(),
                 )))
             }
@@ -210,7 +210,7 @@ impl SemanticsChecker {
                 let function = self.check_expr(&function)?;
                 let function_type = function.type_();
                 let function_type_result: CheckResult<FunctionTypeRef> = match function_type {
-                    Type::Function(type_) => Ok(type_.clone()),
+                    Type::Function(type_) => Ok(type_),
                     _ => error!(
                         "2 expected a function, found `{:?}' of type `{:?}'",
                         expr, function_type
@@ -382,7 +382,7 @@ impl SemanticsChecker {
         self.env.pop();
 
         let expr = if statements.is_empty() {
-            TypedExpr::Unit(source.clone())
+            TypedExpr::Unit(source)
         } else {
             if let TypedStatement::Binding(_) = statements.last().unwrap() {
                 statements.push(TypedStatement::Expr(new_expr(TypedExpr::Unit(

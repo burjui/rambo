@@ -173,7 +173,7 @@ fn parse_command_line() -> Result<CommandLine, Box<dyn Error>> {
                         )))
                     }
                 })
-                .unwrap_or_else(|| Ok(COMPILER_PASS_NAMES.iter().last().unwrap().to_string()));
+                .unwrap_or_else(|| Ok((*COMPILER_PASS_NAMES.iter().last().unwrap()).to_string()));
             result?
         },
         enable_warnings: !matches.opt_present(WARNINGS_OPTION),

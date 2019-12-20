@@ -531,7 +531,7 @@ impl<'a> FrontEnd<'a> {
 
     fn define(&mut self, block: NodeIndex, value: Value) -> ValueId {
         let value = normalize(value);
-        let (value_id, reused) = self.values.insert(value.clone());
+        let (value_id, reused) = self.values.insert(value);
         if !*reused {
             if self.enable_cfp {
                 fold_constants(
