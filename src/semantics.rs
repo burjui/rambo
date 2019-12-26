@@ -98,10 +98,7 @@ impl SemanticsChecker {
             }
             Expr::Id(name) => {
                 let binding = self.resolve(name)?;
-                Ok(new_expr(TypedExpr::Reference(
-                    binding,
-                    name.clone(),
-                )))
+                Ok(new_expr(TypedExpr::Reference(binding, name.clone())))
             }
             Expr::Binary {
                 operation,

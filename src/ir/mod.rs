@@ -16,9 +16,9 @@ use std::iter::empty;
 use std::iter::once;
 use std::ops::Deref;
 use std::ops::DerefMut;
-use std::rc::Rc;
 use std::ops::Index;
 use std::ops::IndexMut;
+use std::rc::Rc;
 
 pub(crate) mod eval;
 pub(crate) mod value_storage;
