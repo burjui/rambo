@@ -24,8 +24,8 @@ derive_deref = "1.1.0"
 bimap = "0.4.0"
 byteorder = "1.3.2"
 rvsim = "0.2.1"
-ckb-vm = "0.18.1"
-bytes = "0.4.2"
+ckb-vm = "0.18.2"
+bytes = "0.4.12"
 
 [profile.release]
 debug = true

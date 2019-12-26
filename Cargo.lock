@@ -47,13 +47,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
 name = "ckb-vm"
-version = "0.18.1"
+version = "0.18.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "byteorder 1.3.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "bytes 0.4.12 (registry+https://github.com/rust-lang/crates.io-index)",
  "cc 1.0.37 (registry+https://github.com/rust-lang/crates.io-index)",
- "ckb-vm-definitions 0.18.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "ckb-vm-definitions 0.18.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "derive_more 0.15.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "goblin 0.0.24 (registry+https://github.com/rust-lang/crates.io-index)",
  "libc 0.2.66 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -62,7 +62,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-vm-definitions"
-version = "0.18.1"
+version = "0.18.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
@@ -217,7 +217,7 @@ dependencies = [
  "bitflags 1.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "byteorder 1.3.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "bytes 0.4.12 (registry+https://github.com/rust-lang/crates.io-index)",
- "ckb-vm 0.18.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "ckb-vm 0.18.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "derive_deref 1.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "elapsed 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "getopts 0.2.21 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -409,8 +409,8 @@ dependencies = [
 "checksum bytes 0.4.12 (registry+https://github.com/rust-lang/crates.io-index)" = "206fdffcfa2df7cbe15601ef46c813fce0965eb3286db6b56c583b814b51c81c"
 "checksum cc 1.0.37 (registry+https://github.com/rust-lang/crates.io-index)" = "39f75544d7bbaf57560d2168f28fd649ff9c76153874db88bdbdfd839b1a7e7d"
 "checksum cfg-if 0.1.9 (registry+https://github.com/rust-lang/crates.io-index)" = "b486ce3ccf7ffd79fdeb678eac06a9e6c09fc88d33836340becb8fffe87c5e33"
-"checksum ckb-vm 0.18.1 (registry+https://github.com/rust-lang/crates.io-index)" = "4a645990a41708a9a55ea8a90c42c98d20ce9b2d2dd457f51fce33bca8854474"
-"checksum ckb-vm-definitions 0.18.1 (registry+https://github.com/rust-lang/crates.io-index)" = "bd01bf493cff1315fd73a3be4a3ec135afe04503b81ebc1b531fcb061b42de6c"
+"checksum ckb-vm 0.18.2 (registry+https://github.com/rust-lang/crates.io-index)" = "684aca846d958bc5c2196b10839b69ec573cc693b14dc701986adda123ffbef0"
+"checksum ckb-vm-definitions 0.18.2 (registry+https://github.com/rust-lang/crates.io-index)" = "5b4a65696efd8974a3c785619f2bfc4c40f2cf318ac184c30aa72d0f539a4a4f"
 "checksum derive_deref 1.1.0 (registry+https://github.com/rust-lang/crates.io-index)" = "11554fdb0aa42363a442e0c4278f51c9621e20c1ce3bac51d79e60646f3b8b8f"
 "checksum derive_more 0.15.0 (registry+https://github.com/rust-lang/crates.io-index)" = "7a141330240c921ec6d074a3e188a7c7ef95668bb95e7d44fa0e5778ec2a7afe"
 "checksum either 1.5.2 (registry+https://github.com/rust-lang/crates.io-index)" = "5527cfe0d098f36e3f8839852688e63c8fff1c90b2b405aef730615f9a7bcf7b"
