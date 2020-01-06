@@ -681,9 +681,21 @@ impl<'a> Backend<'a> {
             self.registers.allocate(value_id, target, &*self.no_spill)?;
         if let Some(previous_user) = previous_user {
             if previous_user != value_id {
-                if let Some(&data_offset) = self.data_offsets.get(&previous_user) {
-                    self.store_u32(register, data_offset)?;
+                // Spill
+                let data_offset;
+                match self.data_offsets.get(&previous_user) {
+                    Some(offset) => data_offset = *offset,
+                    None => {
+                        // FIXME allocate_value(). The following is a hack for function calls, for which memory is not allocated.
+                        data_offset = self.allocate_u32(0xBAD_F00D).unwrap();
+                        self.data_offsets.insert(previous_user, data_offset);
+                    }
                 }
+                self.comment(&format!(
+                    "SPILLED [r{}] {} in favor of {}",
+                    register, previous_user, value_id
+                ))?;
+                self.store_u32(register, data_offset)?;
             }
         }
 
