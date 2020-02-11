@@ -102,7 +102,8 @@ fn parse_command_line() -> Result<CommandLine, Box<dyn Error>> {
     static DUMP_AST_OPTION: &str = "dump-ast";
     static DUMP_HIR_OPTION: &str = "dump-hir";
     static DUMP_IR_OPTION: &str = "dump-ir";
-    static DUMP_TARGET_CODE_OPTION: &str = "dump-tc";
+    static DUMP_EXECUTABLE: &str = "dump-exe";
+    static PRINT_TARGET_CODE_OPTION: &str = "print-tc";
 
     let args: Vec<String> = program_args().collect();
     let mut spec = Options::new();
@@ -140,7 +141,8 @@ fn parse_command_line() -> Result<CommandLine, Box<dyn Error>> {
     spec.optflag("", DUMP_AST_OPTION, "dump AST");
     spec.optflag("", DUMP_HIR_OPTION, "dump HIR");
     spec.optflag("", DUMP_IR_OPTION, "dump IR");
-    spec.optflag("", DUMP_TARGET_CODE_OPTION, "dump target code");
+    spec.optflag("", DUMP_EXECUTABLE, "dump executable");
+    spec.optflag("", PRINT_TARGET_CODE_OPTION, "print target code");
 
     let matches = spec.parse(&args[1..])?;
     let program_name = args[0].clone();
@@ -187,7 +189,8 @@ fn parse_command_line() -> Result<CommandLine, Box<dyn Error>> {
         dump_ast: matches.opt_present(DUMP_AST_OPTION),
         dump_hir: matches.opt_present(DUMP_HIR_OPTION),
         dump_ir: matches.opt_present(DUMP_IR_OPTION),
-        dump_target_code: matches.opt_present(DUMP_TARGET_CODE_OPTION),
+        dump_executable: matches.opt_present(DUMP_EXECUTABLE),
+        print_target_code: matches.opt_present(PRINT_TARGET_CODE_OPTION),
     };
     let input_files = matches.free;
     Ok(CommandLine {

@@ -47,7 +47,8 @@ pub(crate) struct PipelineOptions {
     pub(crate) dump_ast: bool,
     pub(crate) dump_hir: bool,
     pub(crate) dump_ir: bool,
-    pub(crate) dump_target_code: bool,
+    pub(crate) dump_executable: bool,
+    pub(crate) print_target_code: bool,
 }
 
 pub(crate) struct Pipeline<'a, T> {
@@ -267,7 +268,7 @@ impl CompilerPass<IRModule, Executable> for RISCVBackend {
         let stdout = &mut stdout();
         let image = riscv_backend::generate(
             &module,
-            if options.dump_target_code {
+            if options.print_target_code {
                 DumpCode::Yes(stdout)
             } else {
                 DumpCode::No
@@ -275,9 +276,9 @@ impl CompilerPass<IRModule, Executable> for RISCVBackend {
             EnableImmediateIntegers(options.enable_immediate_integers),
         )?;
 
-        if options.dump_target_code {
-            let file = File::create(module.name + "_exec.cbor")?;
-            serde_cbor::to_writer(file, &image)?;
+        if options.dump_executable {
+            let file = File::create(module.name + "_exe.bin")?;
+            bincode::serialize_into(file, &image)?;
         }
 
         if options.verbosity >= 1 {
