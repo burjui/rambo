@@ -93,6 +93,7 @@ fn parse_command_line() -> Result<CommandLine, Box<dyn Error>> {
     static WARNINGS_OPTION: &str = "w";
     static DUMP_CFG_OPTION: &str = "dump-cfg";
     static IR_COMMENTS_OPTION: &str = "ir-comments";
+    static TC_COMMENTS_OPTION: &str = "tc-comments";
     static PASS_OPTION: &str = "p";
     static NO_CFP_OPTION: &str = "no-cfp";
     static NO_DCE_OPTION: &str = "no-dce";
@@ -112,6 +113,7 @@ fn parse_command_line() -> Result<CommandLine, Box<dyn Error>> {
     spec.optflag(EVAL_IR, "", "evaluate the generated IR");
     spec.optflag("", DUMP_CFG_OPTION, "dump CFG");
     spec.optflag("", IR_COMMENTS_OPTION, "comment the generated IR");
+    spec.optflag("", TC_COMMENTS_OPTION, "comment the generated target code");
     spec.optflag(
         "",
         NO_CFP_OPTION,
@@ -180,7 +182,8 @@ fn parse_command_line() -> Result<CommandLine, Box<dyn Error>> {
         },
         enable_warnings: !matches.opt_present(WARNINGS_OPTION),
         dump_cfg: matches.opt_present(DUMP_CFG_OPTION),
-        cfg_include_comments: matches.opt_present(IR_COMMENTS_OPTION),
+        enable_ir_comments: matches.opt_present(IR_COMMENTS_OPTION),
+        enable_tc_comments: matches.opt_present(TC_COMMENTS_OPTION),
         enable_cfp: !matches.opt_present(NO_CFP_OPTION),
         enable_dce: !matches.opt_present(NO_DCE_OPTION),
         enable_immediate_integers: !matches.opt_present(NO_IMMINT_OPTION),

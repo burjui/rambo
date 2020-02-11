@@ -17,11 +17,12 @@ use crate::riscv_backend::{DumpCode, RelocationKind};
 use crate::riscv_simulator;
 use crate::riscv_simulator::DumpState;
 use crate::utils::{stderr, typecheck};
+use riscv_backend::EnableComments;
 
 struct BackEndPermutation(usize);
 
 impl BackEndPermutation {
-    const PARAMETER_COUNT: usize = 1;
+    const PARAMETER_COUNT: usize = 2;
     const PERMUTATION_COUNT: usize = 1 << Self::PARAMETER_COUNT;
 
     fn new() -> Self {
@@ -37,6 +38,10 @@ impl BackEndPermutation {
     }
 
     fn enable_immediate_integers(&self) -> bool {
+        self.parameter(0)
+    }
+
+    fn enable_comments(&self) -> bool {
         self.parameter(0)
     }
 
@@ -163,12 +168,19 @@ fn test_backend(source_name: String, source_code: &str, expected_result: u32) {
     while !backend_permutation.is_empty() {
         let enable_immediate_integers =
             EnableImmediateIntegers(backend_permutation.enable_immediate_integers());
+        let enable_comments = EnableComments(backend_permutation.enable_comments());
         let dump_code = if dump_code {
             DumpCode::Yes(stderr)
         } else {
             DumpCode::No
         };
-        let image = riscv_backend::generate(&module, dump_code, enable_immediate_integers).unwrap();
+        let image = riscv_backend::generate(
+            &module,
+            dump_code,
+            enable_immediate_integers,
+            enable_comments,
+        )
+        .unwrap();
 
         for &backend in backends {
             let result = backend.run(&image);

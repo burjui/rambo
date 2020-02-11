@@ -23,6 +23,7 @@ use itertools::Itertools;
 use number_prefix::NumberPrefix;
 use rambo_riscv::Executable;
 use riscv::registers;
+use riscv_backend::EnableComments;
 use std::error::Error;
 use std::ffi::OsStr;
 use std::fs::File;
@@ -39,7 +40,8 @@ pub(crate) struct PipelineOptions {
     pub(crate) max_pass_name: String,
     pub(crate) enable_warnings: bool,
     pub(crate) dump_cfg: bool,
-    pub(crate) cfg_include_comments: bool,
+    pub(crate) enable_ir_comments: bool,
+    pub(crate) enable_tc_comments: bool,
     pub(crate) enable_cfp: bool,
     pub(crate) enable_dce: bool,
     pub(crate) enable_immediate_integers: bool,
@@ -215,7 +217,7 @@ impl CompilerPass<(ExprRef, SourceFileRef), IRModule> for IR {
         let mut state = FrontEndState::new();
         let frontend = FrontEnd::new(source_file.name(), &mut state)
             .enable_warnings(options.enable_warnings)
-            .include_comments(options.cfg_include_comments)
+            .include_comments(options.enable_ir_comments)
             .enable_cfp(options.enable_cfp)
             .enable_dce(options.enable_dce);
         let module = frontend.build(&hir);
@@ -275,6 +277,7 @@ impl CompilerPass<IRModule, Executable> for RISCVBackend {
                 DumpCode::No
             },
             EnableImmediateIntegers(options.enable_immediate_integers),
+            EnableComments(options.enable_tc_comments),
         )?;
 
         if options.dump_executable {

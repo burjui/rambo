@@ -46,14 +46,23 @@ pub(crate) enum DumpCode<'a> {
 
 #[derive(Deref)]
 pub(crate) struct EnableImmediateIntegers(pub(crate) bool);
+#[derive(Deref)]
+pub(crate) struct EnableComments(pub(crate) bool);
 
 pub(crate) fn generate(
     module: &IRModule,
     dump_code: DumpCode<'_>,
     enable_immediate_integers: EnableImmediateIntegers,
+    enable_comments: EnableComments,
 ) -> GenericResult<Executable> {
     let mut state = SharedState::new();
-    let backend = Backend::new(&mut state, module, dump_code, enable_immediate_integers);
+    let backend = Backend::new(
+        &mut state,
+        module,
+        dump_code,
+        enable_immediate_integers,
+        enable_comments,
+    );
     backend.generate()?;
     for (offset, fn_id) in &state.function_relocations {
         let target = state.function_offsets[fn_id];
@@ -86,6 +95,7 @@ struct Backend<'a> {
     module: &'a IRModule,
     dump_code: DumpCode<'a>,
     enable_immediate_integers: bool,
+    enable_comments: bool,
     registers: RegisterAllocator,
     data_offsets: HashMap<ValueId, u32>,
     no_spill: SmallVec<[u8; REGISTER_COUNT]>,
@@ -99,12 +109,14 @@ impl<'a> Backend<'a> {
         module: &'a IRModule,
         dump_code: DumpCode<'a>,
         EnableImmediateIntegers(enable_immediate_integers): EnableImmediateIntegers,
+        EnableComments(enable_comments): EnableComments,
     ) -> Self {
         Self {
             state,
             module,
             dump_code,
             enable_immediate_integers,
+            enable_comments,
             registers: RegisterAllocator::new(),
             data_offsets: HashMap::new(),
             no_spill: SmallVec::new(),
@@ -129,7 +141,7 @@ impl<'a> Backend<'a> {
             }
         }
 
-        self.comment(&format!("---- START {}", &self.module.name))?;
+        self.tc_comment(&format!("---- START {}", &self.module.name))?;
 
         let code_start = self.current_code_offset().unwrap();
         let mut next_block = self.generate_block(self.module.entry_block)?;
@@ -179,10 +191,12 @@ impl<'a> Backend<'a> {
                 }
             }
 
-            self.last_comment_at(
-                code_start,
-                &format!("Save registers {}", &saved_register_list),
-            )?;
+            if self.enable_comments {
+                self.add_comment_at(
+                    code_start,
+                    &format!("Save registers {}", &saved_register_list),
+                );
+            }
         }
 
         if self.function_id.is_none() {
@@ -193,7 +207,7 @@ impl<'a> Backend<'a> {
             ])
             .unwrap();
         }
-        self.comment(&format!("---- END {}", &self.module.name))?;
+        self.tc_comment(&format!("---- END {}", &self.module.name))?;
 
         let functions = self
             .module
@@ -211,6 +225,7 @@ impl<'a> Backend<'a> {
                 &fn_cfg,
                 DumpCode::No,
                 EnableImmediateIntegers(self.enable_immediate_integers),
+                EnableComments(self.enable_comments),
             );
             backend.function_id = Some(fn_id);
             backend.generate()?;
@@ -223,7 +238,7 @@ impl<'a> Backend<'a> {
                 let offset = u32::try_from(offset)?;
                 if let Some(comments) = self.state.image.comments.find(offset) {
                     for comment in comments {
-                        writeln!(output, "// {}", comment)?;
+                        writeln!(output, "{}", comment)?;
                     }
                 }
                 output.set_color(
@@ -276,12 +291,12 @@ impl<'a> Backend<'a> {
     ) -> GenericResult<Option<NodeIndex>> {
         match statement {
             Statement::Comment(comment) => {
-                self.comment(comment)?;
+                self.ir_comment(comment)?;
                 Ok(None)
             }
 
             Statement::Definition(value_id) => {
-                self.comment(&format!("define {:?}", self.module.values[*value_id]))?;
+                self.tc_comment(&format!("define {:?}", self.module.values[*value_id]))?;
                 let register = self.generate_value(*value_id, None)?;
                 let phi = self.phis.get(&value_id).and_then(|phis_by_block| {
                     phis_by_block.iter().find_map(|(phi_block, phi)| {
@@ -296,7 +311,7 @@ impl<'a> Backend<'a> {
                     let phi_offset = self.allocate_value(phi)?.unwrap();
                     self.store_u32(register, phi_offset)?;
                 }
-                self.comment(&format!(
+                self.tc_comment(&format!(
                     "{}: {:?} -> x{}",
                     value_id, self.module.values[*value_id], register
                 ))?;
@@ -376,7 +391,7 @@ impl<'a> Backend<'a> {
                             .map(|register| format!("x{}", register))
                             .format(", ")
                             .to_string();
-                        self.comment(&format!("Restore registers {}", &saved_register_list))?;
+                        self.tc_comment(&format!("Restore registers {}", &saved_register_list))?;
                         let saved_registers_size = i16::try_from(saved_registers.len() * 4)?;
                         self.push_code(&[addi(
                             registers::SP,
@@ -436,7 +451,7 @@ impl<'a> Backend<'a> {
             Value::Call(function, arguments) => {
                 let mut saved_bytes_total = 0;
                 if self.function_id.is_some() {
-                    self.comment("Save link and frame")?;
+                    self.tc_comment("Save link and frame")?;
                     self.push_code(&[
                         sw(registers::SP, 0, registers::RA)?,
                         sw(registers::SP, -4, registers::FP)?,
@@ -446,7 +461,7 @@ impl<'a> Backend<'a> {
 
                 let saved_bytes_env = saved_bytes_total;
                 saved_bytes_total += arguments.len() * 4;
-                self.comment("Set up frame and stack")?;
+                self.tc_comment("Set up frame and stack")?;
                 self.push_code(&[
                     addi(
                         registers::FP,
@@ -461,20 +476,20 @@ impl<'a> Backend<'a> {
                 ])?;
 
                 let no_spill_length = self.no_spill.len();
-                self.comment("Generate arguments")?;
+                self.tc_comment("Generate arguments")?;
                 for (index, argument) in arguments.iter().enumerate() {
                     let register = self.allocate_register(*argument, None)?;
                     self.push_code(&[sw(registers::FP, -i16::try_from(index * 4)?, register)?])?;
                     self.no_spill.push(register);
                 }
 
-                self.comment("Call the function")?;
+                self.tc_comment("Call the function")?;
                 self.no_spill.truncate(no_spill_length);
                 let fn_address = self.allocate_register(*function, None).unwrap();
                 // TODO if function is Value::Function then generate a relocation and auipc + jalr instead
                 self.push_code(&[jalr(registers::RA, fn_address, 0).unwrap()])?;
 
-                self.comment("Restore stack pointer")?;
+                self.tc_comment("Restore stack pointer")?;
                 self.push_code(&[addi(
                     registers::SP,
                     registers::SP,
@@ -482,7 +497,7 @@ impl<'a> Backend<'a> {
                 )?])?;
 
                 if self.function_id.is_some() {
-                    self.comment("Restore link and frame")?;
+                    self.tc_comment("Restore link and frame")?;
                     self.push_code(&[
                         lw(registers::RA, registers::SP, 0).unwrap(),
                         lw(registers::FP, registers::SP, -4).unwrap(),
@@ -653,7 +668,7 @@ impl<'a> Backend<'a> {
                         self.data_offsets.insert(previous_user, data_offset);
                     }
                 }
-                self.comment(&format!(
+                self.tc_comment(&format!(
                     "SPILLED [r{}] {} in favor of {}",
                     register, previous_user, value_id
                 ))?;
@@ -694,13 +709,20 @@ impl<'a> Backend<'a> {
         Ok(register)
     }
 
-    fn comment(&mut self, comment: &str) -> GenericResult<()> {
-        self.last_comment_at(self.current_code_offset()?, comment)
+    fn ir_comment(&mut self, comment: &str) -> GenericResult<()> {
+        self.add_comment_at(self.current_code_offset()?, &format!("// {}", comment));
+        Ok(())
     }
 
-    fn last_comment_at(&mut self, offset: u32, comment: &str) -> GenericResult<()> {
-        self.state.image.comments.insert(offset, comment);
+    fn tc_comment(&mut self, comment: &str) -> GenericResult<()> {
+        if self.enable_comments {
+            self.add_comment_at(self.current_code_offset()?, comment);
+        }
         Ok(())
+    }
+
+    fn add_comment_at(&mut self, offset: u32, comment: &str) {
+        self.state.image.comments.insert(offset, comment);
     }
 
     fn patch_jump(&mut self, patch_offset: u32, rd: u8, offset: i32) -> GenericResult<()> {
