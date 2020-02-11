@@ -1,7 +1,7 @@
 [package]
 name = "rambo"
 version = "0.3.7"
-authors = [ "Artem Borisovsky <bytefu@gmail.com>" ]
+authors = ["Artem Borisovsky <bytefu@gmail.com>"]
 description = "Compiler for a toy programming language Rambo, written in Rust just for fun, i.e. with no practical purpose in mind."
 edition = '2018'
 
@@ -9,7 +9,8 @@ edition = '2018'
 name = "rambo"
 
 [dependencies]
-riscv = { path = "riscv" }
+riscv = { git = "ssh://git@github.com/burjui/riscv.git" }
+rambo-riscv = { git = "ssh://git@github.com/burjui/rambo-riscv.git" }
 getopts = "0.2.21"
 itertools = "0.8.2"
 petgraph = "0.4.13"
@@ -26,6 +27,7 @@ byteorder = "1.3.2"
 rvsim = "0.2.1"
 ckb-vm = "0.18.2"
 bytes = "0.4.12"
+serde_cbor = "0.11.1"
 
 [profile.release]
 debug = true

@@ -11,7 +11,6 @@ use crate::parser::Parser;
 use crate::riscv_backend;
 use crate::riscv_backend::DumpCode;
 use crate::riscv_backend::EnableImmediateIntegers;
-use crate::riscv_backend::RICSVImage;
 use crate::riscv_simulator;
 use crate::riscv_simulator::DumpState;
 use crate::semantics::ExprRef;
@@ -22,9 +21,11 @@ use crate::utils::stdout;
 use core::borrow::Borrow;
 use itertools::Itertools;
 use number_prefix::NumberPrefix;
+use rambo_riscv::Executable;
 use riscv::registers;
 use std::error::Error;
 use std::ffi::OsStr;
+use std::fs::File;
 use std::io::Write;
 use std::path::Path;
 use termcolor::Color;
@@ -258,11 +259,11 @@ impl CompilerPass<IRModule, IRModule> for EvaluateIR {
     }
 }
 
-impl CompilerPass<IRModule, RICSVImage> for RISCVBackend {
+impl CompilerPass<IRModule, Executable> for RISCVBackend {
     const NAME: &'static str = "rvgen";
     const TITLE: &'static str = "Generating RISC-V code";
 
-    fn apply(module: IRModule, options: &PipelineOptions) -> Result<RICSVImage, Box<dyn Error>> {
+    fn apply(module: IRModule, options: &PipelineOptions) -> Result<Executable, Box<dyn Error>> {
         let stdout = &mut stdout();
         let image = riscv_backend::generate(
             &module,
@@ -273,6 +274,12 @@ impl CompilerPass<IRModule, RICSVImage> for RISCVBackend {
             },
             EnableImmediateIntegers(options.enable_immediate_integers),
         )?;
+
+        if options.dump_target_code {
+            let file = File::create(module.name + "_exec.cbor")?;
+            serde_cbor::to_writer(file, &image)?;
+        }
+
         if options.verbosity >= 1 {
             // FIXME "image.code.len() / 4" is only correct for 32-bit instructions
             writeln!(
@@ -283,6 +290,7 @@ impl CompilerPass<IRModule, RICSVImage> for RISCVBackend {
             )?;
             writeln!(stdout, "data: {}", size_string(image.data.len()))?;
         }
+
         Ok(image)
     }
 }
@@ -294,11 +302,11 @@ fn size_string(size: usize) -> String {
     }
 }
 
-impl CompilerPass<RICSVImage, ()> for RISCVSimulator {
+impl CompilerPass<Executable, ()> for RISCVSimulator {
     const NAME: &'static str = "rvsim";
     const TITLE: &'static str = "Executing RISC-V code";
 
-    fn apply(image: RICSVImage, options: &PipelineOptions) -> Result<(), Box<dyn Error>> {
+    fn apply(image: Executable, options: &PipelineOptions) -> Result<(), Box<dyn Error>> {
         let stdout = &mut stdout();
         let dump_state = match options.verbosity {
             2 => DumpState::Instructions(stdout),

@@ -1,7 +1,4 @@
 use std::error::Error;
-use std::mem::swap;
-use std::ops::Range;
-
 use termcolor::ColorChoice;
 use termcolor::StandardStream;
 
@@ -24,7 +21,6 @@ macro_rules! warning_at {
     }};
 }
 
-#[cfg(test)]
 macro_rules! function {
     () => {{
         struct X;
@@ -84,33 +80,6 @@ macro_rules! matches {
             _ => false,
         }
     }
-}
-
-pub(crate) fn intersection<'a, T: Ord + Copy>(
-    mut r1: &'a Range<T>,
-    mut r2: &'a Range<T>,
-) -> Option<Range<T>> {
-    if r1.start > r2.start {
-        swap(&mut r1, &mut r2);
-    }
-    if r1.end <= r2.start {
-        None
-    } else {
-        Some(r1.start.max(r2.start)..r1.end.min(r2.end))
-    }
-}
-
-#[test]
-fn range_intersection() {
-    test_intersection(0..10, 10..20, None);
-    test_intersection(5..15, 10..20, Some(10..15));
-    test_intersection(10..20, 12..15, Some(12..15));
-}
-
-#[cfg(test)]
-fn test_intersection(range1: Range<u32>, range2: Range<u32>, expected_result: Option<Range<u32>>) {
-    assert_eq!(intersection(&range1, &range2), expected_result);
-    assert_eq!(intersection(&range2, &range1), expected_result);
 }
 
 pub(crate) trait RetainIndices<T> {

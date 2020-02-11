@@ -7,16 +7,18 @@ use crate::ir::Value;
 use crate::utils::GenericResult;
 use crate::utils::VecUtils;
 use bimap::BiMap;
+use byteorder::LittleEndian;
 use byteorder::WriteBytesExt;
 use itertools::Itertools;
 use petgraph::stable_graph::NodeIndex;
 use petgraph::visit::EdgeRef;
 use petgraph::Direction;
+use rambo_riscv::Executable;
+use rambo_riscv::Relocation;
+use rambo_riscv::RelocationKind;
 use riscv::decoder::decode;
 use riscv::registers;
 use riscv::registers::REGISTER_COUNT;
-use riscv::DataByteOrder;
-use riscv::InstructionByteOrder;
 use risky::instructions::*;
 use smallvec::SmallVec;
 use std::collections::btree_set::BTreeSet;
@@ -36,6 +38,7 @@ use termcolor::WriteColor;
 #[cfg(test)]
 mod tests;
 
+// FIXME Dumping code should be separated from code generation
 pub(crate) enum DumpCode<'a> {
     No,
     Yes(&'a mut StandardStream),
@@ -48,7 +51,7 @@ pub(crate) fn generate(
     module: &IRModule,
     dump_code: DumpCode<'_>,
     enable_immediate_integers: EnableImmediateIntegers,
-) -> GenericResult<RICSVImage> {
+) -> GenericResult<Executable> {
     let mut state = SharedState::new();
     let backend = Backend::new(&mut state, module, dump_code, enable_immediate_integers);
     backend.generate()?;
@@ -62,51 +65,8 @@ pub(crate) fn generate(
     Ok(state.image)
 }
 
-#[derive(Debug)]
-pub(crate) enum RelocationKind {
-    Function,
-    DataLoad,
-    DataStore,
-}
-
-pub(crate) struct Relocation {
-    pub(crate) offset: u32,
-    pub(crate) target: u32,
-    pub(crate) kind: RelocationKind,
-}
-
-impl Relocation {
-    fn new(offset: u32, target: u32, kind: RelocationKind) -> Self {
-        Self {
-            offset,
-            target,
-            kind,
-        }
-    }
-}
-
-pub(crate) struct RICSVImage {
-    pub(crate) code: Vec<u8>,
-    pub(crate) data: Vec<u8>,
-    pub(crate) comments: CommentVec,
-    pub(crate) relocations: Vec<Relocation>,
-    pub(crate) entry: u32,
-}
-
-impl RICSVImage {
-    fn new() -> Self {
-        Self {
-            code: Vec::new(),
-            data: Vec::new(),
-            comments: CommentVec::new(),
-            relocations: Vec::new(),
-            entry: 0,
-        }
-    }
-}
-
 struct SharedState {
-    image: RICSVImage,
+    image: Executable,
     function_offsets: HashMap<FnId, u32>,
     function_relocations: Vec<(u32, FnId)>,
 }
@@ -114,7 +74,7 @@ struct SharedState {
 impl SharedState {
     fn new() -> Self {
         Self {
-            image: RICSVImage::new(),
+            image: Executable::new(),
             function_offsets: HashMap::new(),
             function_relocations: Vec::new(),
         }
@@ -441,7 +401,6 @@ impl<'a> Backend<'a> {
     }
 
     fn generate_value(&mut self, value_id: ValueId, target: Option<u8>) -> GenericResult<u8> {
-        self.allocate_value(value_id)?;
         match &self.module.values[value_id] {
             Value::Unit => Ok(registers::ZERO),
 
@@ -592,6 +551,8 @@ impl<'a> Backend<'a> {
             None => {
                 let value = &self.module.values[value_id];
                 let data_offset = match value {
+                    Value::Unit => None,
+
                     Value::Int(value) => {
                         if self.enable_immediate_integers {
                             None
@@ -600,16 +561,17 @@ impl<'a> Backend<'a> {
                         }
                     }
 
-                    Value::String(_) => unimplemented!("allocate_value(): Value::String"),
-
-                    Value::Phi(_) => Some(self.allocate_u32(0xDEAD_BEEF)?),
-
                     Value::AddInt(_, _)
                     | Value::SubInt(_, _)
                     | Value::MulInt(_, _)
-                    | Value::DivInt(_, _) => Some(self.allocate_u32(0)?),
+                    | Value::DivInt(_, _)
+                    | Value::Phi(_)
+                    | Value::Call(_, _) => Some(self.allocate_u32(0xDEAD_BEEF)?),
 
-                    _ => None,
+                    Value::Arg(_) | Value::Function(_, _) => None,
+
+                    Value::String(_) => unimplemented!("{}: Value::String", function!()),
+                    Value::AddString(_, _) => unimplemented!("{}: Value::AddString", function!()),
                 };
                 if let Some(offset) = data_offset {
                     self.data_offsets.insert(value_id, offset);
@@ -621,7 +583,7 @@ impl<'a> Backend<'a> {
 
     fn allocate_u32(&mut self, data: u32) -> GenericResult<u32> {
         let offset = u32::try_from(self.state.image.data.len())?;
-        self.state.image.data.write_u32::<DataByteOrder>(data)?;
+        self.state.image.data.write_u32::<LittleEndian>(data)?;
         Ok(offset)
     }
 
@@ -703,7 +665,7 @@ impl<'a> Backend<'a> {
             if source != register {
                 self.push_code(&[addi(register, source, 0)?])?;
             }
-        } else if let Some(&data_offset) = self.data_offsets.get(&value_id) {
+        } else if let Some(data_offset) = self.allocate_value(value_id).unwrap() {
             self.load_u32(register, data_offset)?;
         } else {
             match &self.module.values[value_id] {
@@ -761,36 +723,6 @@ impl<'a> Backend<'a> {
         } else {
             Ok(JumpOffset::Long(ui_immediate(offset)?))
         }
-    }
-}
-
-#[derive(Deref, DerefMut)]
-pub(crate) struct CommentVec(Vec<(u32, Vec<String>)>);
-
-impl CommentVec {
-    fn new() -> Self {
-        Self(Vec::new())
-    }
-
-    fn insert(&mut self, code_offset: u32, comment: &str) {
-        let index = match self
-            .0
-            .binary_search_by_key(&code_offset, |(offset, _)| *offset)
-        {
-            Ok(index) => index,
-            Err(index) => {
-                self.0.insert(index, (code_offset, Vec::new()));
-                index
-            }
-        };
-        self.0[index].1.push(comment.to_owned());
-    }
-
-    pub(crate) fn find(&self, code_offset: u32) -> Option<impl Iterator<Item = &String>> {
-        self.0
-            .binary_search_by_key(&code_offset, |(offset, _)| *offset)
-            .map(|index| self.0[index].1.iter())
-            .ok()
     }
 }
 
@@ -965,7 +897,7 @@ impl Error for RegisterAllocationError {}
 
 pub(crate) fn write_code(writer: &mut impl Write, code: &[u32]) -> io::Result<()> {
     for instruction in code {
-        writer.write_u32::<InstructionByteOrder>(*instruction)?;
+        writer.write_u32::<LittleEndian>(*instruction)?;
     }
     Ok(())
 }

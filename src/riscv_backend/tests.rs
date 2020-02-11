@@ -12,7 +12,7 @@ use crate::graphviz::IrGraphvizFile;
 use crate::riscv_backend;
 use crate::riscv_backend::ui_immediate;
 use crate::riscv_backend::EnableImmediateIntegers;
-use crate::riscv_backend::RICSVImage;
+use crate::riscv_backend::Executable;
 use crate::riscv_backend::{DumpCode, RelocationKind};
 use crate::riscv_simulator;
 use crate::riscv_simulator::DumpState;
@@ -107,6 +107,34 @@ fn function_return() {
     );
 }
 
+#[test]
+fn misaligned_fetch() {
+    test_backend(
+        function_name!().to_owned(),
+        "
+        fn f (a: num, b: num) a + b
+        fn g (f: \\ (a: num, b: num) -> num, a: num, b: num) f a b + 1
+
+        fn h (f: \\ (a: num, b: num) -> num, g: \\ (f: \\ (a: num, b: num) -> num, a: num, b: num) -> num) {
+            let a = 1
+            let b = 2
+
+            g f a b
+            g f 1 2
+            g f 1 2
+            g f 1 2
+            g f 1 2
+            g f 1 2
+            g f 1 2
+            g f 1 2
+        }
+
+        h f g
+        ",
+        4,
+    );
+}
+
 fn test_backend(source_name: String, source_code: &str, expected_result: u32) {
     let code = typecheck(source_name.clone(), source_code).unwrap();
     let mut state = FrontEndState::new();
@@ -161,13 +189,13 @@ trait VmBackend {
         core::any::type_name::<Self>()
     }
 
-    fn run(&self, image: &RICSVImage) -> u32;
+    fn run(&self, image: &Executable) -> u32;
 }
 
 struct Rvsim;
 
 impl VmBackend for Rvsim {
-    fn run(&self, image: &RICSVImage) -> u32 {
+    fn run(&self, image: &Executable) -> u32 {
         let simulator = riscv_simulator::run(&image, DumpState::None).unwrap();
         simulator.cpu.x[A0 as usize]
     }
@@ -176,7 +204,7 @@ impl VmBackend for Rvsim {
 struct Ckbvm;
 
 impl VmBackend for Ckbvm {
-    fn run(&self, image: &RICSVImage) -> u32 {
+    fn run(&self, image: &Executable) -> u32 {
         type Register = u32;
 
         let mut machine = DefaultMachine::<
