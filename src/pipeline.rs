@@ -26,6 +26,7 @@ use riscv::registers;
 use std::error::Error;
 use std::ffi::OsStr;
 use std::fs::File;
+use std::io::BufWriter;
 use std::io::Write;
 use std::path::Path;
 use termcolor::Color;
@@ -278,7 +279,8 @@ impl CompilerPass<IRModule, Executable> for RISCVBackend {
 
         if options.dump_executable {
             let file = File::create(module.name + "_exe.bin")?;
-            bincode::serialize_into(file, &image)?;
+            let output = BufWriter::new(file);
+            bincode::serialize_into(output, &image)?;
         }
 
         if options.verbosity >= 1 {
