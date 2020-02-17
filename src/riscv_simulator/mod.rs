@@ -72,18 +72,15 @@ pub(crate) fn run(
         }
 
         if let DumpState::Instructions(output) | DumpState::Everything(output) = &mut dump_state {
-            if let Some(comments) = executable
-                .comments
-                .find(simulator.cpu.pc - config.code_start_address)
+            if let Some(comment) =
+                executable.comment_at(simulator.cpu.pc - config.code_start_address)
             {
-                for comment in comments {
-                    output.set_color(
-                        ColorSpec::new()
-                            .set_fg(Some(Color::Black))
-                            .set_intense(true),
-                    )?;
-                    writeln!(output, "// {}", comment)?;
-                }
+                output.set_color(
+                    ColorSpec::new()
+                        .set_fg(Some(Color::Black))
+                        .set_intense(true),
+                )?;
+                writeln!(output, "{}", comment)?;
             }
         }
 

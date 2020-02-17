@@ -144,6 +144,8 @@ impl<'a> Backend<'a> {
         self.tc_comment(&format!("---- START {}", &self.module.name))?;
 
         let code_start = self.current_code_offset().unwrap();
+        let comments_start = self.state.image.comments.len();
+        let relocations_start = self.state.image.relocations.len();
         let mut next_block = self.generate_block(self.module.entry_block)?;
         while let Some(block) = next_block {
             next_block = self.generate_block(block)?;
@@ -169,30 +171,26 @@ impl<'a> Backend<'a> {
                 &[addi(registers::SP, registers::SP, -saved_registers_size)?],
             )?;
 
-            let comment_fixup_offset = register_saving_code.len() as u32;
+            let fixup = register_saving_code.len() as u32;
             self.state
                 .image
                 .code
                 .insert_slice(usize::try_from(code_start).unwrap(), &register_saving_code);
-            for (comment_offset, _) in self.state.image.comments.iter_mut().rev() {
-                if *comment_offset > code_start {
-                    *comment_offset += comment_fixup_offset;
-                } else {
-                    break;
+            for (comment_offset, _) in &mut self.state.image.comments[comments_start..] {
+                if *comment_offset >= code_start {
+                    *comment_offset += fixup;
                 }
             }
-            for relocation in self.state.image.relocations.iter_mut().rev() {
-                if relocation.offset > code_start {
-                    if let RelocationKind::DataLoad | RelocationKind::DataStore = relocation.kind {
-                        relocation.offset += comment_fixup_offset;
+            for relocation in &mut self.state.image.relocations[relocations_start..] {
+                if let RelocationKind::DataLoad | RelocationKind::DataStore = relocation.kind {
+                    if relocation.offset >= code_start {
+                        relocation.offset += fixup;
                     }
-                } else {
-                    break;
                 }
             }
 
             if self.enable_comments {
-                self.add_comment_at(
+                self.state.image.add_comment(
                     code_start,
                     &format!("Save registers {}", &saved_register_list),
                 );
@@ -236,10 +234,8 @@ impl<'a> Backend<'a> {
             writeln!(output, "---- CODE DUMP: {} ----", &self.module.name)?;
             for (op, offset) in decode(&self.state.image.code) {
                 let offset = u32::try_from(offset)?;
-                if let Some(comments) = self.state.image.comments.find(offset) {
-                    for comment in comments {
-                        writeln!(output, "{}", comment)?;
-                    }
+                if let Some(comment) = self.state.image.comment_at(offset) {
+                    writeln!(output, "{}", comment)?;
                 }
                 output.set_color(
                     ColorSpec::new()
@@ -710,19 +706,19 @@ impl<'a> Backend<'a> {
     }
 
     fn ir_comment(&mut self, comment: &str) -> GenericResult<()> {
-        self.add_comment_at(self.current_code_offset()?, &format!("// {}", comment));
+        self.state
+            .image
+            .add_comment(self.current_code_offset()?, &format!("// {}", comment));
         Ok(())
     }
 
     fn tc_comment(&mut self, comment: &str) -> GenericResult<()> {
         if self.enable_comments {
-            self.add_comment_at(self.current_code_offset()?, comment);
+            self.state
+                .image
+                .add_comment(self.current_code_offset()?, comment);
         }
         Ok(())
-    }
-
-    fn add_comment_at(&mut self, offset: u32, comment: &str) {
-        self.state.image.comments.insert(offset, comment);
     }
 
     fn patch_jump(&mut self, patch_offset: u32, rd: u8, offset: i32) -> GenericResult<()> {

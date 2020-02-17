@@ -10,7 +10,7 @@ name = "rambo"
 
 [dependencies]
 riscv = { git = "ssh://git@github.com/burjui/riscv.git" }
-rambo-riscv = { git = "ssh://git@github.com/burjui/rambo-riscv.git" }
+rambo-riscv = { git = "ssh://git@github.com/burjui/rambo-riscv.git", rev = "cd04a7f59f87fe08d426eebc9cc7f5a4c3b2a7f5" }
 getopts = "0.2.21"
 itertools = "0.8.2"
 petgraph = "0.4.13"
