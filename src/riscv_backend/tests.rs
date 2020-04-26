@@ -230,7 +230,7 @@ impl VmBackend for Ckbvm {
                 u64::from(CODE_START_ADDRESS),
                 round_page_up(u64::try_from(image.code.len()).unwrap()),
                 FLAG_EXECUTABLE,
-                Some(Bytes::from(image.code.as_slice())),
+                Some(Bytes::copy_from_slice(image.code.as_slice())),
                 0,
             )
             .unwrap();
@@ -244,7 +244,7 @@ impl VmBackend for Ckbvm {
                 u64::from(DATA_START_ADDRESS),
                 round_page_up(u64::try_from(total_data_size).unwrap()),
                 FLAG_WRITABLE,
-                Some(Bytes::from(image.data.as_slice())),
+                Some(Bytes::copy_from_slice(image.data.as_slice())),
                 0,
             )
             .unwrap();
