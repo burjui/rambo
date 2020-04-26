@@ -230,7 +230,9 @@ impl CompilerPass<(ExprRef, SourceFileRef), IRModule> for IR {
             )?;
         }
         if options.dump_ir {
+            writeln!(&mut stdout)?;
             dump_module(&module, &module.name, &mut stdout)?;
+            writeln!(&mut stdout)?;
         }
         if options.dump_cfg {
             let src_path = Path::new(source_file.name());
@@ -366,7 +368,7 @@ fn dump_module(module: &IRModule, name: &str, stdout: &mut StandardStream) -> st
         .collect_vec();
     if !functions.is_empty() {
         for (name, module) in functions {
-            writeln!(stdout, "\n// {}", module.name)?;
+            writeln!(stdout)?;
             dump_module(module, name, stdout)?;
         }
     }
