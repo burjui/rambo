@@ -37,7 +37,7 @@ pub(crate) fn run(
     };
     let mut simulator = rambo_riscv::load(executable, &config)?;
 
-    let ram_size = config.stack_size + u32::try_from(executable.data.len()).unwrap();
+    let ram_size = config.stack_size + executable.data.len();
     let stdout = &mut stdout();
     let dump_simulator_state =
         |output: &mut StandardStream, simulator: &mut Simulator| -> Result<(), Box<dyn Error>> {
@@ -65,16 +65,16 @@ pub(crate) fn run(
             Ok(())
         };
 
-    let code_end = config.code_start_address + u32::try_from(executable.code.len()).unwrap();
+    let code_end = config.code_start_address + executable.code.len();
     loop {
         if let DumpState::Everything(output) = &mut dump_state {
             dump_simulator_state(*output, &mut simulator)?;
         }
 
         if let DumpState::Instructions(output) | DumpState::Everything(output) = &mut dump_state {
-            if let Some(comment) =
-                executable.comment_at(simulator.cpu.pc - config.code_start_address)
-            {
+            let current_code_offset =
+                usize::try_from(simulator.cpu.pc).unwrap() - config.code_start_address;
+            if let Some(comment) = executable.comment_at(current_code_offset) {
                 output.set_color(
                     ColorSpec::new()
                         .set_fg(Some(Color::Black))
@@ -85,7 +85,7 @@ pub(crate) fn run(
         }
 
         let pc = simulator.cpu.pc;
-        if pc == code_end {
+        if usize::try_from(pc).unwrap() == code_end {
             break;
         }
 
@@ -130,9 +130,8 @@ pub(crate) fn run(
             },
         }
 
-        if simulator.cpu.x[registers::SP as usize]
-            < config.data_start_address + ram_size - config.stack_size
-        {
+        let stack_pointer = usize::try_from(simulator.cpu.x[registers::SP as usize]).unwrap();
+        if stack_pointer < config.data_start_address + ram_size - config.stack_size {
             return Err("stack overflow".into());
         }
 
@@ -171,12 +170,12 @@ fn dump_registers(output: &mut StandardStream, cpu: &CpuState) -> io::Result<()>
 fn dump_stack(
     cpu: &CpuState,
     ram: &DRAMBank,
-    ram_base_address: u32,
-    ram_size: u32,
+    ram_base_address: usize,
+    ram_size: usize,
 ) -> io::Result<()> {
     let stdout = &mut stdout();
     write_title(stdout, "STACK")?;
-    let stack_pointer = cpu.x[registers::SP as usize];
+    let stack_pointer = usize::try_from(cpu.x[usize::from(registers::SP)]).unwrap();
     let stack_offset = stack_pointer - ram_base_address;
     dump_memory(
         stdout,
@@ -198,14 +197,14 @@ fn write_title(stderr: &mut StandardStream, title: &str) -> io::Result<()> {
 pub(crate) fn dump_memory(
     output: &mut StandardStream,
     ram: &[u8],
-    base_address: u32,
+    base_address: usize,
 ) -> io::Result<()> {
     for (index, &byte) in ram.iter().enumerate() {
         if index % 4 == 0 {
             if index > 0 {
                 writeln!(output)?;
             }
-            write!(output, "[{:08x}] ", base_address + index as u32)?;
+            write!(output, "[{:08x}] ", base_address + index)?;
         } else {
             write!(output, " ")?;
         }

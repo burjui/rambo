@@ -223,11 +223,11 @@ impl VmBackend for Ckbvm {
             DefaultCoreMachine<Register, WXorXMemory<Register, SparseMemory<Register>>>,
         >::default();
 
-        const CODE_START_ADDRESS: u32 = 0x0000_0000;
+        const CODE_START_ADDRESS: usize = 0x0000_0000;
         machine
             .memory_mut()
             .init_pages(
-                u64::from(CODE_START_ADDRESS),
+                u64::try_from(CODE_START_ADDRESS).unwrap(),
                 round_page_up(u64::try_from(image.code.len()).unwrap()),
                 FLAG_EXECUTABLE,
                 Some(Bytes::copy_from_slice(image.code.as_slice())),
@@ -235,13 +235,13 @@ impl VmBackend for Ckbvm {
             )
             .unwrap();
 
-        const DATA_START_ADDRESS: u32 = 0x0010_0000;
+        const DATA_START_ADDRESS: usize = 0x0010_0000;
         const STACK_SIZE: usize = 1024;
         let total_data_size = image.data.len() + STACK_SIZE;
         machine
             .memory_mut()
             .init_pages(
-                u64::from(DATA_START_ADDRESS),
+                u64::try_from(DATA_START_ADDRESS).unwrap(),
                 round_page_up(u64::try_from(total_data_size).unwrap()),
                 FLAG_WRITABLE,
                 Some(Bytes::copy_from_slice(image.data.as_slice())),
@@ -258,7 +258,8 @@ impl VmBackend for Ckbvm {
             let immediate = ui_immediate(target).unwrap();
             let code_memory = machine.memory_mut().inner_mut();
 
-            let u_instruction_offset = CODE_START_ADDRESS + relocation.offset;
+            let u_instruction_offset =
+                u32::try_from(CODE_START_ADDRESS + relocation.offset).unwrap();
             let next_instruction_offset = u_instruction_offset + 4;
             let mut u_instruction = code_memory.load32(&u_instruction_offset).unwrap();
             u_instruction = u_instruction & 0x0000_0FFF | immediate.upper as u32;
@@ -286,10 +287,10 @@ impl VmBackend for Ckbvm {
                 .unwrap();
         }
 
-        machine.set_pc(image.entry);
+        machine.set_pc(u32::try_from(image.entry).unwrap());
         machine.set_register(
             SP,
-            DATA_START_ADDRESS + u32::try_from(total_data_size).unwrap(),
+            u32::try_from(DATA_START_ADDRESS + total_data_size).unwrap(),
         );
 
         machine.run().unwrap();

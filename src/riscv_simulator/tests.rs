@@ -5,6 +5,7 @@ use rambo_riscv::DRAM;
 use risky::instructions::*;
 use rvsim::CpuError;
 use rvsim::Op;
+use std::convert::TryFrom;
 use std::error::Error;
 use std::io::Cursor;
 
@@ -19,10 +20,10 @@ macro_rules! assert_step {
 
 #[test]
 fn riscv_simulator() -> Result<(), Box<dyn Error>> {
-    const CODE_BASE: u32 = 0;
-    const CODE_SIZE: u32 = 1024;
-    const DATA_BASE: u32 = 0x0100_0000;
-    const DATA_SIZE: u32 = 1024;
+    const CODE_BASE: usize = 0;
+    const CODE_SIZE: usize = 1024;
+    const DATA_BASE: usize = 0x0100_0000;
+    const DATA_SIZE: usize = 1024;
 
     let mut simulator = Simulator::new(
         0,
@@ -35,8 +36,8 @@ fn riscv_simulator() -> Result<(), Box<dyn Error>> {
     let data_bank = simulator.dram.find_bank_mut(DATA_BASE).unwrap();
     data_bank[0] = 3;
     data_bank[1] = 5;
-    simulator.cpu.x[1] = DATA_BASE;
-    simulator.cpu.x[2] = DATA_BASE + 1;
+    simulator.cpu.x[1] = u32::try_from(DATA_BASE).unwrap();
+    simulator.cpu.x[2] = simulator.cpu.x[1] + 1;
 
     let code_bank = simulator.dram.find_bank_mut(CODE_BASE).unwrap();
     let mut cursor = Cursor::new(&mut **code_bank);
@@ -51,7 +52,7 @@ fn riscv_simulator() -> Result<(), Box<dyn Error>> {
             add(1, 1, 2)?,
             ebreak()?,
         ],
-    )?;
+    );
 
     assert_step!(
         simulator,
