@@ -140,7 +140,7 @@ impl<'a> Backend<'a> {
             }
         }
 
-        self.tc_comment(&format!("---- START {}", &self.module.name))?;
+        self.tc_comment(&format!("---- START {}", &self.module.name));
 
         let code_start = self.state.image.code.len();
         let comments_start = self.state.image.comments.len();
@@ -161,13 +161,13 @@ impl<'a> Backend<'a> {
             for (i, register) in saved_registers.iter().enumerate() {
                 write_code(
                     &mut register_saving_code,
-                    &[sw(registers::SP, -i16::try_from(i * 4)?, *register)?],
+                    &[sw(registers::SP, -i16::try_from(i * 4)?, *register)],
                 );
             }
             let saved_registers_size = i16::try_from(saved_registers.len() * 4)?;
             write_code(
                 &mut register_saving_code,
-                &[addi(registers::SP, registers::SP, -saved_registers_size)?],
+                &[addi(registers::SP, registers::SP, -saved_registers_size)],
             );
 
             let fixup = register_saving_code.len();
@@ -199,11 +199,11 @@ impl<'a> Backend<'a> {
         if self.function_id.is_none() {
             self.push_code(&[
                 // This ecall stops an sbk-vm
-                addi(registers::A7, registers::ZERO, 93).unwrap(),
-                ecall().unwrap(),
+                addi(registers::A7, registers::ZERO, 93),
+                ecall(),
             ]);
         }
-        self.tc_comment(&format!("---- END {}", &self.module.name))?;
+        self.tc_comment(&format!("---- END {}", &self.module.name));
 
         let functions = self
             .module
@@ -293,7 +293,7 @@ impl<'a> Backend<'a> {
             }
 
             Statement::Definition(value_id) => {
-                self.tc_comment(&format!("define {:?}", self.module.values[*value_id]))?;
+                self.tc_comment(&format!("define {:?}", self.module.values[*value_id]));
                 let register = self.generate_value(*value_id, None)?;
                 let phi = self.phis.get(&value_id).and_then(|phis_by_block| {
                     phis_by_block.iter().find_map(|(phi_block, phi)| {
@@ -311,7 +311,7 @@ impl<'a> Backend<'a> {
                 self.tc_comment(&format!(
                     "{}: {:?} -> x{}",
                     value_id, self.module.values[*value_id], register
-                ))?;
+                ));
                 Ok(None)
             }
 
@@ -319,12 +319,12 @@ impl<'a> Backend<'a> {
                 let condition = self.allocate_register(*condition, None)?;
                 self.no_spill.push(condition);
 
-                let jump_to_else_branch = self.push_code(&jump_placeholder()?);
+                let jump_to_else_branch = self.push_code(&jump_placeholder());
                 let then_next_block = self.generate_block(*then_branch)?;
                 if let Some(then_next_block) = then_next_block {
                     self.generate_block(then_next_block)?;
                 }
-                let jump_to_end = self.push_code(&jump_placeholder()?);
+                let jump_to_end = self.push_code(&jump_placeholder());
                 let after_jump_to_end = self.state.image.code.len();
                 let else_branch_offset =
                     i16::try_from(self.state.image.code.len() - jump_to_else_branch)?;
@@ -332,7 +332,7 @@ impl<'a> Backend<'a> {
                     jump_to_else_branch,
                     &[
                         // FIXME branches have limited range (+-4KiB), consider jump tables
-                        beq(else_branch_offset, registers::ZERO, condition)?,
+                        beq(else_branch_offset, registers::ZERO, condition),
                     ],
                 );
 
@@ -354,7 +354,7 @@ impl<'a> Backend<'a> {
                     let else_branch_offset = else_branch_offset - 4;
                     self.patch_at(
                         jump_to_else_branch,
-                        &[beq(else_branch_offset, registers::ZERO, condition)?],
+                        &[beq(else_branch_offset, registers::ZERO, condition)],
                     );
                 }
 
@@ -388,24 +388,19 @@ impl<'a> Backend<'a> {
                             .map(|register| format!("x{}", register))
                             .format(", ")
                             .to_string();
-                        self.tc_comment(&format!("Restore registers {}", &saved_register_list))?;
+                        self.tc_comment(&format!("Restore registers {}", &saved_register_list));
                         let saved_registers_size = i16::try_from(saved_registers.len() * 4)?;
-                        self.push_code(&[addi(
-                            registers::SP,
-                            registers::SP,
-                            saved_registers_size,
-                        )?]);
+                        self.push_code(&[addi(registers::SP, registers::SP, saved_registers_size)]);
                         for (i, register) in saved_registers.iter().enumerate() {
                             self.push_code(&[lw(
                                 *register,
                                 registers::SP,
                                 -i16::try_from(i * 4).unwrap(),
-                            )
-                            .unwrap()]);
+                            )]);
                         }
                     }
 
-                    self.push_code(&[jalr(registers::ZERO, registers::RA, 0)?]);
+                    self.push_code(&[jalr(registers::ZERO, registers::RA, 0)]);
                 }
                 Ok(None)
             }
@@ -436,70 +431,72 @@ impl<'a> Backend<'a> {
             Value::Arg(index) => {
                 // FIXME this does not conform to the standard ABI.
                 let register = self.allocate_register(value_id, target)?;
-                self.push_code(&[
-                    lw(register, registers::FP, -i16::try_from(*index * 4).unwrap()).unwrap(),
-                ]);
+                self.push_code(&[lw(
+                    register,
+                    registers::FP,
+                    -i16::try_from(*index * 4).unwrap(),
+                )]);
                 Ok(register)
             }
 
             Value::Call(function, arguments) => {
                 let mut saved_bytes_total = 0;
                 if self.function_id.is_some() {
-                    self.tc_comment("Save link and frame")?;
+                    self.tc_comment("Save link and frame");
                     self.push_code(&[
-                        sw(registers::SP, 0, registers::RA)?,
-                        sw(registers::SP, -4, registers::FP)?,
+                        sw(registers::SP, 0, registers::RA),
+                        sw(registers::SP, -4, registers::FP),
                     ]);
                     saved_bytes_total += 8;
                 }
 
                 let saved_bytes_env = saved_bytes_total;
                 saved_bytes_total += arguments.len() * 4;
-                self.tc_comment("Set up frame and stack")?;
+                self.tc_comment("Set up frame and stack");
                 self.push_code(&[
                     addi(
                         registers::FP,
                         registers::SP,
                         -i16::try_from(saved_bytes_env)?,
-                    )?,
+                    ),
                     addi(
                         registers::SP,
                         registers::SP,
                         -i16::try_from(saved_bytes_total)?,
-                    )?,
+                    ),
                 ]);
 
                 let no_spill_length = self.no_spill.len();
-                self.tc_comment("Generate arguments")?;
+                self.tc_comment("Generate arguments");
                 for (index, argument) in arguments.iter().enumerate() {
                     let register = self.allocate_register(*argument, None)?;
-                    self.push_code(&[sw(registers::FP, -i16::try_from(index * 4)?, register)?]);
+                    self.push_code(&[sw(registers::FP, -i16::try_from(index * 4)?, register)]);
                     self.no_spill.push(register);
                 }
 
-                self.tc_comment("Call the function")?;
+                self.tc_comment("Call the function");
                 self.no_spill.truncate(no_spill_length);
                 let fn_address = self.allocate_register(*function, None).unwrap();
                 // TODO if function is Value::Function then generate a relocation and auipc + jalr instead
-                self.push_code(&[jalr(registers::RA, fn_address, 0).unwrap()]);
+                self.push_code(&[jalr(registers::RA, fn_address, 0)]);
 
-                self.tc_comment("Restore stack pointer")?;
+                self.tc_comment("Restore stack pointer");
                 self.push_code(&[addi(
                     registers::SP,
                     registers::SP,
-                    i16::try_from(saved_bytes_total)?,
-                )?]);
+                    i16::try_from(saved_bytes_total).unwrap(),
+                )]);
 
                 if self.function_id.is_some() {
-                    self.tc_comment("Restore link and frame")?;
+                    self.tc_comment("Restore link and frame");
                     self.push_code(&[
-                        lw(registers::RA, registers::SP, 0).unwrap(),
-                        lw(registers::FP, registers::SP, -4).unwrap(),
+                        lw(registers::RA, registers::SP, 0),
+                        lw(registers::FP, registers::SP, -4),
                     ]);
                 }
 
                 let register = self.allocate_register(value_id, None)?;
-                self.push_code(&[addi(register, registers::A0, 0)?]);
+                self.push_code(&[addi(register, registers::A0, 0)]);
                 Ok(register)
             }
 
@@ -522,13 +519,13 @@ impl<'a> Backend<'a> {
     fn generate_immediate_i32(&mut self, register: u8, value: i32) -> GenericResult<()> {
         let value = ui_immediate(value)?;
         if value.upper == 0 {
-            self.push_code(&[addi(register, registers::ZERO, value.lower).unwrap()]);
+            self.push_code(&[addi(register, registers::ZERO, value.lower)]);
         } else if value.lower == 0 {
-            self.push_code(&[lui(register, value.upper).unwrap()]);
+            self.push_code(&[lui(register, value.upper)]);
         } else {
             self.push_code(&[
-                lui(register, value.upper).unwrap(),
-                addi(register, register, value.lower).unwrap(),
+                lui(register, value.upper),
+                addi(register, register, value.lower),
             ]);
         }
         Ok(())
@@ -539,7 +536,7 @@ impl<'a> Backend<'a> {
         value_id: ValueId,
         left: ValueId,
         right: ValueId,
-        op: impl FnOnce(u8, u8, u8) -> risky::Result<u32>,
+        op: impl FnOnce(u8, u8, u8) -> u32,
         target: Option<u8>,
     ) -> GenericResult<u8> {
         let no_spill_length = self.no_spill.len();
@@ -549,7 +546,7 @@ impl<'a> Backend<'a> {
         self.no_spill.push(right);
         let result = self.allocate_register(value_id, target)?;
         self.no_spill.truncate(no_spill_length);
-        self.push_code(&[op(result, left, right)?]);
+        self.push_code(&[op(result, left, right)]);
         Ok(result)
     }
 
@@ -603,7 +600,7 @@ impl<'a> Backend<'a> {
             offset,
             RelocationKind::DataLoad,
         ));
-        self.push_code(&[lui(rd, 0).unwrap(), lw(rd, rd, 0).unwrap()]);
+        self.push_code(&[lui(rd, 0), lw(rd, rd, 0)]);
     }
 
     fn store_u32(&mut self, register: u8, offset: usize) {
@@ -613,10 +610,7 @@ impl<'a> Backend<'a> {
             offset,
             RelocationKind::DataStore,
         ));
-        self.push_code(&[
-            lui(registers::T0, 0).unwrap(),
-            sw(registers::T0, 0, register).unwrap(),
-        ]);
+        self.push_code(&[lui(registers::T0, 0), sw(registers::T0, 0, register)]);
     }
 
     fn push_code(&mut self, instructions: &[u32]) -> usize {
@@ -659,14 +653,14 @@ impl<'a> Backend<'a> {
                 self.tc_comment(&format!(
                     "SPILLED [r{}] {} in favor of {}",
                     register, previous_user, value_id
-                ))?;
+                ));
                 self.store_u32(register, data_offset);
             }
         }
 
         if let Some(source) = source {
             if source != register {
-                self.push_code(&[addi(register, source, 0)?]);
+                self.push_code(&[addi(register, source, 0)]);
             }
         } else if let Some(data_offset) = self.allocate_value(value_id).unwrap() {
             self.load_u32(register, data_offset);
@@ -683,10 +677,7 @@ impl<'a> Backend<'a> {
                     self.state
                         .function_relocations
                         .push((relocation_offset, fn_id.clone()));
-                    self.push_code(&[
-                        lui(register, 0).unwrap(),
-                        addi(register, register, 0).unwrap(),
-                    ]);
+                    self.push_code(&[lui(register, 0), addi(register, register, 0)]);
                 }
 
                 _ => (),
@@ -702,23 +693,22 @@ impl<'a> Backend<'a> {
             .add_comment(self.state.image.code.len(), &format!("// {}", comment));
     }
 
-    fn tc_comment(&mut self, comment: &str) -> GenericResult<()> {
+    fn tc_comment(&mut self, comment: &str) {
         if self.enable_comments {
             self.state
                 .image
                 .add_comment(self.state.image.code.len(), comment);
         }
-        Ok(())
     }
 
     fn patch_jump(&mut self, patch_offset: usize, rd: u8, offset: i32) {
         self.patch_at(
             patch_offset,
             &match self.jump_offset(offset) {
-                JumpOffset::Short => [nop().unwrap(), jal(rd, offset).unwrap()],
+                JumpOffset::Short => [nop(), jal(rd, offset)],
                 JumpOffset::Long(offset) => [
-                    auipc(registers::T0, offset.upper).unwrap(),
-                    jalr(rd, registers::T0, offset.lower).unwrap(),
+                    auipc(registers::T0, offset.upper),
+                    jalr(rd, registers::T0, offset.lower),
                 ],
             },
         )
@@ -938,10 +928,10 @@ pub(crate) fn ui_immediate(value: i32) -> Result<ImmediateI, TryFromIntError> {
     }
 }
 
-fn nop() -> risky::Result<u32> {
+fn nop() -> u32 {
     addi(0, 0, 0)
 }
 
-fn jump_placeholder() -> risky::Result<[u32; 2]> {
-    Ok([nop()?, nop()?])
+fn jump_placeholder() -> [u32; 2] {
+    [nop(), nop()]
 }
