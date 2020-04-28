@@ -2,8 +2,4 @@
 /.idea
 /*.iml
 /.vscode
-/test-data/
-/test-data-big/
-/TODO.md
 /*.dot
-/riscv/Cargo.lock
