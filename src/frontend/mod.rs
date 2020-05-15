@@ -236,6 +236,7 @@ impl<'a> FrontEnd<'a> {
                 let (block, condition) = self.process_expr(condition, block);
                 let condition_value = &self.values[condition];
 
+                // FIXME this fails to report unused bindings in other branch, probably should make CFP a separate pass
                 if self.enable_cfp && condition_value.is_constant() {
                     return match condition_value {
                         Value::Int(value) => {
@@ -529,13 +530,7 @@ impl<'a> FrontEnd<'a> {
     fn define(&mut self, block: NodeIndex, value: Value) -> ValueId {
         let value_id = self.values.insert(value);
         if self.enable_cfp {
-            fold_constants(
-                block,
-                &self.definitions,
-                &mut self.values,
-                &self.functions,
-                value_id,
-            );
+            fold_constants(block, &mut self.values, &self.functions, value_id);
         }
         let basic_block = &mut self.cfg[block];
         let statement_index = basic_block.push(Statement::Definition(value_id));
@@ -652,7 +647,6 @@ fn warn_about_redundant_bindings(mut redundant_bindings: Box<[&BindingRef]>) {
 
 fn fold_constants(
     block: NodeIndex,
-    definitions: &HashMap<ValueId, StatementLocation>,
     values: &mut ValueStorage,
     functions: &FunctionMap,
     value_id: ValueId,
@@ -662,7 +656,6 @@ fn fold_constants(
 
         &Value::AddInt(left, right) => fold_binary(
             block,
-            definitions,
             values,
             functions,
             left,
@@ -677,7 +670,6 @@ fn fold_constants(
 
         &Value::SubInt(left, right) => fold_binary(
             block,
-            definitions,
             values,
             functions,
             left,
@@ -697,7 +689,6 @@ fn fold_constants(
 
         &Value::MulInt(left, right) => fold_binary(
             block,
-            definitions,
             values,
             functions,
             left,
@@ -714,7 +705,6 @@ fn fold_constants(
 
         &Value::DivInt(left, right) => fold_binary(
             block,
-            definitions,
             values,
             functions,
             left,
@@ -729,7 +719,6 @@ fn fold_constants(
 
         &Value::AddString(left, right) => fold_binary(
             block,
-            definitions,
             values,
             functions,
             left,
@@ -758,15 +747,14 @@ fn fold_constants(
 
 fn fold_binary(
     block: NodeIndex,
-    definitions: &HashMap<ValueId, StatementLocation>,
     values: &mut ValueStorage,
     functions: &FunctionMap,
     left: ValueId,
     right: ValueId,
     fold: impl FnOnce((ValueId, &Value), (ValueId, &Value)) -> Option<Value>,
 ) -> Option<Value> {
-    fold_constants(block, definitions, values, functions, left);
-    fold_constants(block, definitions, values, functions, right);
+    fold_constants(block, values, functions, left);
+    fold_constants(block, values, functions, right);
     fold((left, &values[left]), (right, &values[right]))
 }
 
@@ -791,7 +779,6 @@ fn fold_call(
         let result_block = function_cfg.definitions[&function_cfg.result].block;
         fold_constants(
             result_block,
-            &function_cfg.definitions,
             &mut function_cfg.values,
             functions,
             function_cfg.result,
