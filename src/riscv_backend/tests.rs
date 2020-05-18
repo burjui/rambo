@@ -144,7 +144,6 @@ fn test_backend(source_name: String, source_code: &str, expected_result: u32) {
     let code = typecheck(source_name.clone(), source_code).unwrap();
     let mut state = FrontEndState::new();
     let module = FrontEnd::new(&source_name, &mut state)
-        .enable_warnings(false)
         .include_comments(true)
         .enable_cfp(false)
         .enable_dce(false)

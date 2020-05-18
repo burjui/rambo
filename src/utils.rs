@@ -43,8 +43,9 @@ pub(crate) fn typecheck(name: String, text: &str) -> GenericResult<crate::semant
     let mut parser = crate::parser::Parser::new(lexer);
     let ast = parser.parse()?;
 
+    use crate::semantics::EnableWarnings;
     use crate::semantics::SemanticsChecker;
-    let checker = SemanticsChecker::new();
+    let checker = SemanticsChecker::new(EnableWarnings(false));
     checker.check_module(&ast)
 }
 

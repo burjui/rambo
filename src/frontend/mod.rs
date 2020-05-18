@@ -55,7 +55,6 @@ impl FrontEndState {
 
 pub(crate) struct FrontEnd<'a> {
     name: String,
-    enable_warnings: bool,
     include_comments: bool,
     enable_cfp: bool,
     enable_dce: bool,
@@ -63,7 +62,6 @@ pub(crate) struct FrontEnd<'a> {
     state: &'a mut FrontEndState,
     functions: FunctionMap,
     variables: HashMap<BindingRef, HashMap<NodeIndex, ValueId>>,
-    variables_read: HashSet<BindingRef>,
     values: ValueStorage,
     parameters: Vec<ValueId>,
     definitions: HashMap<ValueId, StatementLocation>,
@@ -79,7 +77,6 @@ impl<'a> FrontEnd<'a> {
     pub(crate) fn new(name: &str, state: &'a mut FrontEndState) -> Self {
         let mut instance = Self {
             name: name.to_owned(),
-            enable_warnings: false,
             include_comments: false,
             enable_cfp: false,
             enable_dce: false,
@@ -87,7 +84,6 @@ impl<'a> FrontEnd<'a> {
             state,
             functions: HashMap::new(),
             variables: HashMap::new(),
-            variables_read: HashSet::new(),
             values: ValueStorage::new(),
             parameters: Vec::new(),
             definitions: HashMap::new(),
@@ -101,11 +97,6 @@ impl<'a> FrontEnd<'a> {
         instance.entry_block = instance.cfg.add_new_block();
         instance.seal_block(instance.entry_block);
         instance
-    }
-
-    pub(crate) fn enable_warnings(mut self, value: bool) -> Self {
-        self.enable_warnings = value;
-        self
     }
 
     pub(crate) fn include_comments(mut self, value: bool) -> Self {
@@ -127,15 +118,6 @@ impl<'a> FrontEnd<'a> {
         let (exit_block, mut program_result) = self.process_expr(code, self.entry_block);
         self.push_return(exit_block, program_result);
         self.assert_no_undefined_variables();
-
-        if self.enable_warnings {
-            let redundant_bindings = self
-                .variables
-                .keys()
-                .filter(|variable| !self.variables_read.contains(variable))
-                .collect();
-            warn_about_redundant_bindings(redundant_bindings);
-        }
 
         if self.enable_dce {
             remove_dead_code(
@@ -287,7 +269,6 @@ impl<'a> FrontEnd<'a> {
                 }
 
                 let mut function_frontend = FrontEnd::new(function.name.as_str(), self.state)
-                    .enable_warnings(self.enable_warnings)
                     .include_comments(self.include_comments)
                     .enable_cfp(self.enable_cfp)
                     .enable_dce(self.enable_dce);
@@ -382,7 +363,6 @@ impl<'a> FrontEnd<'a> {
     }
 
     fn read_variable_core(&mut self, variable: &BindingRef, block: NodeIndex) -> ValueId {
-        self.variables_read.insert(variable.clone());
         self.variables
             .get(variable)
             .and_then(|map| map.get(&block))
@@ -624,18 +604,6 @@ impl<'a> FrontEnd<'a> {
 enum Marker {
     Initial,
     Phi(ValueId),
-}
-
-#[allow(clippy::boxed_local)]
-fn warn_about_redundant_bindings(mut redundant_bindings: Box<[&BindingRef]>) {
-    redundant_bindings.sort_by_key(|binding| binding.source.range().start);
-    for binding in redundant_bindings.iter() {
-        warning_at!(
-            binding.source,
-            "unused definition: {}",
-            binding.source.text()
-        );
-    }
 }
 
 fn fold_constants(

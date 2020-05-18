@@ -8,6 +8,7 @@ use crate::source::Source;
 use crate::unique_rc::UniqueRc;
 use core::ops::RangeFrom;
 use itertools::Itertools;
+use std::collections::HashMap;
 use std::error::Error;
 use std::fmt::Debug;
 use std::fmt::Formatter;
@@ -15,21 +16,42 @@ use std::mem::replace;
 use std::ops::Deref;
 use std::rc::Rc;
 
+pub(crate) struct EnableWarnings(pub(crate) bool);
+
 pub(crate) struct SemanticsChecker {
+    enable_warnings: bool,
     env: Environment<Rc<String>, BindingRef>,
-    unused_function_ids: RangeFrom<usize>,
+    function_ids: RangeFrom<usize>,
+    binding_is_used: HashMap<BindingRef, bool>,
 }
 
 impl SemanticsChecker {
-    pub(crate) fn new() -> Self {
+    pub(crate) fn new(EnableWarnings(enable_warnings): EnableWarnings) -> Self {
         SemanticsChecker {
+            enable_warnings,
             env: Environment::new(),
-            unused_function_ids: 0..,
+            function_ids: 0..,
+            binding_is_used: HashMap::new(),
         }
     }
 
     pub(crate) fn check_module(mut self, code: &ASTBlock) -> CheckResult<ExprRef> {
         let block = self.check_block(code.statements.iter(), code.source.clone())?;
+        if self.enable_warnings {
+            for unused_binding in self
+                .binding_is_used
+                .into_iter()
+                .filter_map(|(binding, is_used)| if is_used { None } else { Some(binding) })
+                .sorted_by_key(|binding| binding.source.range().start)
+            {
+                warning_at!(
+                    unused_binding.source,
+                    "unused definition: {}",
+                    unused_binding.source.text()
+                );
+            }
+        }
+
         let source = match &block {
             TypedExpr::Block(_, source) => source.clone(),
             _ => unreachable!("not a block: {:?}", block),
@@ -75,6 +97,9 @@ impl SemanticsChecker {
                 let name = Rc::new(name.text().to_owned());
                 let value = self.check_expr(&value)?;
                 let binding = BindingRef::from(Binding::new(name.clone(), value, source.clone()));
+                if self.enable_warnings {
+                    self.binding_is_used.insert(binding.clone(), false);
+                }
                 self.env.bind(name, binding.clone());
                 Ok(TypedStatement::Binding(binding))
             }
@@ -99,6 +124,9 @@ impl SemanticsChecker {
             }
             Expr::Id(name) => {
                 let binding = self.resolve(name)?;
+                if self.enable_warnings {
+                    *self.binding_is_used.get_mut(&binding).unwrap() = true;
+                }
                 Ok(new_expr(TypedExpr::Reference(binding, name.clone())))
             }
             Expr::Binary {
@@ -347,6 +375,9 @@ impl SemanticsChecker {
             ));
             let binding =
                 BindingRef::from(Binding::new(name.clone(), value, parameter.source.clone()));
+            if self.enable_warnings {
+                self.binding_is_used.insert(binding.clone(), false);
+            }
             self.env.bind(name.clone(), binding.clone());
             parameter_bindings.push(binding);
         }
@@ -400,7 +431,7 @@ impl SemanticsChecker {
     }
 
     fn generate_function_name(&mut self) -> String {
-        let function_id = self.unused_function_ids.next().unwrap();
+        let function_id = self.function_ids.next().unwrap();
         format!("@lambda{}", function_id)
     }
 }

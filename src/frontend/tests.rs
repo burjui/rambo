@@ -217,7 +217,6 @@ fn test_frontend(
     for config in frontend_config_permutations(forbidden_permutations) {
         let mut state = FrontEndState::new();
         let module = FrontEnd::new(&source_name, &mut state)
-            .enable_warnings(false)
             .include_comments(config.include_comments)
             .enable_cfp(config.enable_cfp)
             .enable_dce(config.enable_dce)

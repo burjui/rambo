@@ -13,6 +13,7 @@ use crate::riscv_backend::DumpCode;
 use crate::riscv_backend::EnableImmediateIntegers;
 use crate::riscv_simulator;
 use crate::riscv_simulator::DumpState;
+use crate::semantics::EnableWarnings;
 use crate::semantics::ExprRef;
 use crate::semantics::SemanticsChecker;
 use crate::source::SourceFile;
@@ -197,7 +198,7 @@ impl CompilerPass<(Block, SourceFileRef), (ExprRef, SourceFileRef)> for VerifySe
         (ast, source_file): (Block, SourceFileRef),
         options: &PipelineOptions,
     ) -> Result<(ExprRef, SourceFileRef), Box<dyn Error>> {
-        let checker = SemanticsChecker::new();
+        let checker = SemanticsChecker::new(EnableWarnings(options.enable_warnings));
         let hir = checker.check_module(&ast)?;
         if options.dump_hir {
             writeln!(&mut stdout(), "{:?}", hir)?;
@@ -216,7 +217,6 @@ impl CompilerPass<(ExprRef, SourceFileRef), IRModule> for IR {
     ) -> Result<IRModule, Box<dyn Error>> {
         let mut state = FrontEndState::new();
         let frontend = FrontEnd::new(source_file.name(), &mut state)
-            .enable_warnings(options.enable_warnings)
             .include_comments(options.enable_ir_comments)
             .enable_cfp(options.enable_cfp)
             .enable_dce(options.enable_dce);
