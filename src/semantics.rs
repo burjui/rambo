@@ -6,6 +6,7 @@ use crate::parser::Parameter;
 use crate::parser::Statement;
 use crate::source::Source;
 use crate::unique_rc::UniqueRc;
+use core::ops::RangeFrom;
 use itertools::Itertools;
 use std::error::Error;
 use std::fmt::Debug;
@@ -16,14 +17,14 @@ use std::rc::Rc;
 
 pub(crate) struct SemanticsChecker {
     env: Environment<Rc<String>, BindingRef>,
-    next_function_id: usize,
+    unused_function_ids: RangeFrom<usize>,
 }
 
 impl SemanticsChecker {
     pub(crate) fn new() -> Self {
         SemanticsChecker {
             env: Environment::new(),
-            next_function_id: 0,
+            unused_function_ids: 0..,
         }
     }
 
@@ -399,11 +400,8 @@ impl SemanticsChecker {
     }
 
     fn generate_function_name(&mut self) -> String {
-        let next_function_id = self.next_function_id + 1;
-        format!(
-            "@lambda{}",
-            replace(&mut self.next_function_id, next_function_id)
-        )
+        let function_id = self.unused_function_ids.next().unwrap();
+        format!("@lambda{}", function_id)
     }
 }
 
