@@ -27,7 +27,6 @@ use crate::semantics::ExprRef;
 use crate::semantics::TypedExpr;
 use crate::semantics::TypedStatement;
 use crate::source::Source;
-use itertools::free::chain;
 use itertools::Itertools;
 use petgraph::graph::NodeIndex;
 use petgraph::visit::EdgeRef;
@@ -234,21 +233,17 @@ impl<'a> FrontEnd<'a> {
             } => {
                 self.comment(block, source.text());
                 let (block, condition) = self.process_expr(condition, block);
-                let condition_value = &self.values[condition];
 
                 // FIXME this fails to report unused bindings in other branch, probably should make CFP a separate pass
-                if self.enable_cfp && condition_value.is_constant() {
-                    return match condition_value {
-                        Value::Int(value) => {
-                            if *value == 0 {
-                                self.process_expr(else_branch, block)
-                            } else {
-                                self.process_expr(then_branch, block)
-                            }
-                        }
-
-                        _ => unreachable!(),
-                    };
+                //       OR check unused bindings in semantics pass
+                if self.enable_cfp {
+                    if let Value::Int(value) = &self.values[condition] {
+                        return if *value == 0 {
+                            self.process_expr(else_branch, block)
+                        } else {
+                            self.process_expr(then_branch, block)
+                        };
+                    }
                 }
 
                 let then_branch_block = self.cfg.add_new_block();
@@ -416,23 +411,21 @@ impl<'a> FrontEnd<'a> {
                 _ => (),
             }
 
-            let mut predecessors = self
+            let predecessors = self
                 .cfg
                 .edges_directed(block, Direction::Incoming)
-                .map(|edge| edge.source());
-            let first_predecessor = predecessors.next();
-            let second_predecessor = predecessors.next();
+                .map(|edge| edge.source())
+                .collect_vec();
+            let first_predecessor = predecessors.get(0).cloned();
+            let second_predecessor = predecessors.get(1).cloned();
             if let (Some(predecessor), None) = (first_predecessor, second_predecessor) {
                 // Optimize the common case of one predecessor: no phi needed
                 self.read_variable_core(variable, predecessor)
             } else {
                 // Break potential cycles with operandless phi
-                let predecessors = chain(first_predecessor, second_predecessor)
-                    .chain(predecessors)
-                    .collect_vec();
                 let definitions = predecessors
-                    .into_iter()
-                    .map(|predecessor| self.read_variable_core(variable, predecessor))
+                    .iter()
+                    .map(|predecessor| self.read_variable_core(variable, *predecessor))
                     .dedup()
                     .collect_vec();
                 self.remove_marker(block);
