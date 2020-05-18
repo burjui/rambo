@@ -89,13 +89,13 @@ pub(crate) struct Lexer {
 pub(crate) type LexerResult<T> = Result<T, Box<dyn Error>>;
 
 impl Lexer {
-    pub(crate) fn new(file: SourceFileRef) -> Lexer {
+    pub(crate) fn new(file: SourceFileRef) -> Self {
         let eof_offset = file.text().len();
         let eof_lexeme = Lexeme {
             token: Token::EOF,
             source: Source::new(file.clone(), eof_offset..eof_offset),
         };
-        let mut lexer = Lexer {
+        let mut lexer = Self {
             eof_lexeme,
             eof_offset,
             file,
@@ -120,10 +120,10 @@ impl Lexer {
         match self.current_character {
             Some(c) => {
                 for matcher in &[
-                    Lexer::read_int,
-                    Lexer::read_operator,
-                    Lexer::read_string,
-                    Lexer::read_id,
+                    Self::read_int,
+                    Self::read_operator,
+                    Self::read_string,
+                    Self::read_id,
                 ] {
                     if let Some(lexeme) = matcher(self)? {
                         self.stats.lexeme_count += 1;
@@ -142,7 +142,7 @@ impl Lexer {
         }
     }
 
-    pub(crate) fn stats(&self) -> &LexerStats {
+    pub(crate) const fn stats(&self) -> &LexerStats {
         &self.stats
     }
 
@@ -185,28 +185,24 @@ impl Lexer {
 
                 loop {
                     match self.current_character {
-                        Some('"') => break,
+                        Some('"') | None => break,
                         Some(_) => self.read_char(),
-                        None => break,
                     }
                 }
 
-                match self.current_character {
-                    Some('"') => {
-                        self.read_char();
-                        let range = self.lexeme_offset..self.current_offset;
-                        Ok(Some(self.new_lexeme(Token::String, Some(range))))
-                    }
-                    _ => {
-                        let start_position = self.file.position(&self.lexeme_source());
-                        let end_position = self.file.position(&self.current_source());
-                        error!(
-                            "{:?}({:?}): unclosed string starting at {:?}",
-                            self.file.name(),
-                            end_position,
-                            start_position
-                        )
-                    }
+                if let Some('"') = self.current_character {
+                    self.read_char();
+                    let range = self.lexeme_offset..self.current_offset;
+                    Ok(Some(self.new_lexeme(Token::String, Some(range))))
+                } else {
+                    let start_position = self.file.position(&self.lexeme_source());
+                    let end_position = self.file.position(&self.current_source());
+                    error!(
+                        "{:?}({:?}): unclosed string starting at {:?}",
+                        self.file.name(),
+                        end_position,
+                        start_position
+                    )
                 }
             }
             _ => Ok(None),
@@ -254,10 +250,10 @@ impl Lexer {
     where
         R: Into<Option<Range<usize>>>,
     {
-        let source = range
-            .into()
-            .map(|range| Source::new(self.file.clone(), range))
-            .unwrap_or_else(|| self.lexeme_source());
+        let source = range.into().map_or_else(
+            || self.lexeme_source(),
+            |range| Source::new(self.file.clone(), range),
+        );
         Lexeme { token, source }
     }
 
@@ -296,10 +292,11 @@ impl Lexer {
     }
 
     fn skip_multiline_comment(&mut self) -> LexerResult<()> {
+        const TERMINATOR: (char, char) = ('*', '/');
+
         let comment_start = self.current_source();
         self.read_char();
         self.read_char();
-        const TERMINATOR: (char, char) = ('*', '/');
         while let Some(chars) = self.current_chars() {
             if chars == TERMINATOR {
                 break;

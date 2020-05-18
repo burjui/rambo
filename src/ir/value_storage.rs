@@ -10,7 +10,7 @@ pub(crate) struct ValueStorage {
 }
 
 impl ValueStorage {
-    pub(crate) fn new() -> Self {
+    pub(crate) const fn new() -> Self {
         Self { values: Vec::new() }
     }
 

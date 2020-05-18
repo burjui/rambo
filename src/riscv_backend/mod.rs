@@ -218,7 +218,7 @@ impl<'a> Backend<'a> {
 
             let mut backend = Backend::new(
                 self.state,
-                &fn_cfg,
+                fn_cfg,
                 DumpCode::No,
                 EnableImmediateIntegers(self.enable_immediate_integers),
                 EnableComments(self.enable_comments),
@@ -295,7 +295,7 @@ impl<'a> Backend<'a> {
             Statement::Definition(value_id) => {
                 self.tc_comment(&format!("define {:?}", self.module.values[*value_id]));
                 let register = self.generate_value(*value_id, None)?;
-                let phi = self.phis.get(&value_id).and_then(|phis_by_block| {
+                let phi = self.phis.get(value_id).and_then(|phis_by_block| {
                     phis_by_block.iter().find_map(|(phi_block, phi)| {
                         if *phi_block >= block {
                             Some(*phi)
@@ -551,39 +551,35 @@ impl<'a> Backend<'a> {
     }
 
     fn allocate_value(&mut self, value_id: ValueId) -> GenericResult<Option<usize>> {
-        match self.data_offsets.get(&value_id) {
-            Some(offset) => Ok(Some(*offset)),
-
-            None => {
-                let value = &self.module.values[value_id];
-                let data_offset = match value {
-                    Value::Unit => None,
-
-                    Value::Int(value) => {
-                        if self.enable_immediate_integers {
-                            None
-                        } else {
-                            Some(self.allocate_u32(*value as u32).unwrap())
-                        }
+        if let Some(offset) = self.data_offsets.get(&value_id) {
+            Ok(Some(*offset))
+        } else {
+            let value = &self.module.values[value_id];
+            let data_offset = match value {
+                Value::Int(value) => {
+                    if self.enable_immediate_integers {
+                        None
+                    } else {
+                        Some(self.allocate_u32(*value as u32).unwrap())
                     }
-
-                    Value::AddInt(_, _)
-                    | Value::SubInt(_, _)
-                    | Value::MulInt(_, _)
-                    | Value::DivInt(_, _)
-                    | Value::Phi(_)
-                    | Value::Call(_, _) => Some(self.allocate_u32(0xDEAD_BEEF)?),
-
-                    Value::Arg(_) | Value::Function(_, _) => None,
-
-                    Value::String(_) => unimplemented!("{}: Value::String", function!()),
-                    Value::AddString(_, _) => unimplemented!("{}: Value::AddString", function!()),
-                };
-                if let Some(offset) = data_offset {
-                    self.data_offsets.insert(value_id, offset);
                 }
-                Ok(data_offset)
+
+                Value::AddInt(_, _)
+                | Value::SubInt(_, _)
+                | Value::MulInt(_, _)
+                | Value::DivInt(_, _)
+                | Value::Phi(_)
+                | Value::Call(_, _) => Some(self.allocate_u32(0xDEAD_BEEF)?),
+
+                Value::String(_) => unimplemented!("{}: Value::String", function!()),
+                Value::AddString(_, _) => unimplemented!("{}: Value::AddString", function!()),
+
+                Value::Unit | Value::Arg(_) | Value::Function(_, _) => None,
+            };
+            if let Some(offset) = data_offset {
+                self.data_offsets.insert(value_id, offset);
             }
+            Ok(data_offset)
         }
     }
 
@@ -642,13 +638,12 @@ impl<'a> Backend<'a> {
             if previous_user != value_id {
                 // Spill
                 let data_offset;
-                match self.data_offsets.get(&previous_user) {
-                    Some(offset) => data_offset = *offset,
-                    None => {
-                        // FIXME allocate_value(). The following is a hack for function calls, for which memory is not allocated.
-                        data_offset = self.allocate_u32(0xBAD_F00D).unwrap();
-                        self.data_offsets.insert(previous_user, data_offset);
-                    }
+                if let Some(offset) = self.data_offsets.get(&previous_user) {
+                    data_offset = *offset
+                } else {
+                    // FIXME allocate_value(). The following is a hack for function calls, for which memory is not allocated.
+                    data_offset = self.allocate_u32(0xBAD_F00D).unwrap();
+                    self.data_offsets.insert(previous_user, data_offset);
                 }
                 self.tc_comment(&format!(
                     "SPILLED [r{}] {} in favor of {}",
@@ -704,7 +699,7 @@ impl<'a> Backend<'a> {
     fn patch_jump(&mut self, patch_offset: usize, rd: u8, offset: i32) {
         self.patch_at(
             patch_offset,
-            &match self.jump_offset(offset) {
+            &match Self::jump_offset(offset) {
                 JumpOffset::Short => [nop(), jal(rd, offset)],
                 JumpOffset::Long(offset) => [
                     auipc(registers::T0, offset.upper),
@@ -714,7 +709,7 @@ impl<'a> Backend<'a> {
         )
     }
 
-    fn jump_offset(&self, offset: i32) -> JumpOffset {
+    fn jump_offset(offset: i32) -> JumpOffset {
         if -(1 << 20) <= offset && offset < 1 << 20 {
             JumpOffset::Short
         } else {
@@ -770,36 +765,33 @@ impl RegisterAllocator {
         target: Option<u8>,
         no_spill: &[u8],
     ) -> GenericResult<(u8, Option<u8>, Option<ValueId>)> {
-        match target {
-            Some(target) => self
-                .try_allocate(value_id, target, IsTarget(true), no_spill)
+        if let Some(target) = target {
+            self.try_allocate(value_id, target, IsTarget(true), no_spill)
                 .map(|(source, previous_user)| (target, source, previous_user))
-                .map_err(From::from),
-
-            None => {
-                if let Some(register) = self.values.get_by_left(&value_id) {
-                    return Ok((*register, Some(*register), None));
-                }
-                for register in 0..u8::try_from(REGISTER_COUNT)? {
-                    if let Allocation::None = self.states[register as usize] {
-                        if let Ok((source, previous_user)) =
-                            self.try_allocate(value_id, register, IsTarget(false), no_spill)
-                        {
-                            return Ok((register, source, previous_user));
-                        }
-                    }
-                }
-                for register in 0..u8::try_from(REGISTER_COUNT)? {
-                    if let Allocation::Temporary = self.states[register as usize] {
-                        if let Ok((source, previous_user)) =
-                            self.try_allocate(value_id, register, IsTarget(false), no_spill)
-                        {
-                            return Ok((register, source, previous_user));
-                        }
-                    }
-                }
-                Err(From::from(RegisterAllocationError))
+                .map_err(From::from)
+        } else {
+            if let Some(register) = self.values.get_by_left(&value_id) {
+                return Ok((*register, Some(*register), None));
             }
+            for register in 0..u8::try_from(REGISTER_COUNT)? {
+                if let Allocation::None = self.states[register as usize] {
+                    if let Ok((source, previous_user)) =
+                        self.try_allocate(value_id, register, IsTarget(false), no_spill)
+                    {
+                        return Ok((register, source, previous_user));
+                    }
+                }
+            }
+            for register in 0..u8::try_from(REGISTER_COUNT)? {
+                if let Allocation::Temporary = self.states[register as usize] {
+                    if let Ok((source, previous_user)) =
+                        self.try_allocate(value_id, register, IsTarget(false), no_spill)
+                    {
+                        return Ok((register, source, previous_user));
+                    }
+                }
+            }
+            Err(From::from(RegisterAllocationError))
         }
     }
 

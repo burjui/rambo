@@ -13,8 +13,8 @@ where
     Key: Eq + Debug + Hash + Clone,
     Value: Debug,
 {
-    pub(crate) fn new() -> Environment<Key, Value> {
-        Environment {
+    pub(crate) fn new() -> Self {
+        Self {
             scopes: Vec::new(),
             current_scope_count: 0,
         }

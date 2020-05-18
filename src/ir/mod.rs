@@ -27,7 +27,7 @@ pub(crate) mod value_storage;
 pub(crate) struct BasicBlock(StableVec<Statement>);
 
 impl BasicBlock {
-    pub(crate) fn new() -> Self {
+    pub(crate) const fn new() -> Self {
         Self(StableVec::new())
     }
 
@@ -185,7 +185,7 @@ impl fmt::Debug for FnId {
 pub(crate) struct FnIdGenerator(usize);
 
 impl FnIdGenerator {
-    pub(crate) fn new() -> Self {
+    pub(crate) const fn new() -> Self {
         Self(0)
     }
 
@@ -203,7 +203,7 @@ pub(crate) struct StatementLocation {
 }
 
 impl StatementLocation {
-    pub(crate) fn new(block: NodeIndex, index: usize) -> Self {
+    pub(crate) const fn new(block: NodeIndex, index: usize) -> Self {
         Self { block, index }
     }
 }
@@ -219,18 +219,18 @@ pub(crate) enum Statement {
 impl fmt::Debug for Statement {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Statement::Comment(comment) => {
+            Self::Comment(comment) => {
                 writeln!(f, "// {}", comment.split(|c| c == '\n').format("\n// "))
             }
-            Statement::Definition(value_id) => write!(f, "define {}", value_id),
-            Statement::CondJump(condition, then_branch, else_branch) => write!(
+            Self::Definition(value_id) => write!(f, "define {}", value_id),
+            Self::CondJump(condition, then_branch, else_branch) => write!(
                 f,
                 "condjump {}, {}, {}",
                 condition,
                 then_branch.index(),
                 else_branch.index()
             ),
-            Statement::Return(value_id) => write!(f, "return {}", value_id),
+            Self::Return(value_id) => write!(f, "return {}", value_id),
         }
     }
 }
@@ -274,7 +274,7 @@ impl DerefMut for Phi {
 }
 
 impl PartialEq for Phi {
-    fn eq(&self, Phi(other): &Phi) -> bool {
+    fn eq(&self, Self(other): &Self) -> bool {
         !self.0.is_empty() && &self.0 == other
     }
 }
@@ -305,10 +305,10 @@ impl Value {
     pub(crate) fn is_constant(&self) -> bool {
         matches!(
             self,
-            Value::Unit,
-            Value::Int(_),
-            Value::String(_),
-            Value::Function(_, _)
+            Self::Unit,
+            Self::Int(_),
+            Self::String(_),
+            Self::Function(_, _)
         )
     }
 }
@@ -316,20 +316,21 @@ impl Value {
 impl fmt::Debug for Value {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Value::Unit => f.write_str("()"),
-            Value::Int(value) => write!(f, "{}", value),
-            Value::String(s) => write!(f, "\"{}\"", s),
-            Value::Function(_, name) => write!(f, "{}", name),
-            Value::AddInt(left, right) => write!(f, "{} + {}", left, right),
-            Value::SubInt(left, right) => write!(f, "{} - {}", left, right),
-            Value::MulInt(left, right) => write!(f, "{} * {}", left, right),
-            Value::DivInt(left, right) => write!(f, "{} / {}", left, right),
-            Value::AddString(left, right) => write!(f, "{} + {}", left, right),
-            Value::Phi(Phi(operands)) => write!(f, "ϕ({})", operands.iter().format(", ")),
-            Value::Call(function, arguments) => {
+            Self::Unit => f.write_str("()"),
+            Self::Int(value) => write!(f, "{}", value),
+            Self::String(s) => write!(f, "\"{}\"", s),
+            Self::Function(_, name) => write!(f, "{}", name),
+            Self::AddInt(left, right) | Self::AddString(left, right) => {
+                write!(f, "{} + {}", left, right)
+            }
+            Self::SubInt(left, right) => write!(f, "{} - {}", left, right),
+            Self::MulInt(left, right) => write!(f, "{} * {}", left, right),
+            Self::DivInt(left, right) => write!(f, "{} / {}", left, right),
+            Self::Phi(Phi(operands)) => write!(f, "ϕ({})", operands.iter().format(", ")),
+            Self::Call(function, arguments) => {
                 write!(f, "call {}({})", function, arguments.iter().format(", "))
             }
-            Value::Arg(index) => write!(f, "arg[{}]", index),
+            Self::Arg(index) => write!(f, "arg[{}]", index),
         }
     }
 }

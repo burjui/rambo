@@ -19,7 +19,6 @@ use crate::semantics::SemanticsChecker;
 use crate::source::SourceFile;
 use crate::source::SourceFileRef;
 use crate::utils::stdout;
-use core::borrow::Borrow;
 use itertools::Itertools;
 use number_prefix::NumberPrefix;
 use rambo_riscv::Executable;
@@ -37,6 +36,7 @@ use termcolor::StandardStream;
 use termcolor::WriteColor;
 
 #[derive(Clone)]
+#[allow(clippy::struct_excessive_bools)]
 pub(crate) struct PipelineOptions {
     pub(crate) max_pass_name: String,
     pub(crate) enable_warnings: bool,
@@ -141,8 +141,13 @@ impl Load {
             (usize::pow(2, 10), "K"),
         ]
         .iter()
-        .find(|(unit, _)| size >= *unit)
-        .map(|&(unit, name)| format!("{:.2} {}iB", size as f32 / unit as f32, name))
+        .find_map(|(unit, name)| {
+            if size >= *unit {
+                Some(format!("{:.2} {}iB", size as f32 / *unit as f32, name))
+            } else {
+                None
+            }
+        })
         .unwrap_or_else(|| format!("{} bytes", size))
     }
 }
@@ -223,11 +228,7 @@ impl CompilerPass<(ExprRef, SourceFileRef), IRModule> for IR {
         let module = frontend.build(&hir);
         let mut stdout = stdout();
         if options.verbosity >= 1 {
-            writeln!(
-                &mut stdout,
-                "{} statements",
-                unit_statements_count(&module.borrow())
-            )?;
+            writeln!(&mut stdout, "{} statements", unit_statements_count(&module))?;
         }
         if options.dump_ir {
             writeln!(&mut stdout)?;
@@ -344,7 +345,7 @@ fn unit_statements_count(module: &IRModule) -> usize {
         .cfg
         .node_indices()
         .map(|block| module.cfg[block].count())
-        .chain(functions.map(|function_cfg| unit_statements_count(&function_cfg.borrow())))
+        .chain(functions.map(|function_cfg| unit_statements_count(function_cfg)))
         .sum()
 }
 

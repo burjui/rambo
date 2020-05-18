@@ -25,11 +25,11 @@ impl BackEndPermutation {
     const PARAMETER_COUNT: usize = 2;
     const PERMUTATION_COUNT: usize = 1 << Self::PARAMETER_COUNT;
 
-    fn new() -> Self {
+    const fn new() -> Self {
         Self(0)
     }
 
-    fn is_empty(&self) -> bool {
+    const fn is_empty(&self) -> bool {
         self.0 >= Self::PERMUTATION_COUNT
     }
 
@@ -37,15 +37,15 @@ impl BackEndPermutation {
         self.0 += 1;
     }
 
-    fn enable_immediate_integers(&self) -> bool {
+    const fn enable_immediate_integers(&self) -> bool {
         self.parameter(0)
     }
 
-    fn enable_comments(&self) -> bool {
+    const fn enable_comments(&self) -> bool {
         self.parameter(0)
     }
 
-    fn parameter(&self, index: usize) -> bool {
+    const fn parameter(&self, index: usize) -> bool {
         self.0 & (1 << index) != 0
     }
 }
@@ -53,7 +53,7 @@ impl BackEndPermutation {
 #[test]
 fn proper_spilling() {
     test_backend(
-        function_name!().to_owned(),
+        function_name!(),
         "
         let a = 1
         let b = 2
@@ -70,7 +70,7 @@ fn proper_spilling() {
 #[test]
 fn branching() {
     test_backend(
-        function_name!().to_owned(),
+        function_name!(),
         "
         let a = 1
         let b = 2
@@ -87,7 +87,7 @@ fn branching() {
 #[test]
 fn functions() {
     test_backend(
-        function_name!().to_owned(),
+        function_name!(),
         "
         let f = \\ (a: num) -> a + 1
         let g = \\ (h: \\ (a: num) -> num) -> h 2
@@ -100,7 +100,7 @@ fn functions() {
 #[test]
 fn function_return() {
     test_backend(
-        function_name!().to_owned(),
+        function_name!(),
         "
         let f = \\ (x: num) -> x + 1
         let a = 10 + 1
@@ -115,7 +115,7 @@ fn function_return() {
 #[test]
 fn misaligned_fetch() {
     test_backend(
-        function_name!().to_owned(),
+        function_name!(),
         "
         fn f (a: num, b: num) a + b
         fn g (f: \\ (a: num, b: num) -> num, a: num, b: num) f a b + 1
@@ -140,10 +140,10 @@ fn misaligned_fetch() {
     );
 }
 
-fn test_backend(source_name: String, source_code: &str, expected_result: u32) {
-    let code = typecheck(source_name.clone(), source_code).unwrap();
+fn test_backend(source_name: &str, source_code: &str, expected_result: u32) {
+    let code = typecheck(source_name.to_owned(), source_code).unwrap();
     let mut state = FrontEndState::new();
-    let module = FrontEnd::new(&source_name, &mut state)
+    let module = FrontEnd::new(source_name, &mut state)
         .include_comments(true)
         .enable_cfp(false)
         .enable_dce(false)
@@ -207,7 +207,7 @@ struct Rvsim;
 
 impl VmBackend for Rvsim {
     fn run(&self, image: &Executable) -> u32 {
-        let simulator = riscv_simulator::run(&image, DumpState::None).unwrap();
+        let simulator = riscv_simulator::run(image, DumpState::None).unwrap();
         simulator.cpu.x[A0 as usize]
     }
 }
@@ -218,11 +218,13 @@ impl VmBackend for Ckbvm {
     fn run(&self, image: &Executable) -> u32 {
         type Register = u32;
 
+        const CODE_START_ADDRESS: usize = 0x0000_0000;
+        const DATA_START_ADDRESS: usize = 0x0010_0000;
+        const STACK_SIZE: usize = 1024;
+
         let mut machine = DefaultMachine::<
             DefaultCoreMachine<Register, WXorXMemory<Register, SparseMemory<Register>>>,
         >::default();
-
-        const CODE_START_ADDRESS: usize = 0x0000_0000;
         machine
             .memory_mut()
             .init_pages(
@@ -233,9 +235,6 @@ impl VmBackend for Ckbvm {
                 0,
             )
             .unwrap();
-
-        const DATA_START_ADDRESS: usize = 0x0010_0000;
-        const STACK_SIZE: usize = 1024;
         let total_data_size = image.data.len() + STACK_SIZE;
         machine
             .memory_mut()

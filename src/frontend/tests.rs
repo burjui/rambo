@@ -177,7 +177,7 @@ struct ForbiddenPermutations {
 
 #[allow(unused)]
 impl ForbiddenPermutations {
-    fn none() -> Self {
+    const fn none() -> Self {
         Self {
             include_comments: None,
             enable_cfp: None,

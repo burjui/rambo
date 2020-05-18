@@ -89,6 +89,8 @@ struct CommandLine {
 }
 
 fn parse_command_line() -> Result<CommandLine, Box<dyn Error>> {
+    const MAXIMUM_VERBOSITY: usize = 3;
+
     static HELP_OPTION: &str = "h";
     static WARNINGS_OPTION: &str = "w";
     static DUMP_CFG_OPTION: &str = "dump-cfg";
@@ -153,8 +155,6 @@ fn parse_command_line() -> Result<CommandLine, Box<dyn Error>> {
         print!("{}", spec.usage(&brief));
         std::process::exit(0);
     }
-
-    const MAXIMUM_VERBOSITY: usize = 3;
     let verbosity = matches.opt_count(VERBOSE_OPTION);
     if matches.opt_count(VERBOSE_OPTION) > MAXIMUM_VERBOSITY {
         return Err(From::from(format!(
@@ -165,9 +165,9 @@ fn parse_command_line() -> Result<CommandLine, Box<dyn Error>> {
 
     let pipeline_options = PipelineOptions {
         max_pass_name: {
-            let result: Result<String, Box<dyn Error>> = matches
-                .opt_str(PASS_OPTION)
-                .map(|max_pass_name| {
+            let result: Result<String, Box<dyn Error>> = matches.opt_str(PASS_OPTION).map_or_else(
+                || Ok((*COMPILER_PASS_NAMES.iter().last().unwrap()).to_string()),
+                |max_pass_name| {
                     if COMPILER_PASS_NAMES.contains(&max_pass_name.as_str()) {
                         Ok(max_pass_name)
                     } else {
@@ -176,8 +176,8 @@ fn parse_command_line() -> Result<CommandLine, Box<dyn Error>> {
                             max_pass_name
                         )))
                     }
-                })
-                .unwrap_or_else(|| Ok((*COMPILER_PASS_NAMES.iter().last().unwrap()).to_string()));
+                },
+            );
             result?
         },
         enable_warnings: !matches.opt_present(WARNINGS_OPTION),

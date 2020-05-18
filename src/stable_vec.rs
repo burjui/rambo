@@ -5,7 +5,7 @@ use std::ops::Index;
 pub(crate) struct StableVec<T>(Vec<Option<T>>);
 
 impl<T> StableVec<T> {
-    pub(crate) fn new() -> Self {
+    pub(crate) const fn new() -> Self {
         Self(Vec::new())
     }
 
@@ -18,7 +18,7 @@ impl<T> StableVec<T> {
     }
 
     pub(crate) fn get(&self, index: usize) -> Option<&T> {
-        self.0.get(index).and_then(|item| item.as_ref())
+        self.0.get(index).and_then(Option::as_ref)
     }
 
     pub(crate) fn push(&mut self, item: T) -> usize {
@@ -27,14 +27,14 @@ impl<T> StableVec<T> {
     }
 
     pub(crate) fn pop(&mut self) {
-        if let Some(index) = self
-            .0
-            .iter()
-            .enumerate()
-            .rev()
-            .filter_map(|(index, item)| if item.is_some() { Some(index) } else { None })
-            .next()
-        {
+        let last_occupied_index = self.0.iter().enumerate().rev().find_map(|(index, item)| {
+            if item.is_some() {
+                Some(index)
+            } else {
+                None
+            }
+        });
+        if let Some(index) = last_occupied_index {
             self.remove(index);
         }
     }
@@ -44,15 +44,15 @@ impl<T> StableVec<T> {
     }
 
     pub(crate) fn find_last(&self) -> Option<&T> {
-        self.0.iter().rev().filter_map(|item| item.as_ref()).next()
+        self.0.iter().rev().find_map(Option::as_ref)
     }
 
     pub(crate) fn iter(&self) -> impl Iterator<Item = &T> {
-        self.0.iter().filter_map(|item| item.as_ref())
+        self.0.iter().filter_map(Option::as_ref)
     }
 
     pub(crate) fn iter_mut(&mut self) -> impl Iterator<Item = &mut T> {
-        self.0.iter_mut().filter_map(|item| item.as_mut())
+        self.0.iter_mut().filter_map(Option::as_mut)
     }
 
     pub(crate) fn into_iter(self) -> impl IntoIterator<Item = T> {

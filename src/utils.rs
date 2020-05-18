@@ -38,13 +38,14 @@ macro_rules! function_name {
 
 #[cfg(test)]
 pub(crate) fn typecheck(name: String, text: &str) -> GenericResult<crate::semantics::ExprRef> {
+    use crate::semantics::EnableWarnings;
+    use crate::semantics::SemanticsChecker;
+
     let file = crate::source::SourceFile::create(name, text);
     let lexer = crate::lexer::Lexer::new(file);
     let mut parser = crate::parser::Parser::new(lexer);
     let ast = parser.parse()?;
 
-    use crate::semantics::EnableWarnings;
-    use crate::semantics::SemanticsChecker;
     let checker = SemanticsChecker::new(EnableWarnings(false));
     checker.check_module(&ast)
 }

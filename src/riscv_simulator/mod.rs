@@ -58,7 +58,7 @@ pub(crate) fn run(
 
             dump_stack(
                 &simulator.cpu,
-                &data_bank,
+                data_bank,
                 config.data_start_address,
                 ram_size,
             )?;
@@ -113,12 +113,12 @@ pub(crate) fn run(
                         .unwrap();
                     dump_stack(
                         &simulator.cpu,
-                        &data_bank,
+                        data_bank,
                         config.data_start_address,
                         ram_size,
                     )?;
                     write_title(stdout, "RAM")?;
-                    dump_memory(stdout, &data_bank, config.data_start_address)?;
+                    dump_memory(stdout, data_bank, config.data_start_address)?;
                     return Err(format!(
                         "[0x{:08x}] op: {:?}, error: {:?}",
                         pc,

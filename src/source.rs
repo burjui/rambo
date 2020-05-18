@@ -24,15 +24,15 @@ pub(crate) struct Source {
 }
 
 impl Source {
-    pub(crate) fn new(file: SourceFileRef, range: Range<usize>) -> Self {
+    pub(crate) const fn new(file: SourceFileRef, range: Range<usize>) -> Self {
         Self { file, range }
     }
 
-    pub(crate) fn file(&self) -> &SourceFileRef {
+    pub(crate) const fn file(&self) -> &SourceFileRef {
         &self.file
     }
 
-    pub(crate) fn range(&self) -> &Range<usize> {
+    pub(crate) const fn range(&self) -> &Range<usize> {
         &self.range
     }
 }
@@ -42,12 +42,12 @@ impl Source {
         &self.file.text[self.range.start..self.range.end]
     }
 
-    pub(crate) fn extend(&self, until: &Source) -> Source {
+    pub(crate) fn extend(&self, until: &Self) -> Self {
         assert_eq!(self.file, until.file);
         let end = until.range.end;
         assert!(end >= self.range.end);
         assert!(end <= self.file.text.len());
-        Source::new(self.file.clone(), self.range.start..end)
+        Self::new(self.file.clone(), self.range.start..end)
     }
 }
 
@@ -108,13 +108,13 @@ impl SourceFile {
         &self.lines
     }
 
-    pub(crate) fn size(&self) -> usize {
+    pub(crate) const fn size(&self) -> usize {
         self.size
     }
 
     fn from_text(name: String, text: String, size: usize) -> SourceFileRef {
         let lines = Self::collect_lines(&text);
-        SourceFileRef::from(SourceFile {
+        SourceFileRef::from(Self {
             name,
             text,
             lines,
@@ -123,7 +123,9 @@ impl SourceFile {
     }
 
     fn decode(data: &[u8], path: &str) -> Result<String, Box<dyn Error>> {
-        let offset = match Self::detect_bom(&data) {
+        use std::str::from_utf8;
+
+        let offset = match Self::detect_bom(data) {
             Some(bom) => {
                 if let BOM::UTF8 = bom {
                     Ok(bom.bytes().len())
@@ -138,8 +140,6 @@ impl SourceFile {
             }
             None => Ok(0),
         }?;
-
-        use std::str::from_utf8;
         Ok(from_utf8(&data[offset..]).map(str::to_owned)?)
     }
 
@@ -205,21 +205,21 @@ enum BOM {
 impl BOM {
     fn bytes(&self) -> &[u8] {
         match self {
-            BOM::UTF8 => &[0xEF, 0xBB, 0xBF],
-            BOM::UTF16LE => &[0xFF, 0xFE],
-            BOM::UTF16BE => &[0xFE, 0xFF],
-            BOM::UTF32LE => &[0xFF, 0xFE, 0x00, 0x00],
-            BOM::UTF32BE => &[0x00, 0x00, 0xFE, 0xFF],
+            Self::UTF8 => &[0xEF, 0xBB, 0xBF],
+            Self::UTF16LE => &[0xFF, 0xFE],
+            Self::UTF16BE => &[0xFE, 0xFF],
+            Self::UTF32LE => &[0xFF, 0xFE, 0x00, 0x00],
+            Self::UTF32BE => &[0x00, 0x00, 0xFE, 0xFF],
         }
     }
 
     fn name(&self) -> &str {
         match self {
-            BOM::UTF8 => "UTF-8",
-            BOM::UTF16LE => "UTF-16LE",
-            BOM::UTF16BE => "UTF-16BE",
-            BOM::UTF32LE => "UTF-32LE",
-            BOM::UTF32BE => "UTF-32BE",
+            Self::UTF8 => "UTF-8",
+            Self::UTF16LE => "UTF-16LE",
+            Self::UTF16BE => "UTF-16BE",
+            Self::UTF32LE => "UTF-32LE",
+            Self::UTF32BE => "UTF-32BE",
         }
     }
 }

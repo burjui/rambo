@@ -27,7 +27,7 @@ pub(crate) struct SemanticsChecker {
 
 impl SemanticsChecker {
     pub(crate) fn new(EnableWarnings(enable_warnings): EnableWarnings) -> Self {
-        SemanticsChecker {
+        Self {
             enable_warnings,
             env: Environment::new(),
             function_ids: 0..,
@@ -95,7 +95,7 @@ impl SemanticsChecker {
                 source,
             } => {
                 let name = Rc::new(name.text().to_owned());
-                let value = self.check_expr(&value)?;
+                let value = self.check_expr(value)?;
                 let binding = BindingRef::from(Binding::new(name.clone(), value, source.clone()));
                 if self.enable_warnings {
                     self.binding_is_used.insert(binding.clone(), false);
@@ -134,8 +134,8 @@ impl SemanticsChecker {
                 left,
                 right,
                 ..
-            } => match operation {
-                BinaryOperation::Assign => {
+            } => {
+                if let BinaryOperation::Assign = operation {
                     if let Expr::Id(name) = left as &Expr {
                         let binding = self.resolve(name)?;
                         let value = self.check_expr(right)?;
@@ -159,8 +159,7 @@ impl SemanticsChecker {
                             left
                         )
                     }
-                }
-                _ => {
+                } else {
                     let left_checked = self.check_expr(left)?;
                     let right_checked = self.check_expr(right)?;
                     let left_type = left_checked.type_();
@@ -211,18 +210,18 @@ impl SemanticsChecker {
                         }
                     }
                 }
-            },
+            }
             Expr::Function {
                 name,
                 source,
                 parameters,
                 body,
             } => {
-                let name = name
-                    .as_ref()
-                    .map(|name| name.text().to_owned())
-                    .unwrap_or_else(|| self.generate_function_name());
-                let function = self.check_function(name, parameters.as_slice(), &body)?;
+                let name = name.as_ref().map_or_else(
+                    || self.generate_function_name(),
+                    |name| name.text().to_owned(),
+                );
+                let function = self.check_function(name, parameters.as_slice(), body)?;
                 Ok(new_expr(TypedExpr::Function(
                     FunctionRef::from(function),
                     source.clone(),
@@ -233,7 +232,7 @@ impl SemanticsChecker {
                 function,
                 arguments,
             } => {
-                let function = self.check_expr(&function)?;
+                let function = self.check_expr(function)?;
                 let function_type = function.type_();
                 let function_type_result: CheckResult<FunctionTypeRef> = match function_type {
                     Type::Function(type_) => Ok(type_),
@@ -257,13 +256,13 @@ impl SemanticsChecker {
 
                     let mut arguments_checked = vec![];
                     for (parameter, argument) in function_parameters.iter().zip(arguments.iter()) {
-                        let argument_checked = self.check_expr(argument)?;
-                        let argument_type = argument_checked.type_();
-                        if argument_type != parameter.type_ {
+                        let checked = self.check_expr(argument)?;
+                        let checked_type = checked.type_();
+                        if checked_type != parameter.type_ {
                             return error!("argument type mismatch for parameter `{}': expected a `{:?}', found `{:?}` of type `{:?}'",
-                                          parameter.name.text(), parameter.type_, argument, argument_type);
+                                          parameter.name.text(), parameter.type_, argument, checked_type);
                         }
-                        arguments_checked.push(argument_checked);
+                        arguments_checked.push(checked);
                     }
 
                     arguments_checked
@@ -467,10 +466,10 @@ pub(crate) enum Type {
 impl Debug for Type {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Type::Unit => write!(formatter, "()"),
-            Type::Int => write!(formatter, "num"),
-            Type::String => write!(formatter, "str"),
-            Type::Function(type_) => type_.fmt(formatter),
+            Self::Unit => write!(formatter, "()"),
+            Self::Int => write!(formatter, "num"),
+            Self::String => write!(formatter, "str"),
+            Self::Function(type_) => type_.fmt(formatter),
         }
     }
 }
@@ -538,26 +537,27 @@ pub(crate) enum TypedExpr {
 impl Debug for TypedExpr {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            TypedExpr::ArgumentPlaceholder(name, _) => write!(formatter, "<{}>", name),
-            TypedExpr::Unit(_) => write!(formatter, "()"),
-            TypedExpr::Int(value, _) => write!(formatter, "{}", value),
-            TypedExpr::String(value, _) => write!(formatter, "\"{}\"", value),
-            TypedExpr::Reference(binding, _) => write!(formatter, "&{}", &binding.name),
-            TypedExpr::AddInt(left, right, _) => write!(formatter, "({:?} + {:?})", left, right),
-            TypedExpr::SubInt(left, right, _) => write!(formatter, "({:?} - {:?})", left, right),
-            TypedExpr::MulInt(left, right, _) => write!(formatter, "({:?} * {:?})", left, right),
-            TypedExpr::DivInt(left, right, _) => write!(formatter, "({:?} / {:?})", left, right),
-            TypedExpr::AddStr(left, right, _) => write!(formatter, "({:?} + {:?})", left, right),
-            TypedExpr::Assign(binding, value, _) => {
+            Self::ArgumentPlaceholder(name, _) => write!(formatter, "<{}>", name),
+            Self::Unit(_) => write!(formatter, "()"),
+            Self::Int(value, _) => write!(formatter, "{}", value),
+            Self::String(value, _) => write!(formatter, "\"{}\"", value),
+            Self::Reference(binding, _) => write!(formatter, "&{}", &binding.name),
+            Self::AddInt(left, right, _) | Self::AddStr(left, right, _) => {
+                write!(formatter, "({:?} + {:?})", left, right)
+            }
+            Self::SubInt(left, right, _) => write!(formatter, "({:?} - {:?})", left, right),
+            Self::MulInt(left, right, _) => write!(formatter, "({:?} * {:?})", left, right),
+            Self::DivInt(left, right, _) => write!(formatter, "({:?} / {:?})", left, right),
+            Self::Assign(binding, value, _) => {
                 write!(formatter, "({} = {:?})", &binding.name, value)
             }
-            TypedExpr::Function(function, _) => function.fmt(formatter),
-            TypedExpr::Application {
+            Self::Function(function, _) => function.fmt(formatter),
+            Self::Application {
                 function,
                 arguments,
                 ..
             } => write!(formatter, "({:?} @ {:?})", function, arguments),
-            TypedExpr::Conditional {
+            Self::Conditional {
                 condition,
                 then_branch,
                 else_branch,
@@ -567,7 +567,7 @@ impl Debug for TypedExpr {
                 "(if ({:?}) {:?} else {:?})",
                 condition, then_branch, else_branch
             ),
-            TypedExpr::Block(statements, _) => {
+            Self::Block(statements, _) => {
                 write!(formatter, "{{\n{:?}\n}}", statements.iter().format("\n"))
             }
         }
@@ -577,27 +577,27 @@ impl Debug for TypedExpr {
 impl TypedExpr {
     pub(crate) fn type_(&self) -> Type {
         match self {
-            TypedExpr::ArgumentPlaceholder(_, type_) => type_.clone(),
-            TypedExpr::Unit(_) => Type::Unit,
+            Self::ArgumentPlaceholder(_, type_)
+            | Self::Application { type_, .. }
+            | Self::Conditional { type_, .. } => type_.clone(),
 
-            TypedExpr::Int(_, _)
-            | TypedExpr::AddInt(_, _, _)
-            | TypedExpr::SubInt(_, _, _)
-            | TypedExpr::MulInt(_, _, _)
-            | TypedExpr::DivInt(_, _, _) => Type::Int,
+            Self::Unit(_) => Type::Unit,
 
-            TypedExpr::String(_, _) | TypedExpr::AddStr(_, _, _) => Type::String,
+            Self::Int(_, _)
+            | Self::AddInt(_, _, _)
+            | Self::SubInt(_, _, _)
+            | Self::MulInt(_, _, _)
+            | Self::DivInt(_, _, _) => Type::Int,
 
-            TypedExpr::Reference(binding, _) => binding.data.type_(),
-            TypedExpr::Assign(_, value, _) => value.type_(),
-            TypedExpr::Function(function, _) => Type::Function(function.type_.clone()),
-            TypedExpr::Application { type_, .. } => type_.clone(),
-            TypedExpr::Conditional { type_, .. } => type_.clone(),
+            Self::String(_, _) | Self::AddStr(_, _, _) => Type::String,
 
-            TypedExpr::Block(statements, _) => statements
+            Self::Reference(binding, _) => binding.data.type_(),
+            Self::Assign(_, value, _) => value.type_(),
+            Self::Function(function, _) => Type::Function(function.type_.clone()),
+
+            Self::Block(statements, _) => statements
                 .last()
-                .map(TypedStatement::type_)
-                .unwrap_or_else(|| Type::Unit),
+                .map_or_else(|| Type::Unit, TypedStatement::type_),
         }
     }
 }
@@ -612,8 +612,8 @@ pub(crate) struct Binding {
 }
 
 impl Binding {
-    pub(crate) fn new(name: Rc<String>, data: ExprRef, source: Source) -> Binding {
-        Binding { name, data, source }
+    pub(crate) fn new(name: Rc<String>, data: ExprRef, source: Source) -> Self {
+        Self { name, data, source }
     }
 }
 
@@ -632,8 +632,8 @@ pub(crate) enum TypedStatement {
 impl Debug for TypedStatement {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            TypedStatement::Expr(expr) => expr.fmt(formatter),
-            TypedStatement::Binding(binding) => binding.fmt(formatter),
+            Self::Expr(expr) => expr.fmt(formatter),
+            Self::Binding(binding) => binding.fmt(formatter),
         }
     }
 }
@@ -641,8 +641,8 @@ impl Debug for TypedStatement {
 impl TypedStatement {
     pub(crate) fn type_(&self) -> Type {
         match self {
-            TypedStatement::Binding(_) => Type::Unit,
-            TypedStatement::Expr(expr) => expr.type_(),
+            Self::Binding(_) => Type::Unit,
+            Self::Expr(expr) => expr.type_(),
         }
     }
 }

@@ -45,7 +45,7 @@ fn compute_value_usage(
     let used_values = cfg
         .node_indices()
         .flat_map(|node| cfg[node].iter())
-        .flat_map(|statement| get_statement_value_operands(&values, statement))
+        .flat_map(|statement| get_statement_value_operands(values, statement))
         .chain(once(program_result));
     for value_id in used_values {
         *value_usage.get_mut(&value_id).unwrap() += 1;
@@ -102,7 +102,7 @@ fn disuse(
     if *usage_count == 0 {
         let location = &definitions[&value_id];
         let statement = &cfg[location.block][location.index];
-        for operand in get_statement_value_operands(&values, statement) {
+        for operand in get_statement_value_operands(values, statement) {
             disuse(operand, cfg, values, value_usage, definitions);
         }
     }

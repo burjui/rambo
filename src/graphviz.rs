@@ -359,7 +359,7 @@ const OPERATOR_COLOR: &str = "bisque4";
 struct ClusterIdGenerator(usize);
 
 impl ClusterIdGenerator {
-    fn new() -> Self {
+    const fn new() -> Self {
         Self(0)
     }
 
@@ -387,7 +387,7 @@ struct BlockId {
 }
 
 impl BlockId {
-    fn new(cluster_id: ClusterId, block: NodeIndex) -> Self {
+    const fn new(cluster_id: ClusterId, block: NodeIndex) -> Self {
         Self { cluster_id, block }
     }
 }
@@ -444,8 +444,8 @@ impl Iterator for EscapedChar {
 
     fn next(&mut self) -> Option<Self::Item> {
         match self {
-            EscapedChar::Original(iter) => iter.next(),
-            EscapedChar::Escaped(iter) => iter.next(),
+            Self::Original(iter) => iter.next(),
+            Self::Escaped(iter) => iter.next(),
         }
     }
 }

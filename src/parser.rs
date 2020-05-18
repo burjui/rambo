@@ -20,7 +20,7 @@ pub(crate) struct Parameter {
 }
 
 impl PartialEq for Parameter {
-    fn eq(&self, other: &Parameter) -> bool {
+    fn eq(&self, other: &Self) -> bool {
         self.type_ == other.type_
     }
 }
@@ -43,11 +43,11 @@ pub(crate) enum BinaryOperation {
 impl Debug for BinaryOperation {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         formatter.write_char(match self {
-            BinaryOperation::Assign => '=',
-            BinaryOperation::Add => '+',
-            BinaryOperation::Subtract => '-',
-            BinaryOperation::Multiply => '*',
-            BinaryOperation::Divide => '/',
+            Self::Assign => '=',
+            Self::Add => '+',
+            Self::Subtract => '-',
+            Self::Multiply => '*',
+            Self::Divide => '/',
         })
     }
 }
@@ -99,15 +99,15 @@ impl Debug for Expr {
 impl Expr {
     pub(crate) fn source(&self) -> &Source {
         match self {
-            Expr::Unit(source)
-            | Expr::String(source)
-            | Expr::Int(source)
-            | Expr::Id(source)
-            | Expr::Function { source, .. }
-            | Expr::Binary { source, .. }
-            | Expr::Application { source, .. }
-            | Expr::Conditional { source, .. }
-            | Expr::Block(Block { source, .. }) => source,
+            Self::Unit(source)
+            | Self::String(source)
+            | Self::Int(source)
+            | Self::Id(source)
+            | Self::Function { source, .. }
+            | Self::Binary { source, .. }
+            | Self::Application { source, .. }
+            | Self::Conditional { source, .. }
+            | Self::Block(Block { source, .. }) => source,
         }
     }
 }
@@ -125,10 +125,8 @@ pub(crate) enum Statement {
 impl Debug for Statement {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Statement::Expr(expr) => expr.fmt(formatter),
-            Statement::Binding { name, value, .. } => {
-                write!(formatter, "let {:?} = {:?}", name, value)
-            }
+            Self::Expr(expr) => expr.fmt(formatter),
+            Self::Binding { name, value, .. } => write!(formatter, "let {:?} = {:?}", name, value),
         }
     }
 }
@@ -144,16 +142,16 @@ pub(crate) struct Parser {
 }
 
 macro_rules! error {
-    ($self_: ident, $text: expr, $location: expr) => {
-        $self_.error(line!(), $text, $location)
+    ($text: expr, $location: expr) => {
+        Self::error(line!(), $text, $location)
     };
 }
 
 impl Parser {
-    pub(crate) fn new(lexer: Lexer) -> Parser {
+    pub(crate) fn new(lexer: Lexer) -> Self {
         let eof_lexeme = lexer.eof_lexeme.clone();
         let dummy_source = eof_lexeme.source.clone();
-        Parser {
+        Self {
             lexer,
             lexeme: eof_lexeme,
             lexeme_line: 0,
@@ -175,7 +173,7 @@ impl Parser {
         })
     }
 
-    pub(crate) fn lexer_stats(&self) -> &LexerStats {
+    pub(crate) const fn lexer_stats(&self) -> &LexerStats {
         self.lexer.stats()
     }
 
@@ -274,7 +272,7 @@ impl Parser {
     }
 
     fn parse_binary(&mut self, precedence: Precedence) -> ParseResult<Expr> {
-        let parse_next = |self_: &mut Parser, precedence: Option<Precedence>| {
+        let parse_next = |self_: &mut Self, precedence: Option<Precedence>| {
             if let Some(precedence) = precedence {
                 self_.parse_binary(precedence)
             } else {
@@ -371,7 +369,6 @@ impl Parser {
                 }
             }
             _ => error!(
-                self,
                 &format!("expected an expression, found: {}", primary),
                 &primary.source
             ),
@@ -427,7 +424,7 @@ impl Parser {
                         "redefinition of parameter `{}', previous definition is at {}",
                         parameter_name_str, previous_definition
                     );
-                    return error!(self, &message, &parameter.name);
+                    return error!(&message, &parameter.name);
                 }
                 already_declared.insert(parameter_name_str.to_owned(), parameter.name.clone());
                 parameters.push(parameter);
@@ -438,7 +435,6 @@ impl Parser {
 
         if parameters.is_empty() {
             error!(
-                self,
                 &format!("expected an argument list, found: {}", self.lexeme),
                 &self.lexeme.source
             )
@@ -467,7 +463,6 @@ impl Parser {
             (Token::Lambda, _) => self.parse_function_type(),
             _ => {
                 return error!(
-                    self,
                     &format!("expected a type, found: {}", source.text()),
                     &source
                 )
@@ -487,7 +482,10 @@ impl Parser {
 
     fn expect(&mut self, token: Token, name: &str) -> ParseResult<Lexeme> {
         let lexeme = self.lexeme.clone();
-        if lexeme.token != token {
+        if lexeme.token == token {
+            self.read_lexeme()?;
+            Ok(lexeme)
+        } else {
             let starts_with_a_letter = name.chars().next().into_iter().all(char::is_alphanumeric);
             let (opening_quote, closing_quote) = if starts_with_a_letter {
                 ("`", "'")
@@ -495,7 +493,6 @@ impl Parser {
                 ("", "")
             };
             error!(
-                self,
                 &format!(
                     "expected {} {}{}{}, found: {}",
                     article(name),
@@ -506,9 +503,6 @@ impl Parser {
                 ),
                 &lexeme.source
             )
-        } else {
-            self.read_lexeme()?;
-            Ok(lexeme)
         }
     }
 
@@ -521,11 +515,11 @@ impl Parser {
         Ok(())
     }
 
-    fn error<T>(&self, line: u32, text: &str, source: &Source) -> ParseResult<T> {
-        Err(self.format_error(line, text, source)).map_err(From::from)
+    fn error<T>(line: u32, text: &str, source: &Source) -> ParseResult<T> {
+        Err(Self::format_error(line, text, source)).map_err(From::from)
     }
 
-    fn format_error(&self, line: u32, text: &str, source: &Source) -> String {
+    fn format_error(line: u32, text: &str, source: &Source) -> String {
         format!("[{}] {}: {}", line, source, text)
     }
 }
@@ -538,10 +532,10 @@ enum Precedence {
 }
 
 impl Precedence {
-    fn next_binary_precedence(self) -> Option<Precedence> {
+    fn next_binary_precedence(self) -> Option<Self> {
         let next_precedence = match self {
-            Precedence::Assignment => Some(Precedence::Additive),
-            Precedence::Additive => Some(Precedence::Multiplicative),
+            Self::Assignment => Some(Self::Additive),
+            Self::Additive => Some(Self::Multiplicative),
             _ => None,
         };
         if let Some(next_precedence) = next_precedence {
@@ -555,34 +549,34 @@ impl Token {
     fn is_binary_operator(self) -> bool {
         matches!(
             self,
-            Token::Eq,
-            Token::Plus,
-            Token::Minus,
-            Token::Star,
-            Token::Slash
+            Self::Eq,
+            Self::Plus,
+            Self::Minus,
+            Self::Star,
+            Self::Slash
         )
     }
 
     fn precedence(self) -> Precedence {
         match self {
-            Token::Eq => Precedence::Assignment,
-            Token::Plus | Token::Minus => Precedence::Additive,
-            Token::Star | Token::Slash => Precedence::Multiplicative,
+            Self::Eq => Precedence::Assignment,
+            Self::Plus | Self::Minus => Precedence::Additive,
+            Self::Star | Self::Slash => Precedence::Multiplicative,
             _ => unreachable!(),
         }
     }
 
     fn is_left_associative(self) -> bool {
-        matches!(self, Token::Plus, Token::Minus, Token::Star, Token::Slash)
+        matches!(self, Self::Plus, Self::Minus, Self::Star, Self::Slash)
     }
 
     fn binary_operation(self) -> BinaryOperation {
         match self {
-            Token::Eq => BinaryOperation::Assign,
-            Token::Plus => BinaryOperation::Add,
-            Token::Minus => BinaryOperation::Subtract,
-            Token::Star => BinaryOperation::Multiply,
-            Token::Slash => BinaryOperation::Divide,
+            Self::Eq => BinaryOperation::Assign,
+            Self::Plus => BinaryOperation::Add,
+            Self::Minus => BinaryOperation::Subtract,
+            Self::Star => BinaryOperation::Multiply,
+            Self::Slash => BinaryOperation::Divide,
             _ => unreachable!(),
         }
     }

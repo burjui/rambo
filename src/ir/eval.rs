@@ -3,6 +3,8 @@ use crate::ir::FunctionMap;
 use crate::ir::IRModule;
 use crate::ir::Statement;
 use crate::ir::Value;
+use core::convert::TryFrom;
+use core::convert::TryInto;
 use itertools::Itertools;
 use petgraph::graph::NodeIndex;
 use petgraph::prelude::Direction::Outgoing;
@@ -46,7 +48,7 @@ impl<'a> EvalContext<'a> {
 
     fn eval_impl(&mut self, block: NodeIndex) -> Value {
         let mut result = &self.unit;
-        let mut state = self.new_state(block);
+        let mut state = Self::new_state(block);
         loop {
             let basic_block = &self.module.cfg[state.block];
             let mut statement = None;
@@ -60,7 +62,7 @@ impl<'a> EvalContext<'a> {
                 let outgoing_edge = outgoing_edges.next();
                 match outgoing_edge {
                     Some(edge) => {
-                        state = self.new_state(edge.target());
+                        state = Self::new_state(edge.target());
                         continue;
                     }
                     None => break,
@@ -80,8 +82,8 @@ impl<'a> EvalContext<'a> {
                     let value = &self.env[var].value;
                     match value {
                         Value::Int(value) => {
-                            let block = if *value == 0 { else_block } else { then_block };
-                            state = self.new_state(*block);
+                            let branch = if *value == 0 { else_block } else { then_block };
+                            state = Self::new_state(*branch);
                             continue;
                         }
 
@@ -100,7 +102,7 @@ impl<'a> EvalContext<'a> {
         result.clone()
     }
 
-    fn new_state(&self, block: NodeIndex) -> LocalEvalState {
+    const fn new_state(block: NodeIndex) -> LocalEvalState {
         LocalEvalState {
             block,
             statement_index: 0,
@@ -166,12 +168,12 @@ impl<'a> EvalContext<'a> {
 
     #[allow(clippy::trivially_copy_pass_by_ref)]
     fn int(&self, value_id: &ValueId) -> i32 {
-        self.runtime_value(value_id).into()
+        self.runtime_value(value_id).try_into().unwrap()
     }
 
     #[allow(clippy::trivially_copy_pass_by_ref)]
     fn string(&self, value_id: &ValueId) -> Rc<String> {
-        self.runtime_value(value_id).into()
+        self.runtime_value(value_id).try_into().unwrap()
     }
 
     fn runtime_value(&self, value_id: &ValueId) -> &RuntimeValue {
@@ -253,20 +255,26 @@ impl Default for RuntimeValue {
     }
 }
 
-impl From<&RuntimeValue> for i32 {
-    fn from(value: &RuntimeValue) -> Self {
-        match &value.value {
-            Value::Int(value) => *value,
-            _ => unreachable!("i32::from(): {:?}", &value.value),
+impl TryFrom<&RuntimeValue> for i32 {
+    type Error = String;
+
+    fn try_from(value: &RuntimeValue) -> Result<Self, Self::Error> {
+        if let Value::Int(value) = &value.value {
+            Ok(*value)
+        } else {
+            Err(format!("i32::from(): {:?}", &value.value))
         }
     }
 }
 
-impl From<&RuntimeValue> for Rc<String> {
-    fn from(value: &RuntimeValue) -> Self {
-        match &value.value {
-            Value::String(s) => s.clone(),
-            _ => unreachable!("Rc<String>::from(): {:?}", &value.value),
+impl TryFrom<&RuntimeValue> for Rc<String> {
+    type Error = String;
+
+    fn try_from(value: &RuntimeValue) -> Result<Self, Self::Error> {
+        if let Value::String(s) = &value.value {
+            Ok(s.clone())
+        } else {
+            Err(format!("Rc<String>::from(): {:?}", &value.value))
         }
     }
 }

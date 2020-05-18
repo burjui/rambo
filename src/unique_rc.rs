@@ -9,13 +9,13 @@ pub(crate) struct UniqueRc<T: ?Sized>(Rc<T>);
 impl<T> From<T> for UniqueRc<T> {
     // TODO replace with new()
     fn from(value: T) -> Self {
-        UniqueRc(Rc::new(value))
+        Self(Rc::new(value))
     }
 }
 
 impl<T: ?Sized> Clone for UniqueRc<T> {
     fn clone(&self) -> Self {
-        UniqueRc(self.0.clone())
+        Self(self.0.clone())
     }
 }
 
@@ -28,7 +28,7 @@ impl<T: ?Sized> Deref for UniqueRc<T> {
 }
 
 impl<T: ?Sized> PartialEq for UniqueRc<T> {
-    fn eq(&self, other: &UniqueRc<T>) -> bool {
+    fn eq(&self, other: &Self) -> bool {
         Rc::ptr_eq(&self.0, &other.0)
     }
 }

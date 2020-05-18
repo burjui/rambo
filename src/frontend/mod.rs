@@ -45,7 +45,7 @@ pub(crate) struct FrontEndState {
 }
 
 impl FrontEndState {
-    pub(crate) fn new() -> Self {
+    pub(crate) const fn new() -> Self {
         Self {
             function_idgen: FnIdGenerator::new(),
             main_fn_id: None,
@@ -99,17 +99,17 @@ impl<'a> FrontEnd<'a> {
         instance
     }
 
-    pub(crate) fn include_comments(mut self, value: bool) -> Self {
+    pub(crate) const fn include_comments(mut self, value: bool) -> Self {
         self.include_comments = value;
         self
     }
 
-    pub(crate) fn enable_cfp(mut self, value: bool) -> Self {
+    pub(crate) const fn enable_cfp(mut self, value: bool) -> Self {
         self.enable_cfp = value;
         self
     }
 
-    pub(crate) fn enable_dce(mut self, value: bool) -> Self {
+    pub(crate) const fn enable_dce(mut self, value: bool) -> Self {
         self.enable_dce = value;
         self
     }
@@ -365,21 +365,12 @@ impl<'a> FrontEnd<'a> {
     fn read_variable_core(&mut self, variable: &BindingRef, block: NodeIndex) -> ValueId {
         self.variables
             .get(variable)
-            .and_then(|map| map.get(&block))
-            .map(Clone::clone)
+            .and_then(|map| map.get(&block).cloned())
             .unwrap_or_else(|| self.read_variable_recursive(variable, block))
     }
 
     fn read_variable_recursive(&mut self, variable: &BindingRef, block: NodeIndex) -> ValueId {
-        let value_id = if !self.sealed_blocks.contains(&block) {
-            // Incomplete CFG
-            let phi = self.define_phi(block, &[]);
-            self.incomplete_phis
-                .entry(block)
-                .or_default()
-                .insert(variable.clone(), phi);
-            phi
-        } else {
+        let value_id = if self.sealed_blocks.contains(&block) {
             match self.get_marker(block) {
                 None => self.mark_block(block, Marker::Initial),
 
@@ -428,6 +419,14 @@ impl<'a> FrontEnd<'a> {
                     }
                 }
             }
+        } else {
+            // Incomplete CFG
+            let phi = self.define_phi(block, &[]);
+            self.incomplete_phis
+                .entry(block)
+                .or_default()
+                .insert(variable.clone(), phi);
+            phi
         };
         self.write_variable(variable.clone(), block, value_id);
         value_id
@@ -613,8 +612,6 @@ fn fold_constants(
     value_id: ValueId,
 ) {
     let folded = match &values[value_id] {
-        Value::Unit | Value::Int(_) | Value::String(_) | Value::Function(_, _) => None,
-
         &Value::AddInt(left, right) => fold_binary(
             block,
             values,
@@ -687,19 +684,22 @@ fn fold_constants(
             |(_, left_value), (_, right_value)| match (left_value, right_value) {
                 (Value::String(left), Value::String(right)) => {
                     let mut result = String::with_capacity(left.len() + right.len());
-                    result.push_str(&left);
-                    result.push_str(&right);
+                    result.push_str(left);
+                    result.push_str(right);
                     Some(Value::String(Rc::new(result)))
                 }
                 _ => None,
             },
         ),
 
-        Value::Call(function, arguments) => {
-            fold_call(*function, arguments.to_vec(), values, functions)
-        }
+        Value::Call(function, arguments) => fold_call(*function, arguments, values, functions),
 
-        Value::Phi(_) | Value::Arg(_) => None,
+        Value::Unit
+        | Value::Int(_)
+        | Value::String(_)
+        | Value::Function(_, _)
+        | Value::Phi(_)
+        | Value::Arg(_) => None,
     };
     if let Some(value) = folded {
         values[value_id] = value;
@@ -721,8 +721,8 @@ fn fold_binary(
 
 fn fold_call(
     function: ValueId,
-    arguments: Vec<ValueId>,
-    values: &mut ValueStorage,
+    arguments: &[ValueId],
+    values: &ValueStorage,
     functions: &FunctionMap,
 ) -> Option<Value> {
     let arguments_are_constant = arguments
