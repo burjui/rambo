@@ -29,11 +29,11 @@ risky = "0.3.0"
 
 [dependencies.riscv]
 git = "ssh://git@github.com/burjui/riscv.git"
-rev = "eb35585c7bdc1b1a045243cebacf6b8237def74d"
+tag = "v0.1.0"
 
 [dependencies.rambo-riscv]
 git = "ssh://git@github.com/burjui/rambo-riscv"
-rev = "295065c7b9e7376d10e9ca79d65a2a568ab2ccd6"
+tag = "v0.1.2"
 
 [profile.release]
 debug = true
