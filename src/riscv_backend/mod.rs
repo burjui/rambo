@@ -592,7 +592,7 @@ impl<'a> Backend<'a> {
                 | Value::Phi(_)
                 | Value::Call(_, _) => Some(self.allocate_u32(0xDEAD_BEEF)?),
 
-                Value::String(_) => unimplemented!("{}: Value::String", function!()),
+                Value::String(s) => Some(self.allocate_bytes(s.as_bytes())?),
                 Value::AddString(_, _) => unimplemented!("{}: Value::AddString", function!()),
 
                 Value::Unit | Value::Arg(_) | Value::Function(_, _) => None,
@@ -607,6 +607,12 @@ impl<'a> Backend<'a> {
     fn allocate_u32(&mut self, data: u32) -> GenericResult<usize> {
         let offset = self.state.image.data.len();
         self.state.image.data.write_u32::<LittleEndian>(data)?;
+        Ok(offset)
+    }
+
+    fn allocate_bytes(&mut self, data: &[u8]) -> GenericResult<usize> {
+        let offset = self.state.image.data.len();
+        self.state.image.data.write_all(data)?;
         Ok(offset)
     }
 
