@@ -248,24 +248,45 @@ impl<'a> Backend<'a> {
             }
 
             if !self.state.image.data.is_empty() {
+                const BYTES_PER_LINE: usize = 8;
+
                 writeln!(output, "---- DATA DUMP: {} ----", &self.module.name)?;
-                for (index, &byte) in self.state.image.data.iter().enumerate() {
-                    if index % 4 == 0 {
-                        if index > 0 {
-                            writeln!(output)?;
-                        }
-                        write!(output, "[{:08x}] ", index)?;
-                    } else {
-                        write!(output, " ")?;
-                    }
+
+                for (index, chunk) in self
+                    .state
+                    .image
+                    .data
+                    .iter()
+                    .chunks(BYTES_PER_LINE)
+                    .into_iter()
+                    .enumerate()
+                {
+                    write!(output, "[{:08x}] ", index * BYTES_PER_LINE)?;
                     output.set_color(
                         ColorSpec::new()
                             .set_fg(Some(Color::Black))
                             .set_intense(true),
                     )?;
-                    write!(output, "{:02x}", byte)?;
+
+                    let chunk = chunk.cloned().collect::<Box<[u8]>>();
+                    for byte in chunk.iter() {
+                        write!(output, " {:02x}", byte)?;
+                    }
                     output.reset()?;
+
+                    (0..BYTES_PER_LINE - chunk.len()).try_for_each(|_| write!(output, "   "))?;
+                    write!(output, "  | ")?;
+                    for byte in chunk.iter() {
+                        let c = if byte.is_ascii_graphic() {
+                            *byte as char
+                        } else {
+                            '.'
+                        };
+                        write!(output, "{}", c)?;
+                    }
+                    writeln!(output)?;
                 }
+
                 writeln!(output, "\n")?;
             }
         }
