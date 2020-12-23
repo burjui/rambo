@@ -1,11 +1,3 @@
-use std::convert::TryFrom;
-use std::io::Write;
-
-use bytes::Bytes;
-use ckb_vm::memory::{round_page_up, FLAG_EXECUTABLE, FLAG_WRITABLE};
-use ckb_vm::registers::{A0, SP};
-use ckb_vm::{CoreMachine, DefaultCoreMachine, DefaultMachine, Memory, SparseMemory, WXorXMemory};
-
 use crate::frontend::FrontEnd;
 use crate::frontend::FrontEndState;
 use crate::graphviz::IrGraphvizFile;
@@ -17,7 +9,13 @@ use crate::riscv_backend::{DumpCode, RelocationKind};
 use crate::riscv_simulator;
 use crate::riscv_simulator::DumpState;
 use crate::utils::{stderr, typecheck};
+use bytes::Bytes;
+use ckb_vm::memory::{round_page_up, FLAG_EXECUTABLE, FLAG_WRITABLE};
+use ckb_vm::registers::{A0, SP};
+use ckb_vm::{CoreMachine, DefaultCoreMachine, DefaultMachine, Memory, SparseMemory, WXorXMemory};
 use riscv_backend::EnableComments;
+use std::convert::TryFrom;
+use std::io::Write;
 
 struct BackEndPermutation(usize);
 
