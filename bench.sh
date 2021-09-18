@@ -3,7 +3,7 @@ set -e
 
 SRC_DIR="$1"
 
-function usage() {
+usage() {
 	echo "Usage: $0 <SOURCE DIR> <release|debug> [OPTIONS]..."
 	exit 1
 }
