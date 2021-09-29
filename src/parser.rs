@@ -164,7 +164,7 @@ impl Parser {
         self.read_lexeme()?;
         let start = self.lexeme.source.clone();
         let mut statements = vec![];
-        while self.lexeme.token != Token::EOF {
+        while self.lexeme.token != Token::Eof {
             statements.push(self.parse_statement()?)
         }
         Ok(Block {
@@ -263,7 +263,7 @@ impl Parser {
     fn parse_block(&mut self) -> ParseResult<Expr> {
         let mut statements = vec![];
         let start = self.expect(Token::LBrace, "{")?.source;
-        while self.lexeme.token != Token::EOF && self.lexeme.token != Token::RBrace {
+        while self.lexeme.token != Token::Eof && self.lexeme.token != Token::RBrace {
             statements.push(self.parse_statement()?)
         }
         let end = self.expect(Token::RBrace, "}")?.source;

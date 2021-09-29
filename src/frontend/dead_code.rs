@@ -111,10 +111,9 @@ fn disuse(
 fn remove_empty_blocks(cfg: &mut ControlFlowGraph) {
     let blocks = cfg.node_indices().collect_vec();
     for block in blocks {
-        let is_empty = cfg[block]
+        let is_empty = !cfg[block]
             .iter()
-            .find(|statement| !matches!(statement, Statement::Comment(_)))
-            .is_none();
+            .any(|statement| !matches!(statement, Statement::Comment(_)));
         if is_empty {
             let sources = cfg
                 .edges_directed(block, Direction::Incoming)

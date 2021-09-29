@@ -174,7 +174,7 @@ impl<'a> Backend<'a> {
             self.state
                 .image
                 .code
-                .insert_slice(usize::try_from(code_start).unwrap(), &register_saving_code);
+                .insert_slice(code_start, &register_saving_code);
             for (comment_offset, _) in &mut self.state.image.comments[comments_start..] {
                 if *comment_offset >= code_start {
                     *comment_offset += fixup;
@@ -889,7 +889,7 @@ impl RegisterAllocator {
         source
     }
 
-    fn used<'a>(&'a self) -> impl Iterator<Item = u8> + 'a {
+    fn used(&self) -> impl Iterator<Item = u8> + '_ {
         self.used
             .iter()
             .enumerate()

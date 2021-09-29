@@ -1,4 +1,3 @@
-use std::convert::identity;
 use std::ops::Index;
 
 #[derive(Clone)]
@@ -56,7 +55,7 @@ impl<T> StableVec<T> {
     }
 
     pub(crate) fn into_iter(self) -> impl IntoIterator<Item = T> {
-        self.0.into_iter().filter_map(identity)
+        self.0.into_iter().flatten()
     }
 }
 

@@ -10,7 +10,7 @@ use std::ops::Range;
 
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub(crate) enum Token {
-    EOF,
+    Eof,
     Id,
     Int,
     String,
@@ -59,7 +59,7 @@ impl Debug for Lexeme {
 
 impl Display for Lexeme {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(if self.token == Token::EOF {
+        formatter.write_str(if self.token == Token::Eof {
             "end of file"
         } else {
             self.text()
@@ -92,7 +92,7 @@ impl Lexer {
     pub(crate) fn new(file: SourceFileRef) -> Self {
         let eof_offset = file.text().len();
         let eof_lexeme = Lexeme {
-            token: Token::EOF,
+            token: Token::Eof,
             source: Source::new(file.clone(), eof_offset..eof_offset),
         };
         let mut lexer = Self {

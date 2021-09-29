@@ -65,8 +65,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             command_line
                 .input_files
                 .iter()
-                .map(|path| process(path.clone(), &command_line.pipeline_options))
-                .collect::<Result<(), Box<dyn Error>>>()
+                .try_for_each(|path| process(path.clone(), &command_line.pipeline_options))
         }
     });
     match result {
