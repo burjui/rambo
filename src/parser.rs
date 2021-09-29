@@ -549,11 +549,7 @@ impl Token {
     fn is_binary_operator(self) -> bool {
         matches!(
             self,
-            Self::Eq,
-            Self::Plus,
-            Self::Minus,
-            Self::Star,
-            Self::Slash
+            Self::Eq | Self::Plus | Self::Minus | Self::Star | Self::Slash
         )
     }
 
@@ -567,7 +563,7 @@ impl Token {
     }
 
     fn is_left_associative(self) -> bool {
-        matches!(self, Self::Plus, Self::Minus, Self::Star, Self::Slash)
+        matches!(self, Self::Plus | Self::Minus | Self::Star | Self::Slash)
     }
 
     fn binary_operation(self) -> BinaryOperation {
@@ -584,8 +580,8 @@ impl Token {
 
 impl Lexeme {
     fn can_be_expression_start(&self) -> bool {
-        matches!(self.token, Token::Id if self.text() != "else",
-            Token::Int | Token::String | Token::LParen | Token::Lambda)
+        matches!(self.token,
+            Token::Int | Token::String | Token::LParen | Token::Lambda | Token::Id if self.text() != "else")
     }
 }
 

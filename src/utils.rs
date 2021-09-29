@@ -75,15 +75,6 @@ pub(crate) fn stderr() -> StandardStream {
     StandardStream::stderr(color_choice)
 }
 
-macro_rules! matches {
-    ($expr: expr, $($($pattern: pat)|+ $(if $guard: expr)?),+) => {
-        match $expr {
-            $($($pattern)|+ $(if $guard)? => true,)+
-            _ => false,
-        }
-    }
-}
-
 pub(crate) trait RetainIndices<T> {
     fn retain_indices(
         &mut self,

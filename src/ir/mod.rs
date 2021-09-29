@@ -305,10 +305,7 @@ impl Value {
     pub(crate) fn is_constant(&self) -> bool {
         matches!(
             self,
-            Self::Unit,
-            Self::Int(_),
-            Self::String(_),
-            Self::Function(_, _)
+            Self::Unit | Self::Int(_) | Self::String(_) | Self::Function(_, _)
         )
     }
 }
