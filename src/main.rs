@@ -41,6 +41,8 @@ mod graphviz;
 mod lexer;
 mod parser;
 mod pipeline;
+mod riscv_base;
+mod riscv_exe;
 mod semantics;
 mod source;
 mod stable_vec;

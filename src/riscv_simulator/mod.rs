@@ -1,5 +1,11 @@
-use riscv::registers;
-use riscv::registers::REGISTER_COUNT;
+use crate::riscv_base::registers;
+use crate::riscv_base::registers::REGISTER_COUNT;
+use crate::riscv_exe::DramBank;
+use crate::riscv_exe::Executable;
+use crate::riscv_exe::Simulator;
+use crate::riscv_exe::SimulatorConfig;
+use crate::utils::stdout;
+use crate::{riscv_base, riscv_exe};
 use rvsim::CpuError;
 use rvsim::CpuState;
 use std::convert::TryFrom;
@@ -10,12 +16,6 @@ use termcolor::Color;
 use termcolor::ColorSpec;
 use termcolor::StandardStream;
 use termcolor::WriteColor;
-
-use crate::utils::stdout;
-use rambo_riscv::DRAMBank;
-use rambo_riscv::Executable;
-use rambo_riscv::Simulator;
-use rambo_riscv::SimulatorConfig;
 
 #[cfg(test)]
 mod tests;
@@ -35,7 +35,7 @@ pub(crate) fn run(
         code_start_address: 0x2000_0000,
         data_start_address: 0x8000_0000,
     };
-    let mut simulator = rambo_riscv::load(executable, &config)?;
+    let mut simulator = riscv_exe::load(executable, &config)?;
 
     let ram_size = config.stack_size + executable.data.len();
     let stdout = &mut stdout();
@@ -97,7 +97,7 @@ pub(crate) fn run(
                     output.set_color(ColorSpec::new().set_fg(Some(Color::White)).set_bold(true))?;
                     write!(output, "[0x{:08x}]", pc)?;
                     output.reset()?;
-                    writeln!(output, " {:?}", riscv::decoder::Op(op))?;
+                    writeln!(output, " {:?}", riscv_base::decoder::Op(op))?;
                     output.flush()?;
                 }
             }
@@ -122,7 +122,7 @@ pub(crate) fn run(
                     return Err(format!(
                         "[0x{:08x}] op: {:?}, error: {:?}",
                         pc,
-                        op.map(riscv::decoder::Op),
+                        op.map(riscv_base::decoder::Op),
                         error
                     )
                     .into());
@@ -169,7 +169,7 @@ fn dump_registers(output: &mut StandardStream, cpu: &CpuState) -> io::Result<()>
 
 fn dump_stack(
     cpu: &CpuState,
-    ram: &DRAMBank,
+    ram: &DramBank,
     ram_base_address: usize,
     ram_size: usize,
 ) -> io::Result<()> {
