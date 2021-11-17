@@ -43,10 +43,11 @@ pub(crate) enum DumpCode<'a> {
     Yes(&'a mut StandardStream),
 }
 
-#[derive(Deref)]
 pub(crate) struct EnableImmediateIntegers(pub(crate) bool);
-#[derive(Deref)]
+impl_deref_for_newtype!(EnableImmediateIntegers, bool);
+
 pub(crate) struct EnableComments(pub(crate) bool);
+impl_deref_for_newtype!(EnableComments, bool);
 
 pub(crate) fn generate(
     module: &IRModule,
@@ -752,7 +753,7 @@ enum Allocation {
     Permanent,
 }
 
-#[derive(Deref, Copy, Clone)]
+#[derive(Copy, Clone)]
 struct IsTarget(bool);
 
 struct RegisterAllocator {

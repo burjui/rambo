@@ -1,8 +1,5 @@
 #![warn(rust_2018_idioms)]
 
-#[macro_use]
-extern crate derive_deref;
-
 use crate::pipeline::EvaluateIR;
 use crate::pipeline::Load;
 use crate::pipeline::Parse;

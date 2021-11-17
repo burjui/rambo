@@ -1,6 +1,6 @@
-use serde::{Deserialize, Serialize};
+use bincode::{Decode, Encode};
 
-#[derive(Serialize, Deserialize)]
+#[derive(Encode, Decode)]
 pub struct Executable {
     pub code: Vec<u8>,
     pub data: Vec<u8>,
@@ -56,14 +56,14 @@ impl Default for Executable {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Encode, Decode)]
 pub enum RelocationKind {
     Function,
     DataLoad,
     DataStore,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Encode, Decode)]
 pub struct Relocation {
     pub offset: usize,
     pub target: usize,

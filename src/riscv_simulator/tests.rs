@@ -1,7 +1,7 @@
 use crate::riscv_backend::write_code;
-use rambo_riscv::MemoryMode;
-use rambo_riscv::Simulator;
-use rambo_riscv::DRAM;
+use crate::riscv_exe::Dram;
+use crate::riscv_exe::MemoryMode;
+use crate::riscv_exe::Simulator;
 use risky::instructions::*;
 use rvsim::CpuError;
 use rvsim::Op;
@@ -27,7 +27,7 @@ fn riscv_simulator() -> Result<(), Box<dyn Error>> {
 
     let mut simulator = Simulator::new(
         0,
-        DRAM::new(&[
+        Dram::new(&[
             (CODE_BASE, CODE_SIZE, MemoryMode::EXECUTE),
             (DATA_BASE, DATA_SIZE, MemoryMode::READ),
         ]),

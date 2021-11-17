@@ -285,8 +285,11 @@ impl CompilerPass<IRModule, Executable> for RISCVBackend {
 
         if options.dump_executable {
             let file = File::create(module.name + "_exe.bin")?;
-            let output = BufWriter::new(file);
-            bincode::serialize_into(output, &image)?;
+            bincode::encode_into_std_write(
+                &image,
+                &mut BufWriter::new(file),
+                bincode::config::Configuration::standard(),
+            )?;
         }
 
         if options.verbosity >= 1 {

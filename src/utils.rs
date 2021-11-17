@@ -36,6 +36,18 @@ macro_rules! function_name {
     };
 }
 
+macro_rules! impl_deref_for_newtype {
+    ($name: ty, $target: ty) => {
+        impl std::ops::Deref for $name {
+            type Target = $target;
+
+            fn deref(&self) -> &Self::Target {
+                &self.0
+            }
+        }
+    };
+}
+
 #[cfg(test)]
 pub(crate) fn typecheck(name: String, text: &str) -> GenericResult<crate::semantics::ExprRef> {
     use crate::semantics::EnableWarnings;
