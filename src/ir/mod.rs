@@ -132,7 +132,6 @@ pub(crate) struct IRModule {
     pub(crate) cfg: ControlFlowGraph,
     pub(crate) entry_block: NodeIndex,
     pub(crate) exit_block: NodeIndex,
-    pub(crate) definitions: HashMap<ValueId, StatementLocation>,
     pub(crate) values: ValueStorage,
     pub(crate) functions: FunctionMap,
     pub(crate) parameters: Vec<ValueId>,

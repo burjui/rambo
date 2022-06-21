@@ -135,7 +135,6 @@ impl<'a> FrontEnd<'a> {
             cfg: self.cfg,
             entry_block: self.entry_block,
             exit_block,
-            definitions: self.definitions,
             values: self.values,
             functions: self.functions,
             parameters: self.parameters,
@@ -502,7 +501,7 @@ impl<'a> FrontEnd<'a> {
     fn define(&mut self, block: NodeIndex, value: Value) -> ValueId {
         let value_id = self.values.insert(value);
         if self.enable_cfp {
-            fold_constants(block, &mut self.values, &self.functions, value_id);
+            fold_constants(&mut self.values, &self.functions, value_id);
         }
         let basic_block = &mut self.cfg[block];
         let statement_index = basic_block.push(Statement::Definition(value_id));
@@ -605,15 +604,9 @@ enum Marker {
     Phi(ValueId),
 }
 
-fn fold_constants(
-    block: NodeIndex,
-    values: &mut ValueStorage,
-    functions: &FunctionMap,
-    value_id: ValueId,
-) {
+fn fold_constants(values: &mut ValueStorage, functions: &FunctionMap, value_id: ValueId) {
     let folded = match &values[value_id] {
         &Value::AddInt(left, right) => fold_binary(
-            block,
             values,
             functions,
             left,
@@ -627,7 +620,6 @@ fn fold_constants(
         ),
 
         &Value::SubInt(left, right) => fold_binary(
-            block,
             values,
             functions,
             left,
@@ -646,7 +638,6 @@ fn fold_constants(
         ),
 
         &Value::MulInt(left, right) => fold_binary(
-            block,
             values,
             functions,
             left,
@@ -662,7 +653,6 @@ fn fold_constants(
         ),
 
         &Value::DivInt(left, right) => fold_binary(
-            block,
             values,
             functions,
             left,
@@ -676,7 +666,6 @@ fn fold_constants(
         ),
 
         &Value::AddString(left, right) => fold_binary(
-            block,
             values,
             functions,
             left,
@@ -707,15 +696,14 @@ fn fold_constants(
 }
 
 fn fold_binary(
-    block: NodeIndex,
     values: &mut ValueStorage,
     functions: &FunctionMap,
     left: ValueId,
     right: ValueId,
     fold: impl FnOnce((ValueId, &Value), (ValueId, &Value)) -> Option<Value>,
 ) -> Option<Value> {
-    fold_constants(block, values, functions, left);
-    fold_constants(block, values, functions, right);
+    fold_constants(values, functions, left);
+    fold_constants(values, functions, right);
     fold((left, &values[left]), (right, &values[right]))
 }
 
@@ -737,13 +725,7 @@ fn fold_call(
             function_cfg.values[*argument_value_id] = values[arguments[parameter_value_id]].clone();
         }
 
-        let result_block = function_cfg.definitions[&function_cfg.result].block;
-        fold_constants(
-            result_block,
-            &mut function_cfg.values,
-            functions,
-            function_cfg.result,
-        );
+        fold_constants(&mut function_cfg.values, functions, function_cfg.result);
         let result_value = &function_cfg.values[function_cfg.result];
         if result_value.is_constant() {
             return Some(result_value.clone());
