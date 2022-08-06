@@ -27,10 +27,9 @@ use crate::semantics::ExprRef;
 use crate::semantics::TypedExpr;
 use crate::semantics::TypedStatement;
 use crate::source::Source;
+use crate::stable_graph::Direction;
+use crate::stable_graph::NodeIndex;
 use itertools::Itertools;
-use petgraph::graph::NodeIndex;
-use petgraph::visit::EdgeRef;
-use petgraph::Direction;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::rc::Rc;
@@ -70,7 +69,7 @@ pub(crate) struct FrontEnd<'a> {
     phi_users: HashMap<ValueId, HashSet<ValueId>>,
     entry_block: NodeIndex,
     undefined_users: Vec<ValueId>,
-    markers: Vec<Option<Marker>>,
+    markers: HashMap<NodeIndex, Marker>,
 }
 
 impl<'a> FrontEnd<'a> {
@@ -90,9 +89,9 @@ impl<'a> FrontEnd<'a> {
             sealed_blocks: HashSet::new(),
             incomplete_phis: HashMap::new(),
             phi_users: HashMap::new(),
-            entry_block: NodeIndex::new(0),
+            entry_block: NodeIndex::default(),
             undefined_users: Vec::new(),
-            markers: Vec::new(),
+            markers: HashMap::new(),
         };
         instance.entry_block = instance.cfg.add_new_block();
         instance.seal_block(instance.entry_block);
@@ -384,7 +383,7 @@ impl<'a> FrontEnd<'a> {
             let predecessors = self
                 .cfg
                 .edges_directed(block, Direction::Incoming)
-                .map(|edge| edge.source())
+                .map(|edge| edge.source)
                 .collect_vec();
             let first_predecessor = predecessors.get(0).cloned();
             let second_predecessor = predecessors.get(1).cloned();
@@ -435,7 +434,7 @@ impl<'a> FrontEnd<'a> {
         let predecessors = self
             .cfg
             .edges_directed(self.definitions[&phi].block, Direction::Incoming)
-            .map(|edge| edge.source())
+            .map(|edge| edge.source)
             .collect_vec();
         for predecessor in predecessors {
             let operand = self.read_variable_core(variable, predecessor);
@@ -569,32 +568,19 @@ impl<'a> FrontEnd<'a> {
     }
 
     fn reset_markers(&mut self) {
-        let len = self.markers.len();
-        self.markers.truncate(0);
-        self.markers.resize(len, None);
+        self.markers.clear();
     }
 
-    fn get_marker(&mut self, block: NodeIndex) -> &Option<Marker> {
-        let index = self.marker_index(block);
-        &self.markers[index]
+    fn get_marker(&mut self, block: NodeIndex) -> Option<&Marker> {
+        self.markers.get(&block)
     }
 
     fn mark_block(&mut self, block: NodeIndex, marker: Marker) {
-        let index = self.marker_index(block);
-        self.markers[index] = Some(marker);
+        self.markers.insert(block, marker);
     }
 
     fn remove_marker(&mut self, block: NodeIndex) {
-        let index = self.marker_index(block);
-        self.markers[index] = None;
-    }
-
-    fn marker_index(&mut self, block: NodeIndex) -> usize {
-        let index = block.index();
-        if index >= self.markers.len() {
-            self.markers.resize(index + 1, None);
-        }
-        index
+        self.markers.remove(&block);
     }
 }
 

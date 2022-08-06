@@ -355,7 +355,7 @@ fn unit_statements_count(module: &IRModule) -> usize {
 fn dump_module(module: &IRModule, name: &str, stdout: &mut StandardStream) -> std::io::Result<()> {
     writeln!(stdout, "// {}", name)?;
     for block in module.cfg.node_indices() {
-        writeln!(stdout, "{}_{}:", name, block.index())?;
+        writeln!(stdout, "{}_{}:", name, block)?;
         for statement in module.cfg[block].iter() {
             write!(stdout, "    ")?;
             fmt_statement(stdout, statement, &module.values)?;

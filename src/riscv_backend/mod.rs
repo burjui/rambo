@@ -10,15 +10,14 @@ use crate::riscv_base::registers::REGISTER_COUNT;
 use crate::riscv_exe::Executable;
 use crate::riscv_exe::Relocation;
 use crate::riscv_exe::RelocationKind;
+use crate::stable_graph::Direction;
+use crate::stable_graph::NodeIndex;
 use crate::utils::GenericResult;
 use crate::utils::VecUtils;
 use bimap::BiMap;
 use byteorder::LittleEndian;
 use byteorder::WriteBytesExt;
 use itertools::Itertools;
-use petgraph::stable_graph::NodeIndex;
-use petgraph::visit::EdgeRef;
-use petgraph::Direction;
 use risky::instructions::*;
 use smallvec::SmallVec;
 use std::collections::btree_set::BTreeSet;
@@ -388,12 +387,12 @@ impl<'a> Backend<'a> {
                         .cfg
                         .edges_directed(then_next_block, Direction::Outgoing)
                         .next()
-                        .map(|edge| edge.target()),
+                        .map(|edge| edge.target),
                     self.module
                         .cfg
                         .edges_directed(else_next_block, Direction::Outgoing)
                         .next()
-                        .map(|edge| edge.target()),
+                        .map(|edge| edge.target),
                 );
                 assert_eq!(successors.0, successors.1);
                 Ok(successors.0)

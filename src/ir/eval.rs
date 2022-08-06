@@ -3,12 +3,11 @@ use crate::ir::FunctionMap;
 use crate::ir::IRModule;
 use crate::ir::Statement;
 use crate::ir::Value;
+use crate::stable_graph::Direction;
+use crate::stable_graph::NodeIndex;
 use core::convert::TryFrom;
 use core::convert::TryInto;
 use itertools::Itertools;
-use petgraph::graph::NodeIndex;
-use petgraph::prelude::Direction::Outgoing;
-use petgraph::visit::EdgeRef;
 use std::collections::HashMap;
 use std::mem::replace;
 use std::ops::Deref;
@@ -58,11 +57,14 @@ impl<'a> EvalContext<'a> {
             }
 
             if statement.is_none() {
-                let mut outgoing_edges = self.module.cfg.edges_directed(state.block, Outgoing);
+                let mut outgoing_edges = self
+                    .module
+                    .cfg
+                    .edges_directed(state.block, Direction::Outgoing);
                 let outgoing_edge = outgoing_edges.next();
                 match outgoing_edge {
                     Some(edge) => {
-                        state = Self::new_state(edge.target());
+                        state = Self::new_state(edge.target);
                         continue;
                     }
                     None => break,

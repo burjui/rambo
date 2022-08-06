@@ -5,9 +5,9 @@ use crate::ir::IRModule;
 use crate::ir::Phi;
 use crate::ir::Statement;
 use crate::ir::Value;
+use crate::stable_graph::NodeIndex;
 use core::fmt::Write;
 use itertools::Itertools;
-use petgraph::graph::NodeIndex;
 use std::fmt;
 use std::fs::File;
 use std::io;
@@ -54,11 +54,11 @@ impl IrGraphvizFile {
         let edges = module
             .cfg
             .edge_indices()
-            .map(|edge| module.cfg.edge_endpoints(edge).unwrap())
+            .map(|edge| &module.cfg[edge])
             .collect_vec();
-        for (source, target) in edges {
-            let source_id = BlockId::new(cluster_id, source);
-            let target_id = BlockId::new(cluster_id, target);
+        for edge in edges {
+            let source_id = BlockId::new(cluster_id, edge.source);
+            let target_id = BlockId::new(cluster_id, edge.target);
             self.write_edge(source_id, target_id)?;
         }
         writeln!(self.output, "}}")?;
@@ -100,7 +100,7 @@ impl IrGraphvizFile {
     ) -> io::Result<()> {
         writeln!(self.output, "{} [", block_id)?;
         self.writeln_html_attribute("shape", "box")?;
-        self.writeln_node_xlabel_attribute(&block.index().to_string())?;
+        self.writeln_node_xlabel_attribute(&block.to_string())?;
         self.write_start_html_attribute("label")?;
         self.write_basic_block(cfg[block].iter(), values)?;
         self.write_end_html_attribute()?;
@@ -167,12 +167,7 @@ impl IrGraphvizFile {
                 self.write_with_font_color(KEYWORD_COLOR, "condjump")?;
                 write!(self.output, " ")?;
                 self.write_value_id(*condition)?;
-                write!(
-                    self.output,
-                    ", {}, {}",
-                    then_block.index(),
-                    else_block.index()
-                )
+                write!(self.output, ", {}, {}", then_block, else_block)
             }
 
             Statement::Return(value_id) => {
@@ -394,7 +389,7 @@ impl BlockId {
 
 impl fmt::Display for BlockId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}_{}", self.cluster_id, self.block.index())
+        write!(f, "{}_{}", self.cluster_id, self.block)
     }
 }
 

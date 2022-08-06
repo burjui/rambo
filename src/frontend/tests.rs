@@ -141,7 +141,8 @@ fn conditional_cfp() {
             assert_eq!(
                 module.functions[module.main_fn_id.as_ref().unwrap()]
                     .cfg
-                    .edge_count(),
+                    .edge_indices()
+                    .count(),
                 0
             );
         },
@@ -162,7 +163,8 @@ fn not_stealing_definitions_from_other_branches() {
             assert_eq!(
                 module.functions[module.main_fn_id.as_ref().unwrap()]
                     .cfg
-                    .edge_count(),
+                    .edge_indices()
+                    .count(),
                 4
             )
         },

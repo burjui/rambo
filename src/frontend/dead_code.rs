@@ -9,10 +9,9 @@ use crate::ir::FunctionMap;
 use crate::ir::Statement;
 use crate::ir::StatementLocation;
 use crate::ir::Value;
+use crate::stable_graph::Direction;
+use crate::stable_graph::NodeIndex;
 use itertools::Itertools;
-use petgraph::graph::NodeIndex;
-use petgraph::visit::EdgeRef;
-use petgraph::Direction;
 use std::collections::HashMap;
 use std::iter::once;
 use std::iter::repeat;
@@ -117,11 +116,11 @@ fn remove_empty_blocks(cfg: &mut ControlFlowGraph) {
         if is_empty {
             let sources = cfg
                 .edges_directed(block, Direction::Incoming)
-                .map(|edge| edge.source())
+                .map(|edge| edge.source)
                 .collect_vec();
             let targets = cfg
                 .edges_directed(block, Direction::Outgoing)
-                .map(|edge| edge.target())
+                .map(|edge| edge.target)
                 .collect_vec();
             if sources.len() == 1 && targets.len() == 1 {
                 let source = sources[0];
@@ -144,7 +143,7 @@ fn merge_consecutive_basic_blocks(
 ) {
     let successors = cfg
         .edges_directed(block, Direction::Outgoing)
-        .map(|edge| edge.target())
+        .map(|edge| edge.target)
         .collect_vec();
     for successor in &successors {
         merge_consecutive_basic_blocks(*successor, values, cfg, value_usage, definitions);
@@ -171,7 +170,7 @@ fn merge_consecutive_basic_blocks(
 
             let targets = cfg
                 .edges_directed(successor, Direction::Outgoing)
-                .map(|edge| edge.target())
+                .map(|edge| edge.target)
                 .collect_vec();
             for target in targets {
                 cfg.add_edge(block, target);

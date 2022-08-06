@@ -1,12 +1,14 @@
 use crate::ir::value_storage::ValueId;
 use crate::ir::value_storage::ValueStorage;
 use crate::source::Source;
+use crate::stable_graph::Direction;
+use crate::stable_graph::Edge;
+use crate::stable_graph::EdgeIndex;
+use crate::stable_graph::NodeIndex;
+use crate::stable_graph::StableGraph;
 use crate::stable_vec::StableVec;
 use core::cmp;
 use itertools::Itertools;
-use petgraph::graph::{DefaultIx, NodeIndex};
-use petgraph::stable_graph::{EdgeIndex, EdgeIndices, Edges, NodeIndices, StableDiGraph};
-use petgraph::{Directed, Direction};
 use std::collections::HashMap;
 use std::fmt;
 use std::hash::Hash;
@@ -58,18 +60,18 @@ impl DerefMut for BasicBlock {
 
 #[derive(Clone)]
 pub(crate) struct ControlFlowGraph {
-    graph: StableDiGraph<BasicBlock, ()>,
+    graph: StableGraph<BasicBlock>,
 }
 
 impl ControlFlowGraph {
     pub(crate) fn new() -> Self {
         Self {
-            graph: StableDiGraph::new(),
+            graph: StableGraph::new(),
         }
     }
 
     pub(crate) fn add_edge(&mut self, from: NodeIndex, to: NodeIndex) {
-        self.graph.add_edge(from, to, ());
+        self.graph.add_edge(from, to);
     }
 
     pub(crate) fn remove_node(&mut self, node: NodeIndex) {
@@ -80,28 +82,19 @@ impl ControlFlowGraph {
         &self,
         node: NodeIndex,
         direction: Direction,
-    ) -> Edges<'_, (), Directed, DefaultIx> {
+    ) -> impl Iterator<Item = Edge> + '_ {
         self.graph.edges_directed(node, direction)
     }
 
     pub(crate) fn has_edge(&self, from: NodeIndex, to: NodeIndex) -> bool {
-        self.graph.find_edge(from, to).is_some()
+        self.graph.has_edge(from, to)
     }
 
-    pub(crate) fn edge_indices(&self) -> EdgeIndices<'_, (), DefaultIx> {
+    pub(crate) fn edge_indices(&self) -> impl Iterator<Item = EdgeIndex> + '_ {
         self.graph.edge_indices()
     }
 
-    pub(crate) fn edge_endpoints(&self, edge: EdgeIndex) -> Option<(NodeIndex, NodeIndex)> {
-        self.graph.edge_endpoints(edge)
-    }
-
-    #[cfg(test)]
-    pub(crate) fn edge_count(&self) -> usize {
-        self.graph.edge_count()
-    }
-
-    pub(crate) fn node_indices(&self) -> NodeIndices<'_, BasicBlock, DefaultIx> {
+    pub(crate) fn node_indices(&self) -> impl Iterator<Item = NodeIndex> + '_ {
         self.graph.node_indices()
     }
 
@@ -119,7 +112,21 @@ impl Index<NodeIndex> for ControlFlowGraph {
 }
 
 impl IndexMut<NodeIndex> for ControlFlowGraph {
-    fn index_mut(&mut self, index: NodeIndex<u32>) -> &mut Self::Output {
+    fn index_mut(&mut self, index: NodeIndex) -> &mut Self::Output {
+        &mut self.graph[index]
+    }
+}
+
+impl Index<EdgeIndex> for ControlFlowGraph {
+    type Output = Edge;
+
+    fn index(&self, index: EdgeIndex) -> &Self::Output {
+        &self.graph[index]
+    }
+}
+
+impl IndexMut<EdgeIndex> for ControlFlowGraph {
+    fn index_mut(&mut self, index: EdgeIndex) -> &mut Self::Output {
         &mut self.graph[index]
     }
 }
@@ -225,9 +232,7 @@ impl fmt::Debug for Statement {
             Self::CondJump(condition, then_branch, else_branch) => write!(
                 f,
                 "condjump {}, {}, {}",
-                condition,
-                then_branch.index(),
-                else_branch.index()
+                condition, then_branch, else_branch
             ),
             Self::Return(value_id) => write!(f, "return {}", value_id),
         }
@@ -247,9 +252,7 @@ pub(crate) fn fmt_statement(
         Statement::CondJump(value_id, then_branch, else_branch) => write!(
             sink,
             "condjump {}, {}, {}",
-            value_id,
-            then_branch.index(),
-            else_branch.index()
+            value_id, then_branch, else_branch
         ),
         Statement::Return(value_id) => write!(sink, "return {}", value_id),
     }
