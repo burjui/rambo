@@ -133,12 +133,10 @@ impl<'a> FrontEnd<'a> {
             name: self.name,
             cfg: self.cfg,
             entry_block: self.entry_block,
-            exit_block,
             values: self.values,
             functions: self.functions,
             parameters: self.parameters,
             result: program_result,
-            main_fn_id: self.state.main_fn_id.clone(),
         }
     }
 

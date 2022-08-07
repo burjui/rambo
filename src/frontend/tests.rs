@@ -5,8 +5,8 @@ use crate::frontend::FrontEnd;
 use crate::frontend::FrontEndState;
 use crate::graphviz::IrGraphvizFile;
 use crate::ir::eval::eval;
-use crate::ir::IRModule;
 use crate::ir::Value;
+use crate::ir::{FunctionMap, IRModule};
 use crate::utils::typecheck;
 
 #[test]
@@ -139,7 +139,8 @@ fn conditional_cfp() {
             .enable_dce(true),
         |module| {
             assert_eq!(
-                module.functions[module.main_fn_id.as_ref().unwrap()]
+                find_main(&module.functions)
+                    .unwrap()
                     .cfg
                     .edge_indices()
                     .count(),
@@ -161,7 +162,8 @@ fn not_stealing_definitions_from_other_branches() {
         ForbiddenPermutations::none().enable_cfp(true),
         |module| {
             assert_eq!(
-                module.functions[module.main_fn_id.as_ref().unwrap()]
+                find_main(&module.functions)
+                    .unwrap()
                     .cfg
                     .edge_indices()
                     .count(),
@@ -169,6 +171,10 @@ fn not_stealing_definitions_from_other_branches() {
             )
         },
     );
+}
+
+fn find_main(function_map: &FunctionMap) -> Option<&IRModule> {
+    function_map.values().find(|module| module.name == "main")
 }
 
 struct ForbiddenPermutations {

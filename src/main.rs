@@ -1,5 +1,3 @@
-#![warn(rust_2018_idioms)]
-
 use crate::pipeline::EvaluateIR;
 use crate::pipeline::Load;
 use crate::pipeline::Parse;

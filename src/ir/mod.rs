@@ -138,12 +138,10 @@ pub(crate) struct IRModule {
     pub(crate) name: String,
     pub(crate) cfg: ControlFlowGraph,
     pub(crate) entry_block: NodeIndex,
-    pub(crate) exit_block: NodeIndex,
     pub(crate) values: ValueStorage,
     pub(crate) functions: FunctionMap,
     pub(crate) parameters: Vec<ValueId>,
     pub(crate) result: ValueId,
-    pub(crate) main_fn_id: Option<FnId>, // FIXME not used at the moment, consider removing
 }
 
 #[derive(Clone, Eq)]
