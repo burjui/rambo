@@ -49,7 +49,7 @@ fn generic() {
 }
 
 #[test]
-fn block_removal() {
+fn block_removal1() {
     test_frontend(
         function_name!().to_owned(),
         "

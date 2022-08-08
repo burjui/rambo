@@ -47,45 +47,55 @@ impl<'a> EvalContext<'a> {
 
     fn eval_impl(&mut self, block: NodeIndex) -> Value {
         let mut result = &self.unit;
-        let mut state = Self::new_state(block);
+        let mut state = self.new_state(block);
+
         loop {
             let basic_block = &self.module.cfg[state.block];
-            let mut statement = None;
-            while statement.is_none() && state.statement_index < basic_block.len() {
-                statement = basic_block.get(state.statement_index);
-                state.statement_index += 1;
-            }
+            let statement_index = match state.statement_index {
+                Some(index) => index,
+                None => {
+                    let mut outgoing_edges = self
+                        .module
+                        .cfg
+                        .edges_directed(state.block, Direction::Outgoing);
+                    let outgoing_edge = outgoing_edges.next();
 
-            if statement.is_none() {
-                let mut outgoing_edges = self
-                    .module
-                    .cfg
-                    .edges_directed(state.block, Direction::Outgoing);
-                let outgoing_edge = outgoing_edges.next();
-                match outgoing_edge {
-                    Some(edge) => {
-                        state = Self::new_state(edge.target);
-                        continue;
-                    }
-                    None => break,
-                };
-            }
+                    match outgoing_edge {
+                        Some(edge) => {
+                            state = self.new_state(edge.target);
+                            state.statement_index = self.module.cfg[state.block].indices().next();
+                            continue;
+                        }
+
+                        None => break,
+                    };
+                }
+            };
+
+            let statement = match basic_block.get(statement_index) {
+                Some(statement) => {
+                    state.statement_index = basic_block.next_index(statement_index);
+                    statement
+                }
+
+                None => break,
+            };
 
             match statement {
-                Some(Statement::Comment(_)) => (),
+                Statement::Comment(_) => (),
 
-                Some(Statement::Definition(value_id)) => {
+                Statement::Definition(value_id) => {
                     let value = self.eval_value(&self.module.values[*value_id]);
                     self.define(*value_id, value);
                     result = &self.env[value_id].value;
                 }
 
-                Some(Statement::CondJump(var, then_block, else_block)) => {
+                Statement::CondJump(var, then_block, else_block) => {
                     let value = &self.env[var].value;
                     match value {
                         Value::Int(value) => {
                             let branch = if *value == 0 { else_block } else { then_block };
-                            state = Self::new_state(*branch);
+                            state = self.new_state(*branch);
                             continue;
                         }
 
@@ -93,21 +103,20 @@ impl<'a> EvalContext<'a> {
                     }
                 }
 
-                Some(Statement::Return(id)) => {
+                Statement::Return(id) => {
                     result = &self.env[id].value;
                     break;
                 }
-
-                None => break,
             }
         }
+
         result.clone()
     }
 
-    const fn new_state(block: NodeIndex) -> LocalEvalState {
+    fn new_state(&self, block: NodeIndex) -> LocalEvalState {
         LocalEvalState {
             block,
-            statement_index: 0,
+            statement_index: self.module.cfg[block].indices().next(),
         }
     }
 
@@ -239,7 +248,7 @@ impl IndexMut<ValueId> for EvalEnv {
 
 struct LocalEvalState {
     block: NodeIndex,
-    statement_index: usize,
+    statement_index: Option<usize>,
 }
 
 #[derive(Debug, Clone)]

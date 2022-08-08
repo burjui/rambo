@@ -100,7 +100,7 @@ fn disuse(
 
     if *usage_count == 0 {
         let location = &definitions[&value_id];
-        let statement = &cfg[location.block][location.index];
+        let statement = &cfg[location.block][*location];
         for operand in get_statement_value_operands(values, statement) {
             disuse(operand, cfg, values, value_usage, definitions);
         }
@@ -224,6 +224,6 @@ fn remove_unused_values(
 
 fn remove_statements(locations: Vec<StatementLocation>, cfg: &mut ControlFlowGraph) {
     for location in locations {
-        cfg[location.block].remove(location.index);
+        cfg[location.block].remove(location);
     }
 }

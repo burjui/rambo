@@ -29,12 +29,52 @@ pub(crate) mod value_storage;
 pub(crate) struct BasicBlock(StableVec<Statement>);
 
 impl BasicBlock {
-    pub(crate) const fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self(StableVec::new())
     }
 
     pub(crate) fn into_iter(self) -> impl IntoIterator<Item = Statement> {
         self.0.into_iter()
+    }
+
+    pub(crate) fn iter(&self) -> impl Iterator<Item = &Statement> {
+        self.0.iter()
+    }
+
+    pub(crate) fn find_last(&self) -> Option<&Statement> {
+        self.0.find_last()
+    }
+
+    pub(crate) fn pop(&mut self) {
+        self.0.pop()
+    }
+
+    pub(crate) fn push(&mut self, statement: Statement) -> usize {
+        self.0.push(statement)
+    }
+
+    pub(crate) fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    pub(crate) fn iter_mut(&mut self) -> impl Iterator<Item = &mut Statement> {
+        self.0.iter_mut()
+    }
+
+    pub(crate) fn remove(&mut self, location: StatementLocation) {
+        self.0.remove(location.index)
+    }
+
+    pub(crate) fn get(&self, index: usize) -> Option<&Statement> {
+        self.0.get(index)
+    }
+
+    pub(crate) fn next_index(&self, index: usize) -> Option<usize> {
+        self.0.next_index(index)
+    }
+
+    pub(crate) fn indices(&self) -> impl Iterator<Item = usize> + '_ {
+        self.0.indices()
     }
 }
 
@@ -44,17 +84,11 @@ impl fmt::Debug for BasicBlock {
     }
 }
 
-impl Deref for BasicBlock {
-    type Target = StableVec<Statement>;
+impl Index<StatementLocation> for BasicBlock {
+    type Output = Statement;
 
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl DerefMut for BasicBlock {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
+    fn index(&self, location: StatementLocation) -> &Self::Output {
+        &self.0[location.index]
     }
 }
 
