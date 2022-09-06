@@ -737,7 +737,7 @@ impl<'a> Backend<'a> {
     }
 
     fn jump_offset(offset: i32) -> JumpOffset {
-        if -(1 << 20) <= offset && offset < 1 << 20 {
+        if (-(1 << 20)..1 << 20).contains(&offset) {
             JumpOffset::Short
         } else {
             JumpOffset::Long(ui_immediate(offset).unwrap())
@@ -928,7 +928,7 @@ pub(crate) struct ImmediateI {
 }
 
 pub(crate) fn ui_immediate(value: i32) -> Result<ImmediateI, TryFromIntError> {
-    if -(1 << 11) <= value && value < 1 << 11 {
+    if (-(1 << 11)..1 << 11).contains(&value) {
         Ok(ImmediateI {
             upper: 0,
             lower: i16::try_from(value)?,

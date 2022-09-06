@@ -462,7 +462,7 @@ impl Parser {
             (Token::Id, "str") => Ok(Type::String),
             (Token::Lambda, _) => self.parse_function_type(),
             _ => {
-                return error!(
+                error!(
                     &format!("expected a type, found: {}", source.text()),
                     &source
                 )

@@ -304,7 +304,7 @@ struct ImmediateI {
 }
 
 fn ui_immediate(value: i32) -> Result<ImmediateI, TryFromIntError> {
-    if -(1 << 11) <= value && value < 1 << 11 {
+    if (-(1 << 11)..1 << 11).contains(&value) {
         Ok(ImmediateI {
             upper: 0,
             lower: i16::try_from(value)?,
