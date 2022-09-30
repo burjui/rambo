@@ -327,7 +327,7 @@ impl Lexer {
 
     fn read_char(&mut self) {
         self.current_offset = self.next_character_offset;
-        let mut source_iterator = (&self.file.text()[self.current_offset..])
+        let mut source_iterator = self.file.text()[self.current_offset..]
             .char_indices()
             .chain(once((self.eof_offset - self.current_offset, '\0')))
             .tuple_windows::<(_, _)>();
