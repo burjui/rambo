@@ -1,3 +1,5 @@
+// Modified version from 'riscv-rust' project by Takahiro: https://github.com/takahirox/riscv-rust
+
 use std::cmp::Ordering;
 
 use fnv::FnvHashMap;

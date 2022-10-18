@@ -1,3 +1,5 @@
+// Modified version from 'riscv-rust' project by Takahiro: https://github.com/takahirox/riscv-rust
+
 const DTB_SIZE: usize = 0xfe0;
 
 use bitflags::bitflags;

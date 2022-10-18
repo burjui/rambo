@@ -1,3 +1,5 @@
+// Modified version from 'riscv-rust' project by Takahiro: https://github.com/takahirox/riscv-rust
+
 /// Emulates main memory.
 pub struct Memory {
     /// Memory content
