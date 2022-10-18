@@ -11,4 +11,4 @@ cd "${SCRIPT_DIR}"
 WORK_DIR="$(pwd)"
 
 echo "Installing Git hooks"
-ln -s "$WORK_DIR/git-hooks/pre-commit" "$WORK_DIR/.git/hooks/pre-commit"
+cp "$WORK_DIR/git-hooks/pre-commit" "$WORK_DIR/.git/hooks/pre-commit"
