@@ -30,6 +30,10 @@ mod riscv_backend;
 #[macro_use]
 mod riscv_simulator;
 
+#[cfg(test)]
+#[allow(unused)]
+mod new_riscv_sim;
+
 mod env;
 mod frontend;
 mod graphviz;
