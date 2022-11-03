@@ -9,7 +9,7 @@ use crate::stable_graph::StableGraph;
 use crate::stable_vec::StableVec;
 use core::cmp;
 use itertools::Itertools;
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 use std::fmt;
 use std::hash::Hash;
 use std::hash::Hasher;
@@ -165,7 +165,7 @@ impl IndexMut<EdgeIndex> for ControlFlowGraph {
     }
 }
 
-pub(crate) type FunctionMap = HashMap<FnId, IRModule>;
+pub(crate) type FunctionMap = FxHashMap<FnId, IRModule>;
 
 #[derive(Clone)]
 pub(crate) struct IRModule {

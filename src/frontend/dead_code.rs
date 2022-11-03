@@ -12,7 +12,7 @@ use crate::ir::Value;
 use crate::stable_graph::Direction;
 use crate::stable_graph::NodeIndex;
 use itertools::Itertools;
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 use std::iter::once;
 use std::iter::repeat;
 use std::iter::FromIterator;
@@ -23,7 +23,7 @@ pub(crate) fn remove_dead_code(
     program_result: &mut ValueId,
     values: &mut ValueStorage,
     cfg: &mut ControlFlowGraph,
-    definitions: &mut HashMap<ValueId, StatementLocation>,
+    definitions: &mut FxHashMap<ValueId, StatementLocation>,
     functions: &mut FunctionMap,
 ) {
     let mut value_usage = compute_value_usage(*program_result, values, cfg, definitions);
@@ -38,9 +38,9 @@ fn compute_value_usage(
     program_result: ValueId,
     values: &mut ValueStorage,
     cfg: &mut ControlFlowGraph,
-    definitions: &mut HashMap<ValueId, StatementLocation>,
-) -> HashMap<ValueId, usize> {
-    let mut value_usage = HashMap::from_iter(definitions.keys().cloned().zip(repeat(0)));
+    definitions: &mut FxHashMap<ValueId, StatementLocation>,
+) -> FxHashMap<ValueId, usize> {
+    let mut value_usage = FxHashMap::from_iter(definitions.keys().cloned().zip(repeat(0)));
     let used_values = cfg
         .node_indices()
         .flat_map(|node| cfg[node].iter())
@@ -53,10 +53,10 @@ fn compute_value_usage(
 }
 
 fn remove_unused_definitions(
-    value_usage: &mut HashMap<ValueId, usize>,
+    value_usage: &mut FxHashMap<ValueId, usize>,
     values: &mut ValueStorage,
     cfg: &mut ControlFlowGraph,
-    definitions: &mut HashMap<ValueId, StatementLocation>,
+    definitions: &mut FxHashMap<ValueId, StatementLocation>,
 ) {
     let unused_values = value_usage
         .iter()
@@ -90,8 +90,8 @@ fn disuse(
     value_id: ValueId,
     cfg: &ControlFlowGraph,
     values: &ValueStorage,
-    value_usage: &mut HashMap<ValueId, usize>,
-    definitions: &mut HashMap<ValueId, StatementLocation>,
+    value_usage: &mut FxHashMap<ValueId, usize>,
+    definitions: &mut FxHashMap<ValueId, StatementLocation>,
 ) {
     let usage_count = value_usage.get_mut(&value_id).unwrap();
     if *usage_count > 0 {
@@ -138,8 +138,8 @@ fn merge_consecutive_basic_blocks(
     block: NodeIndex,
     values: &ValueStorage,
     cfg: &mut ControlFlowGraph,
-    value_usage: &mut HashMap<ValueId, usize>,
-    definitions: &mut HashMap<ValueId, StatementLocation>,
+    value_usage: &mut FxHashMap<ValueId, usize>,
+    definitions: &mut FxHashMap<ValueId, StatementLocation>,
 ) {
     let successors = cfg
         .edges_directed(block, Direction::Outgoing)
@@ -181,7 +181,7 @@ fn merge_consecutive_basic_blocks(
 }
 
 fn remove_unused_values(
-    definitions: &mut HashMap<ValueId, StatementLocation>,
+    definitions: &mut FxHashMap<ValueId, StatementLocation>,
     values: &mut ValueStorage,
     functions: &mut FunctionMap,
     cfg: &mut ControlFlowGraph,
@@ -195,8 +195,8 @@ fn remove_unused_values(
         }
     }
 
-    let mut remap = HashMap::new();
-    let mut new_definitions = HashMap::new();
+    let mut remap = FxHashMap::default();
+    let mut new_definitions = FxHashMap::default();
     values.retain(
         |value_id| definitions.contains_key(&value_id),
         |from, to| {

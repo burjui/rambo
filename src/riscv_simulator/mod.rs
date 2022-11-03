@@ -68,7 +68,7 @@ pub(crate) fn run(
     let code_end = config.code_start_address + executable.code.len();
     loop {
         if let DumpState::Everything(output) = &mut dump_state {
-            dump_simulator_state(*output, &mut simulator)?;
+            dump_simulator_state(output, &mut simulator)?;
         }
 
         if let DumpState::Instructions(output) | DumpState::Everything(output) = &mut dump_state {

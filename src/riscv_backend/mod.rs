@@ -19,9 +19,9 @@ use byteorder::LittleEndian;
 use byteorder::WriteBytesExt;
 use itertools::Itertools;
 use risky::instructions::*;
+use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
 use std::collections::btree_set::BTreeSet;
-use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::error::Error;
 use std::fmt;
@@ -75,7 +75,7 @@ pub(crate) fn generate(
 
 struct SharedState {
     image: Executable,
-    function_offsets: HashMap<FnId, usize>,
+    function_offsets: FxHashMap<FnId, usize>,
     function_relocations: Vec<(usize, FnId)>,
 }
 
@@ -83,7 +83,7 @@ impl SharedState {
     fn new() -> Self {
         Self {
             image: Executable::new(),
-            function_offsets: HashMap::new(),
+            function_offsets: FxHashMap::default(),
             function_relocations: Vec::new(),
         }
     }
@@ -96,10 +96,10 @@ struct Backend<'a> {
     enable_immediate_integers: bool,
     enable_comments: bool,
     registers: RegisterAllocator,
-    data_offsets: HashMap<ValueId, usize>,
+    data_offsets: FxHashMap<ValueId, usize>,
     no_spill: SmallVec<[u8; REGISTER_COUNT]>,
     function_id: Option<FnId>,
-    phis: HashMap<ValueId, BTreeSet<(NodeIndex, ValueId)>>,
+    phis: FxHashMap<ValueId, BTreeSet<(NodeIndex, ValueId)>>,
 }
 
 impl<'a> Backend<'a> {
@@ -117,10 +117,10 @@ impl<'a> Backend<'a> {
             enable_immediate_integers,
             enable_comments,
             registers: RegisterAllocator::new(),
-            data_offsets: HashMap::new(),
+            data_offsets: FxHashMap::default(),
             no_spill: SmallVec::new(),
             function_id: None,
-            phis: HashMap::new(),
+            phis: FxHashMap::default(),
         }
     }
 
@@ -660,7 +660,7 @@ impl<'a> Backend<'a> {
         }
 
         let (register, source, previous_user) =
-            self.registers.allocate(value_id, target, &*self.no_spill)?;
+            self.registers.allocate(value_id, target, &self.no_spill)?;
         if let Some(previous_user) = previous_user {
             if previous_user != value_id {
                 // Spill

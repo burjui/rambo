@@ -8,7 +8,7 @@ use crate::stable_graph::NodeIndex;
 use core::convert::TryFrom;
 use core::convert::TryInto;
 use itertools::Itertools;
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 use std::mem::replace;
 use std::ops::Deref;
 use std::ops::DerefMut;
@@ -192,11 +192,11 @@ impl<'a> EvalContext<'a> {
     }
 }
 
-struct EvalEnv(HashMap<ValueId, RuntimeValue>);
+struct EvalEnv(FxHashMap<ValueId, RuntimeValue>);
 
 impl EvalEnv {
     fn new() -> Self {
-        Self(HashMap::new())
+        Self(FxHashMap::default())
     }
 
     fn get(&self, value_id: ValueId) -> Option<&RuntimeValue> {
@@ -205,7 +205,7 @@ impl EvalEnv {
 }
 
 impl Deref for EvalEnv {
-    type Target = HashMap<ValueId, RuntimeValue>;
+    type Target = FxHashMap<ValueId, RuntimeValue>;
 
     fn deref(&self) -> &Self::Target {
         &self.0

@@ -8,7 +8,7 @@ use crate::source::Source;
 use crate::unique_rc::UniqueRc;
 use core::ops::RangeFrom;
 use itertools::Itertools;
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 use std::error::Error;
 use std::fmt::Debug;
 use std::fmt::Formatter;
@@ -22,7 +22,7 @@ pub(crate) struct SemanticsChecker {
     enable_warnings: bool,
     env: Environment<Rc<String>, BindingRef>,
     function_ids: RangeFrom<usize>,
-    binding_is_used: HashMap<BindingRef, bool>,
+    binding_is_used: FxHashMap<BindingRef, bool>,
 }
 
 impl SemanticsChecker {
@@ -31,7 +31,7 @@ impl SemanticsChecker {
             enable_warnings,
             env: Environment::new(),
             function_ids: 0..,
-            binding_is_used: HashMap::new(),
+            binding_is_used: FxHashMap::default(),
         }
     }
 

@@ -30,8 +30,8 @@ use crate::source::Source;
 use crate::stable_graph::Direction;
 use crate::stable_graph::NodeIndex;
 use itertools::Itertools;
-use std::collections::HashMap;
-use std::collections::HashSet;
+use rustc_hash::FxHashMap;
+use rustc_hash::FxHashSet;
 use std::rc::Rc;
 
 mod dead_code;
@@ -60,16 +60,16 @@ pub(crate) struct FrontEnd<'a> {
     cfg: ControlFlowGraph,
     state: &'a mut FrontEndState,
     functions: FunctionMap,
-    variables: HashMap<BindingRef, HashMap<NodeIndex, ValueId>>,
+    variables: FxHashMap<BindingRef, FxHashMap<NodeIndex, ValueId>>,
     values: ValueStorage,
     parameters: Vec<ValueId>,
-    definitions: HashMap<ValueId, StatementLocation>,
-    sealed_blocks: HashSet<NodeIndex>,
-    incomplete_phis: HashMap<NodeIndex, HashMap<BindingRef, ValueId>>,
-    phi_users: HashMap<ValueId, HashSet<ValueId>>,
+    definitions: FxHashMap<ValueId, StatementLocation>,
+    sealed_blocks: FxHashSet<NodeIndex>,
+    incomplete_phis: FxHashMap<NodeIndex, FxHashMap<BindingRef, ValueId>>,
+    phi_users: FxHashMap<ValueId, FxHashSet<ValueId>>,
     entry_block: NodeIndex,
     undefined_users: Vec<ValueId>,
-    markers: HashMap<NodeIndex, Marker>,
+    markers: FxHashMap<NodeIndex, Marker>,
 }
 
 impl<'a> FrontEnd<'a> {
@@ -81,17 +81,17 @@ impl<'a> FrontEnd<'a> {
             enable_dce: false,
             cfg: ControlFlowGraph::new(),
             state,
-            functions: HashMap::new(),
-            variables: HashMap::new(),
+            functions: FxHashMap::default(),
+            variables: FxHashMap::default(),
             values: ValueStorage::new(),
             parameters: Vec::new(),
-            definitions: HashMap::new(),
-            sealed_blocks: HashSet::new(),
-            incomplete_phis: HashMap::new(),
-            phi_users: HashMap::new(),
+            definitions: FxHashMap::default(),
+            sealed_blocks: FxHashSet::default(),
+            incomplete_phis: FxHashMap::default(),
+            phi_users: FxHashMap::default(),
             entry_block: NodeIndex::default(),
             undefined_users: Vec::new(),
-            markers: HashMap::new(),
+            markers: FxHashMap::default(),
         };
         instance.entry_block = instance.cfg.add_new_block();
         instance.seal_block(instance.entry_block);
@@ -466,7 +466,7 @@ impl<'a> FrontEnd<'a> {
         };
 
         self.phi_users.get_mut(&phi).unwrap().remove(&phi);
-        let mut possible_trivial_phis = HashSet::new();
+        let mut possible_trivial_phis = FxHashSet::default();
         for user in &self.phi_users[&phi] {
             let value = &mut self.values[*user];
             replace_value_id(value, phi, same);
@@ -506,7 +506,7 @@ impl<'a> FrontEnd<'a> {
         self.definitions.insert(value_id, location);
         self.record_phi_and_undefined_usages(value_id);
         if let Value::Phi(_) = &self.values[value_id] {
-            self.phi_users.insert(value_id, HashSet::new());
+            self.phi_users.insert(value_id, FxHashSet::default());
         }
         value_id
     }
