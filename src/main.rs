@@ -4,7 +4,7 @@ use crate::pipeline::Parse;
 use crate::pipeline::Pipeline;
 use crate::pipeline::PipelineOptions;
 use crate::pipeline::RISCVBackend;
-use crate::pipeline::RISCVSimulator;
+use crate::pipeline::RISCVEmulator;
 use crate::pipeline::StandardStreamUtils;
 use crate::pipeline::VerifySemantics;
 use crate::pipeline::COMPILER_PASS_NAMES;
@@ -27,12 +27,6 @@ mod utils;
 mod ir;
 #[macro_use]
 mod riscv_backend;
-#[macro_use]
-mod riscv_simulator;
-
-#[cfg(test)]
-#[allow(unused)]
-mod new_riscv_sim;
 
 mod env;
 mod frontend;
@@ -42,6 +36,7 @@ mod parser;
 mod pipeline;
 mod riscv_base;
 mod riscv_exe;
+mod riscv_simulator;
 mod semantics;
 mod slab;
 mod source;
@@ -219,7 +214,7 @@ fn process(path: String, options: &PipelineOptions) -> Result<(), Box<dyn Error>
         if options.eval_ir {
             pipeline = pipeline.map(EvaluateIR)?;
         }
-        pipeline.map(RISCVBackend)?.map(RISCVSimulator).map(|_| ())
+        pipeline.map(RISCVBackend)?.map(RISCVEmulator).map(|_| ())
     });
     println!("Execution time: {}", elapsed);
     println!(

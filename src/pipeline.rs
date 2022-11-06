@@ -124,7 +124,7 @@ compiler_passes! {
     IR,
     EvaluateIR,
     RISCVBackend,
-    RISCVSimulator
+    RISCVEmulator
 }
 
 pub(crate) trait CompilerPass<Input, Output> {
@@ -288,7 +288,7 @@ impl CompilerPass<IRModule, Executable> for RISCVBackend {
             bincode::encode_into_std_write(
                 &image,
                 &mut BufWriter::new(file),
-                bincode::config::Configuration::standard(),
+                bincode::config::standard(),
             )?;
         }
 
@@ -314,7 +314,7 @@ fn size_string(size: usize) -> String {
     }
 }
 
-impl CompilerPass<Executable, ()> for RISCVSimulator {
+impl CompilerPass<Executable, ()> for RISCVEmulator {
     const NAME: &'static str = "rvsim";
     const TITLE: &'static str = "Executing RISC-V code";
 
@@ -325,14 +325,15 @@ impl CompilerPass<Executable, ()> for RISCVSimulator {
             3 => DumpState::Everything(stdout),
             _ => DumpState::None,
         };
-        let state = riscv_simulator::run(&image, dump_state)?;
+        let cpu = riscv_simulator::run(&image, dump_state)?;
         if options.verbosity >= 1 {
+            let result = cpu.read_register(registers::A0);
             writeln!(
                 stdout,
                 "result at x{} = 0x{:08x} ({})",
                 registers::A0,
-                state.cpu.x[registers::A0 as usize],
-                state.cpu.x[registers::A0 as usize]
+                result,
+                result,
             )?;
         }
         Ok(())

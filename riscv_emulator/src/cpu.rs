@@ -1,8 +1,6 @@
 // Modified version from 'riscv-rust' project by Takahiro: https://github.com/takahirox/riscv-rust
 
-use std::cmp::Ordering;
-
-use fnv::FnvHashMap;
+use std::{cmp::Ordering, collections::HashMap};
 
 use super::mmu::{AddressingMode, Mmu};
 
@@ -92,13 +90,13 @@ pub enum PrivilegeMode {
     Machine,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Trap {
     pub trap_type: TrapType,
     pub value: u64, // Trap type specific value
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 #[allow(dead_code)]
 pub enum TrapType {
     InstructionAddressMisaligned,
@@ -277,22 +275,26 @@ impl Cpu {
     }
 
     /// Runs program one cycle. Fetch, decode, and execution are completed in a cycle.
-    pub fn tick(&mut self) {
+    pub fn tick(&mut self) -> Option<(&'static Instruction, u32)> {
         let instruction_address = self.pc;
-        match self.tick_operate() {
-            Ok(()) => {}
-            Err(e) => self.handle_exception(e, instruction_address),
-        }
+        let result = match self.tick_operate() {
+            Ok(inst) => inst,
+            Err(e) => {
+                self.handle_exception(e, instruction_address);
+                None
+            }
+        };
         self.mmu.tick(&mut self.csr[CSR_MIP_ADDRESS as usize]);
         self.handle_interrupt(self.pc);
         self.clock = self.clock.wrapping_add(1);
         self.write_csr_raw(CSR_CYCLE_ADDRESS, self.clock);
+        result
     }
 
     // @TODO: Rename?
-    fn tick_operate(&mut self) -> Result<(), Trap> {
+    fn tick_operate(&mut self) -> Result<Option<(&'static Instruction, u32)>, Trap> {
         if self.wfi {
-            return Ok(());
+            return Ok(None);
         }
 
         let original_word = match self.fetch() {
@@ -315,7 +317,7 @@ impl Cpu {
             Ok(inst) => {
                 let result = (inst.operation)(self, word, instruction_address);
                 self.x[0] = 0; // hardwired zero
-                result
+                result.map(|_| Some((inst, word)))
             }
             Err(()) => {
                 panic!(
@@ -330,10 +332,10 @@ impl Cpu {
     /// [`Instruction`](struct.Instruction.html). Using [`DecodeCache`](struct.DecodeCache.html)
     /// so if cache hits this method returns the result very quickly.
     /// The result will be stored to cache.
-    fn decode(&mut self, word: u32) -> Result<&Instruction, ()> {
+    fn decode(&mut self, word: u32) -> Result<&'static Instruction, ()> {
         match self.decode_cache.get(word) {
             Some(index) => Ok(&INSTRUCTIONS[index]),
-            None => match self.decode_and_get_instruction_index(word) {
+            None => match Self::decode_and_get_instruction_index(word) {
                 Ok(index) => {
                     self.decode_cache.insert(word, index);
                     Ok(&INSTRUCTIONS[index])
@@ -347,10 +349,10 @@ impl Cpu {
     /// [`Instruction`](struct.Instruction.html). Not Using [`DecodeCache`](struct.DecodeCache.html)
     /// so if you don't want to pollute the cache you should use this method
     /// instead of `decode`.
-    fn decode_raw(&self, word: u32) -> Result<&Instruction, ()> {
-        match self.decode_and_get_instruction_index(word) {
-            Ok(index) => Ok(&INSTRUCTIONS[index]),
-            Err(()) => Err(()),
+    pub fn decode_raw(word: u32) -> Option<&'static Instruction> {
+        match Self::decode_and_get_instruction_index(word) {
+            Ok(index) => Some(&INSTRUCTIONS[index]),
+            Err(()) => None,
         }
     }
 
@@ -359,7 +361,7 @@ impl Cpu {
     ///
     /// # Arguments
     /// * `word` word instruction data decoded
-    fn decode_and_get_instruction_index(&self, word: u32) -> Result<usize, ()> {
+    fn decode_and_get_instruction_index(word: u32) -> Result<usize, ()> {
         for (i, inst) in INSTRUCTIONS.iter().enumerate() {
             if (word & inst.mask) == inst.data {
                 return Ok(i);
@@ -1392,9 +1394,9 @@ impl Cpu {
         };
 
         let inst = {
-            match self.decode_raw(word) {
-                Ok(inst) => inst,
-                Err(()) => {
+            match Self::decode_raw(word) {
+                Some(inst) => inst,
+                None => {
                     return format!(
                         "Unknown instruction PC:{:x} WORD:{:x}",
                         self.pc, original_word
@@ -1406,22 +1408,28 @@ impl Cpu {
         let mut s = format!("PC:{:016x} ", self.unsigned_data(self.pc as i64));
         s += &format!("{:08x} ", original_word);
         s += &format!("{} ", inst.name);
-        s += &(inst.disassemble)(self, word, self.pc, true);
+        s += &(inst.disassemble)(word, self.pc, Some(self));
         s
     }
 
     /// Returns mutable `Mmu`
-    pub fn get_mut_mmu(&mut self) -> &mut Mmu {
+    pub fn mmu_mut(&mut self) -> &mut Mmu {
         &mut self.mmu
     }
 }
 
-struct Instruction {
+impl Default for Cpu {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+pub struct Instruction {
     mask: u32,
     data: u32, // @TODO: rename
-    name: &'static str,
+    pub name: &'static str,
     operation: fn(cpu: &mut Cpu, word: u32, address: u64) -> Result<(), Trap>,
-    disassemble: fn(cpu: &mut Cpu, word: u32, address: u64, evaluate: bool) -> String,
+    pub disassemble: fn(word: u32, address: u64, cpu: Option<&Cpu>) -> String,
 }
 
 struct FormatB {
@@ -1447,15 +1455,15 @@ fn parse_format_b(word: u32) -> FormatB {
     }
 }
 
-fn dump_format_b(cpu: &mut Cpu, word: u32, address: u64, evaluate: bool) -> String {
+fn dump_format_b(word: u32, address: u64, cpu: Option<&Cpu>) -> String {
     let f = parse_format_b(word);
     let mut s = String::new();
     s += get_register_name(f.rs1);
-    if evaluate {
+    if let Some(cpu) = cpu {
         s += &format!(":{:x}", cpu.x[f.rs1]);
     }
     s += &format!(",{}", get_register_name(f.rs2));
-    if evaluate {
+    if let Some(cpu) = cpu {
         s += &format!(":{:x}", cpu.x[f.rs2]);
     }
     s += &format!(",{:x}", address.wrapping_add(f.imm));
@@ -1476,20 +1484,20 @@ fn parse_format_csr(word: u32) -> FormatCSR {
     }
 }
 
-fn dump_format_csr(cpu: &mut Cpu, word: u32, _address: u64, evaluate: bool) -> String {
+fn dump_format_csr(word: u32, _address: u64, cpu: Option<&Cpu>) -> String {
     let f = parse_format_csr(word);
     let mut s = String::new();
     s += get_register_name(f.rd);
-    if evaluate {
+    if let Some(cpu) = cpu {
         s += &format!(":{:x}", cpu.x[f.rd]);
     }
     // @TODO: Use CSR name
     s += &format!(",{:x}", f.csr);
-    if evaluate {
+    if let Some(cpu) = cpu {
         s += &format!(":{:x}", cpu.read_csr_raw(f.csr));
     }
     s += &format!(",{}", get_register_name(f.rs));
-    if evaluate {
+    if let Some(cpu) = cpu {
         s += &format!(":{:x}", cpu.x[f.rs]);
     }
     s
@@ -1516,30 +1524,30 @@ fn parse_format_i(word: u32) -> FormatI {
     }
 }
 
-fn dump_format_i(cpu: &mut Cpu, word: u32, _address: u64, evaluate: bool) -> String {
+fn dump_format_i(word: u32, _address: u64, cpu: Option<&Cpu>) -> String {
     let f = parse_format_i(word);
     let mut s = String::new();
     s += get_register_name(f.rd);
-    if evaluate {
+    if let Some(cpu) = cpu {
         s += &format!(":{:x}", cpu.x[f.rd]);
     }
     s += &format!(",{}", get_register_name(f.rs1));
-    if evaluate {
+    if let Some(cpu) = cpu {
         s += &format!(":{:x}", cpu.x[f.rs1]);
     }
     s += &format!(",{:x}", f.imm);
     s
 }
 
-fn dump_format_i_mem(cpu: &mut Cpu, word: u32, _address: u64, evaluate: bool) -> String {
+fn dump_format_i_mem(word: u32, _address: u64, cpu: Option<&Cpu>) -> String {
     let f = parse_format_i(word);
     let mut s = String::new();
     s += get_register_name(f.rd);
-    if evaluate {
+    if let Some(cpu) = cpu {
         s += &format!(":{:x}", cpu.x[f.rd]);
     }
     s += &format!(",{:x}({}", f.imm, get_register_name(f.rs1));
-    if evaluate {
+    if let Some(cpu) = cpu {
         s += &format!(":{:x}", cpu.x[f.rs1]);
     }
     s += ")";
@@ -1567,11 +1575,11 @@ fn parse_format_j(word: u32) -> FormatJ {
     }
 }
 
-fn dump_format_j(cpu: &mut Cpu, word: u32, address: u64, evaluate: bool) -> String {
+fn dump_format_j(word: u32, address: u64, cpu: Option<&Cpu>) -> String {
     let f = parse_format_j(word);
     let mut s = String::new();
     s += get_register_name(f.rd);
-    if evaluate {
+    if let Some(cpu) = cpu {
         s += &format!(":{:x}", cpu.x[f.rd]);
     }
     s += &format!(",{:x}", address.wrapping_add(f.imm));
@@ -1592,19 +1600,19 @@ fn parse_format_r(word: u32) -> FormatR {
     }
 }
 
-fn dump_format_r(cpu: &mut Cpu, word: u32, _address: u64, evaluate: bool) -> String {
+fn dump_format_r(word: u32, _address: u64, cpu: Option<&Cpu>) -> String {
     let f = parse_format_r(word);
     let mut s = String::new();
     s += get_register_name(f.rd);
-    if evaluate {
+    if let Some(cpu) = cpu {
         s += &format!(":{:x}", cpu.x[f.rd]);
     }
     s += &format!(",{}", get_register_name(f.rs1));
-    if evaluate {
+    if let Some(cpu) = cpu {
         s += &format!(":{:x}", cpu.x[f.rs1]);
     }
     s += &format!(",{}", get_register_name(f.rs2));
-    if evaluate {
+    if let Some(cpu) = cpu {
         s += &format!(":{:x}", cpu.x[f.rs2]);
     }
     s
@@ -1627,23 +1635,23 @@ fn parse_format_r2(word: u32) -> FormatR2 {
     }
 }
 
-fn dump_format_r2(cpu: &mut Cpu, word: u32, _address: u64, evaluate: bool) -> String {
+fn dump_format_r2(word: u32, _address: u64, cpu: Option<&Cpu>) -> String {
     let f = parse_format_r2(word);
     let mut s = String::new();
     s += get_register_name(f.rd);
-    if evaluate {
+    if let Some(cpu) = cpu {
         s += &format!(":{:x}", cpu.x[f.rd]);
     }
     s += &format!(",{}", get_register_name(f.rs1));
-    if evaluate {
+    if let Some(cpu) = cpu {
         s += &format!(":{:x}", cpu.x[f.rs1]);
     }
     s += &format!(",{}", get_register_name(f.rs2));
-    if evaluate {
+    if let Some(cpu) = cpu {
         s += &format!(":{:x}", cpu.x[f.rs2]);
     }
     s += &format!(",{}", get_register_name(f.rs3));
-    if evaluate {
+    if let Some(cpu) = cpu {
         s += &format!(":{:x}", cpu.x[f.rs3]);
     }
     s
@@ -1671,15 +1679,15 @@ fn parse_format_s(word: u32) -> FormatS {
     }
 }
 
-fn dump_format_s(cpu: &mut Cpu, word: u32, _address: u64, evaluate: bool) -> String {
+fn dump_format_s(word: u32, _address: u64, cpu: Option<&Cpu>) -> String {
     let f = parse_format_s(word);
     let mut s = String::new();
     s += get_register_name(f.rs2);
-    if evaluate {
+    if let Some(cpu) = cpu {
         s += &format!(":{:x}", cpu.x[f.rs2]);
     }
     s += &format!(",{:x}({}", f.imm, get_register_name(f.rs1));
-    if evaluate {
+    if let Some(cpu) = cpu {
         s += &format!(":{:x}", cpu.x[f.rs1]);
     }
     s += ")";
@@ -1705,18 +1713,18 @@ fn parse_format_u(word: u32) -> FormatU {
     }
 }
 
-fn dump_format_u(cpu: &mut Cpu, word: u32, _address: u64, evaluate: bool) -> String {
+fn dump_format_u(word: u32, _address: u64, cpu: Option<&Cpu>) -> String {
     let f = parse_format_u(word);
     let mut s = String::new();
     s += get_register_name(f.rd);
-    if evaluate {
+    if let Some(cpu) = cpu {
         s += &format!(":{:x}", cpu.x[f.rd]);
     }
     s += &format!(",{:x}", f.imm);
     s
 }
 
-fn dump_empty(_cpu: &mut Cpu, _word: u32, _address: u64, _evaluate: bool) -> String {
+fn dump_empty(_word: u32, _address: u64, _cpu: Option<&Cpu>) -> String {
     String::new()
 }
 
@@ -2716,15 +2724,15 @@ const INSTRUCTIONS: [Instruction; INSTRUCTION_NUM] = [
             cpu.x[f.rd] = tmp;
             Ok(())
         },
-        disassemble: |cpu, word, _address, evaluate| {
+        disassemble: |word, _address, cpu| {
             let f = parse_format_i(word);
             let mut s = String::new();
             s += get_register_name(f.rd);
-            if evaluate {
+            if let Some(cpu) = cpu {
                 s += &format!(":{:x}", cpu.x[f.rd]);
             }
             s += &format!(",{:x}({}", f.imm, get_register_name(f.rs1));
-            if evaluate {
+            if let Some(cpu) = cpu {
                 s += &format!(":{:x}", cpu.x[f.rs1]);
             }
             s += ")";
@@ -3513,7 +3521,7 @@ struct DecodeCache {
     /// Holds mappings from word instruction data to an index of `entries`
     /// pointing to the entry having the decoding result. Containing the word
     /// means cache hit.
-    hash_map: FnvHashMap<u32, usize>,
+    hash_map: HashMap<u32, usize>,
 
     /// Holds the entries [`DecodeCacheEntry`](struct.DecodeCacheEntry.html)
     /// forming linked list.
@@ -3550,7 +3558,7 @@ impl DecodeCache {
         }
 
         DecodeCache {
-            hash_map: FnvHashMap::default(),
+            hash_map: HashMap::default(),
             entries,
             front_index: 0,
             back_index: DECODE_CACHE_ENTRY_NUM - 1,

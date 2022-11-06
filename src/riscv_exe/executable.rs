@@ -4,9 +4,9 @@ use bincode::{Decode, Encode};
 pub struct Executable {
     pub code: Vec<u8>,
     pub data: Vec<u8>,
-    pub comments: Vec<(usize, String)>,
+    pub comments: Vec<(u64, String)>,
     pub relocations: Vec<Relocation>,
-    pub entry: usize,
+    pub entry: u64,
 }
 
 impl Executable {
@@ -20,7 +20,7 @@ impl Executable {
         }
     }
 
-    pub fn add_comment(&mut self, offset: usize, comment: &str) {
+    pub fn add_comment(&mut self, offset: u64, comment: &str) {
         match self
             .comments
             .binary_search_by_key(&offset, |(offset, _)| *offset)
@@ -35,7 +35,7 @@ impl Executable {
         }
     }
 
-    pub fn comment_at(&self, offset: usize) -> Option<&str> {
+    pub fn get_comment_at(&self, offset: u64) -> Option<&str> {
         match self
             .comments
             .binary_search_by_key(&offset, |(offset, _)| *offset)
@@ -65,13 +65,13 @@ pub enum RelocationKind {
 
 #[derive(Encode, Decode)]
 pub struct Relocation {
-    pub offset: usize,
-    pub target: usize,
+    pub offset: u64,
+    pub target: u64,
     pub kind: RelocationKind,
 }
 
 impl Relocation {
-    pub fn new(offset: usize, target: usize, kind: RelocationKind) -> Self {
+    pub fn new(offset: u64, target: u64, kind: RelocationKind) -> Self {
         Self {
             offset,
             target,

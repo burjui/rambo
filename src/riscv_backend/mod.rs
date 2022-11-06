@@ -4,7 +4,6 @@ use crate::ir::IRModule;
 use crate::ir::Phi;
 use crate::ir::Statement;
 use crate::ir::Value;
-use crate::riscv_base::decoder::decode;
 use crate::riscv_base::registers;
 use crate::riscv_base::registers::REGISTER_COUNT;
 use crate::riscv_exe::Executable;
@@ -16,8 +15,10 @@ use crate::utils::GenericResult;
 use crate::utils::VecUtils;
 use bimap::BiMap;
 use byteorder::LittleEndian;
+use byteorder::ReadBytesExt;
 use byteorder::WriteBytesExt;
 use itertools::Itertools;
+use riscv_emulator::cpu::Cpu;
 use risky::instructions::*;
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
@@ -27,6 +28,7 @@ use std::error::Error;
 use std::fmt;
 use std::io::Cursor;
 use std::io::Write;
+use std::mem::replace;
 use std::num::TryFromIntError;
 use termcolor::Color;
 use termcolor::ColorSpec;
@@ -75,8 +77,8 @@ pub(crate) fn generate(
 
 struct SharedState {
     image: Executable,
-    function_offsets: FxHashMap<FnId, usize>,
-    function_relocations: Vec<(usize, FnId)>,
+    function_offsets: FxHashMap<FnId, u64>,
+    function_relocations: Vec<(u64, FnId)>,
 }
 
 impl SharedState {
@@ -89,20 +91,20 @@ impl SharedState {
     }
 }
 
-struct Backend<'a> {
+struct Backend<'a, 'output> {
     state: &'a mut SharedState,
     module: &'a IRModule,
-    dump_code: DumpCode<'a>,
+    dump_code: DumpCode<'output>,
     enable_immediate_integers: bool,
     enable_comments: bool,
     registers: RegisterAllocator,
-    data_offsets: FxHashMap<ValueId, usize>,
+    data_offsets: FxHashMap<ValueId, u64>,
     no_spill: SmallVec<[u8; REGISTER_COUNT]>,
     function_id: Option<FnId>,
     phis: FxHashMap<ValueId, BTreeSet<(NodeIndex, ValueId)>>,
 }
 
-impl<'a> Backend<'a> {
+impl<'a: 'output, 'output> Backend<'a, 'output> {
     fn new(
         state: &'a mut SharedState,
         module: &'a IRModule,
@@ -142,7 +144,7 @@ impl<'a> Backend<'a> {
 
         self.tc_comment(&format!("---- START {}", &self.module.name));
 
-        let code_start = self.state.image.code.len();
+        let code_start = self.current_code_offset();
         let comments_start = self.state.image.comments.len();
         let relocations_start = self.state.image.relocations.len();
         let mut next_block = self.generate_block(self.module.entry_block)?;
@@ -170,11 +172,11 @@ impl<'a> Backend<'a> {
                 &[addi(registers::SP, registers::SP, -saved_registers_size)],
             );
 
-            let fixup = register_saving_code.len();
+            let fixup = u64::try_from(register_saving_code.len())?;
             self.state
                 .image
                 .code
-                .insert_slice(code_start, &register_saving_code);
+                .insert_slice(code_start.try_into()?, &register_saving_code);
             for (comment_offset, _) in &mut self.state.image.comments[comments_start..] {
                 if *comment_offset >= code_start {
                     *comment_offset += fixup;
@@ -197,11 +199,7 @@ impl<'a> Backend<'a> {
         }
 
         if self.function_id.is_none() {
-            self.push_code(&[
-                // This ecall stops an sbk-vm
-                addi(registers::A7, registers::ZERO, 93),
-                ecall(),
-            ]);
+            self.push_code(&[ebreak()]);
         }
         self.tc_comment(&format!("---- END {}", &self.module.name));
 
@@ -213,7 +211,7 @@ impl<'a> Backend<'a> {
             .map(|(fn_id, module)| (fn_id.clone(), module))
             .collect_vec();
         for (fn_id, fn_cfg) in functions {
-            let fn_offset = self.state.image.code.len();
+            let fn_offset = self.current_code_offset();
             self.state.function_offsets.insert(fn_id.clone(), fn_offset);
 
             let mut backend = Backend::new(
@@ -227,15 +225,20 @@ impl<'a> Backend<'a> {
             backend.generate()?;
         }
 
-        if let DumpCode::Yes(output) = self.dump_code {
+        if let DumpCode::Yes(output) = replace(&mut self.dump_code, DumpCode::No) {
             output.reset()?;
             writeln!(output, "---- CODE DUMP: {} ----", &self.module.name)?;
-            for (op, offset) in decode(&self.state.image.code) {
-                if let Some(comment) = self
-                    .state
-                    .image
-                    .comment_at(usize::try_from(offset).unwrap())
-                {
+
+            const INSTRUCTION_SIZE: usize = 4;
+            for i in 0..self.state.image.code.len() / INSTRUCTION_SIZE {
+                let offset = i * INSTRUCTION_SIZE;
+                let raw_instruction = (&self.state.image.code[offset..offset + INSTRUCTION_SIZE])
+                    .read_u32::<LittleEndian>()?;
+                let instruction = Cpu::decode_raw(raw_instruction)
+                    .ok_or_else(|| format!("Unknown instruction: 0x{:08x}", raw_instruction))?;
+                // for (op, offset) in Cpu::decode_raw(&self.state.image.code)
+                let offset_u64 = u64::try_from(offset)?;
+                if let Some(comment) = self.state.image.get_comment_at(offset_u64) {
                     writeln!(output, "{}", comment)?;
                 }
                 output.set_color(
@@ -243,7 +246,13 @@ impl<'a> Backend<'a> {
                         .set_fg(Some(Color::Black))
                         .set_intense(true),
                 )?;
-                writeln!(output, "[0x{:08x}]  {:?}", offset, op)?;
+                writeln!(
+                    output,
+                    "[0x{:08x}]  {} {}",
+                    offset_u64,
+                    instruction.name,
+                    (instruction.disassemble)(raw_instruction, offset_u64, None)
+                )?;
                 output.reset()?;
             }
 
@@ -346,9 +355,9 @@ impl<'a> Backend<'a> {
                     self.generate_block(then_next_block)?;
                 }
                 let jump_to_end = self.push_code(&jump_placeholder());
-                let after_jump_to_end = self.state.image.code.len();
+                let after_jump_to_end = self.current_code_offset();
                 let else_branch_offset =
-                    i16::try_from(self.state.image.code.len() - jump_to_else_branch)?;
+                    i16::try_from(self.current_code_offset() - jump_to_else_branch)?;
                 self.patch_at(
                     jump_to_else_branch,
                     &[
@@ -363,12 +372,12 @@ impl<'a> Backend<'a> {
                 }
 
                 // TODO store code in a format suitable for deletion
-                let end_offset = i32::try_from(self.state.image.code.len())?
+                let end_offset = i32::try_from(self.current_code_offset())?
                     .checked_sub(i32::try_from(after_jump_to_end)?)
                     .and_then(|difference| difference.checked_add(4)) // j 4(pc)
                     .unwrap();
                 self.patch_jump(jump_to_end, registers::ZERO, end_offset);
-                if after_jump_to_end == self.state.image.code.len() {
+                if after_jump_to_end == self.current_code_offset() {
                     for _ in 0..4 {
                         self.state.image.code.remove(jump_to_end as usize);
                     }
@@ -571,7 +580,7 @@ impl<'a> Backend<'a> {
         Ok(result)
     }
 
-    fn allocate_value(&mut self, value_id: ValueId) -> GenericResult<Option<usize>> {
+    fn allocate_value(&mut self, value_id: ValueId) -> GenericResult<Option<u64>> {
         if let Some(offset) = self.data_offsets.get(&value_id) {
             Ok(Some(*offset))
         } else {
@@ -604,20 +613,20 @@ impl<'a> Backend<'a> {
         }
     }
 
-    fn allocate_u32(&mut self, data: u32) -> GenericResult<usize> {
-        let offset = self.state.image.data.len();
+    fn allocate_u32(&mut self, data: u32) -> GenericResult<u64> {
+        let offset = self.current_data_offset();
         self.state.image.data.write_u32::<LittleEndian>(data)?;
         Ok(offset)
     }
 
-    fn allocate_bytes(&mut self, data: &[u8]) -> GenericResult<usize> {
-        let offset = self.state.image.data.len();
+    fn allocate_bytes(&mut self, data: &[u8]) -> GenericResult<u64> {
+        let offset = self.current_data_offset();
         self.state.image.data.write_all(data)?;
         Ok(offset)
     }
 
-    fn load_u32(&mut self, rd: u8, offset: usize) {
-        let relocation_offset = self.state.image.code.len();
+    fn load_u32(&mut self, rd: u8, offset: u64) {
+        let relocation_offset = self.current_code_offset();
         self.state.image.relocations.push(Relocation::new(
             relocation_offset,
             offset,
@@ -626,8 +635,8 @@ impl<'a> Backend<'a> {
         self.push_code(&[lui(rd, 0), lw(rd, rd, 0)]);
     }
 
-    fn store_u32(&mut self, register: u8, offset: usize) {
-        let relocation_offset = self.state.image.code.len();
+    fn store_u32(&mut self, register: u8, offset: u64) {
+        let relocation_offset = self.current_code_offset();
         self.state.image.relocations.push(Relocation::new(
             relocation_offset,
             offset,
@@ -636,17 +645,17 @@ impl<'a> Backend<'a> {
         self.push_code(&[lui(registers::T0, 0), sw(registers::T0, 0, register)]);
     }
 
-    fn push_code(&mut self, instructions: &[u32]) -> usize {
-        let code_start = self.state.image.code.len();
+    fn push_code(&mut self, instructions: &[u32]) -> u64 {
+        let code_start = self.current_code_offset();
         let mut cursor = Cursor::new(&mut self.state.image.code);
-        cursor.set_position(u64::try_from(code_start).unwrap());
+        cursor.set_position(code_start);
         write_code(&mut cursor, instructions);
         code_start
     }
 
-    fn patch_at(&mut self, patch_offset: usize, instructions: &[u32]) {
+    fn patch_at(&mut self, patch_offset: u64, instructions: &[u32]) {
         let mut cursor = Cursor::new(&mut self.state.image.code);
-        cursor.set_position(u64::try_from(patch_offset).unwrap());
+        cursor.set_position(patch_offset);
         write_code(&mut cursor, instructions);
     }
 
@@ -695,7 +704,7 @@ impl<'a> Backend<'a> {
                 }
 
                 Value::Function(fn_id, _) => {
-                    let relocation_offset = self.state.image.code.len();
+                    let relocation_offset = self.current_code_offset();
                     self.state
                         .function_relocations
                         .push((relocation_offset, fn_id.clone()));
@@ -712,18 +721,18 @@ impl<'a> Backend<'a> {
     fn ir_comment(&mut self, comment: &str) {
         self.state
             .image
-            .add_comment(self.state.image.code.len(), &format!("// {}", comment));
+            .add_comment(self.current_code_offset(), &format!("// {}", comment));
     }
 
     fn tc_comment(&mut self, comment: &str) {
         if self.enable_comments {
             self.state
                 .image
-                .add_comment(self.state.image.code.len(), comment);
+                .add_comment(self.current_code_offset(), comment);
         }
     }
 
-    fn patch_jump(&mut self, patch_offset: usize, rd: u8, offset: i32) {
+    fn patch_jump(&mut self, patch_offset: u64, rd: u8, offset: i32) {
         self.patch_at(
             patch_offset,
             &match Self::jump_offset(offset) {
@@ -734,6 +743,14 @@ impl<'a> Backend<'a> {
                 ],
             },
         )
+    }
+
+    fn current_code_offset(&self) -> u64 {
+        u64::try_from(self.state.image.code.len()).unwrap()
+    }
+
+    fn current_data_offset(&self) -> u64 {
+        u64::try_from(self.state.image.data.len()).unwrap()
     }
 
     fn jump_offset(offset: i32) -> JumpOffset {

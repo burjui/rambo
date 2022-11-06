@@ -2,8 +2,9 @@
 
 const DTB_SIZE: usize = 0xfe0;
 
+use std::collections::HashMap;
+
 use bitflags::bitflags;
-use fnv::FnvHashMap;
 use iset::IntervalMap;
 
 use super::cpu::{PrivilegeMode, Trap, TrapType, Xlen};
@@ -13,7 +14,6 @@ bitflags! {
     pub struct MemoryAccessFlags: u8 {
         const READ = 1;
         const WRITE = 1 << 1;
-        const EXECUTE = 1 << 2;
     }
 }
 
@@ -43,9 +43,9 @@ pub struct Mmu {
     /// page table entry update. So this is experimental feature and
     /// disabled by default. If you want to enable, use `enable_page_cache()`.
     page_cache_enabled: bool,
-    fetch_page_cache: FnvHashMap<u64, u64>,
-    load_page_cache: FnvHashMap<u64, u64>,
-    store_page_cache: FnvHashMap<u64, u64>,
+    fetch_page_cache: HashMap<u64, u64>,
+    load_page_cache: HashMap<u64, u64>,
+    store_page_cache: HashMap<u64, u64>,
 }
 
 pub enum AddressingMode {
@@ -89,9 +89,9 @@ impl Mmu {
             memory: MemoryWrapper::new(),
             dtb,
             page_cache_enabled: false,
-            fetch_page_cache: FnvHashMap::default(),
-            load_page_cache: FnvHashMap::default(),
-            store_page_cache: FnvHashMap::default(),
+            fetch_page_cache: HashMap::default(),
+            load_page_cache: HashMap::default(),
+            store_page_cache: HashMap::default(),
         }
     }
 
@@ -146,7 +146,7 @@ impl Mmu {
     }
 
     /// Runs one cycle of MMU and peripheral devices.
-    pub fn tick(&mut self, mip: &mut u64) {
+    pub fn tick(&mut self, _mip: &mut u64) {
         self.clock = self.clock.wrapping_add(1);
     }
 
@@ -509,15 +509,14 @@ impl Mmu {
     ///
     /// # Arguments
     /// * `v_address` Virtual address
-    pub fn validate_address(&mut self, v_address: u64) -> Result<bool, ()> {
+    pub fn validate_address(&mut self, v_address: u64) -> bool {
         // @TODO: Support other access types?
         let p_address = match self.translate_address(v_address, MemoryAccessType::DontCare) {
             Ok(address) => address,
-            Err(()) => return Err(()),
+            Err(()) => return false,
         };
         let effective_address = self.get_effective_address(p_address);
-        let valid = self.memory.validate_address(effective_address);
-        Ok(valid)
+        self.memory.validate_address(effective_address)
     }
 
     fn translate_address(

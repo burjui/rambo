@@ -174,3 +174,9 @@ impl Memory {
         (address as usize) < self.data.len()
     }
 }
+
+impl Default for Memory {
+    fn default() -> Self {
+        Self::new()
+    }
+}

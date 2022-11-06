@@ -1,5 +1,5 @@
+mod emulator;
 mod executable;
-mod simulator;
 
+pub use emulator::*;
 pub use executable::*;
-pub use simulator::*;

@@ -105,7 +105,7 @@ fn function_return() {
 }
 
 #[test]
-fn misaligned_fetch() {
+fn misaligned_fetch_bug() {
     test_backend(
         function_name!(),
         "
@@ -132,7 +132,7 @@ fn misaligned_fetch() {
     );
 }
 
-fn test_backend(source_name: &str, source_code: &str, expected_result: u32) {
+fn test_backend(source_name: &str, source_code: &str, expected_result: i64) {
     let code = typecheck(source_name.to_owned(), source_code).unwrap();
     let mut state = FrontEndState::new();
     let module = FrontEnd::new(source_name, &mut state)
@@ -170,7 +170,9 @@ fn test_backend(source_name: &str, source_code: &str, expected_result: u32) {
         )
         .unwrap();
 
-        let result = riscv_simulator::run(&image, DumpState::None).unwrap().cpu.x[A0 as usize];
+        let result = riscv_simulator::run(&image, DumpState::None)
+            .unwrap()
+            .read_register(A0);
         assert_eq!(result, expected_result);
 
         backend_permutation.next();

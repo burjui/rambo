@@ -1,17 +1,18 @@
 use crate::riscv_base::registers;
 use crate::riscv_base::registers::REGISTER_COUNT;
-use crate::riscv_exe::DramBank;
+use crate::riscv_exe;
 use crate::riscv_exe::Executable;
-use crate::riscv_exe::Simulator;
 use crate::riscv_exe::SimulatorConfig;
 use crate::utils::stdout;
-use crate::{riscv_base, riscv_exe};
-use rvsim::CpuError;
-use rvsim::CpuState;
+use crate::utils::GenericResult;
+use riscv_emulator::cpu::Cpu;
+use riscv_emulator::mmu::Mmu;
+use risky::instructions::ebreak;
 use std::convert::TryFrom;
 use std::error::Error;
 use std::io;
 use std::io::Write;
+use std::ops::Range;
 use termcolor::Color;
 use termcolor::ColorSpec;
 use termcolor::StandardStream;
@@ -26,55 +27,41 @@ pub(crate) enum DumpState<'a> {
     Everything(&'a mut StandardStream),
 }
 
-pub(crate) fn run(
-    executable: &Executable,
-    mut dump_state: DumpState<'_>,
-) -> Result<Simulator, Box<dyn Error>> {
+pub(crate) fn run(executable: &Executable, mut dump_state: DumpState<'_>) -> GenericResult<Cpu> {
     let config = SimulatorConfig {
         stack_size: 1024,
         code_start_address: 0x2000_0000,
-        data_start_address: 0x8000_0000,
+        data_start_address: 0x4000_0000,
     };
-    let mut simulator = riscv_exe::load(executable, &config)?;
-
-    let ram_size = config.stack_size + executable.data.len();
-    let stdout = &mut stdout();
+    let mut cpu = riscv_exe::load(executable, &config)?;
+    let ram_size = u64::try_from(executable.data.len())? + config.stack_size;
     let dump_simulator_state =
-        |output: &mut StandardStream, simulator: &mut Simulator| -> Result<(), Box<dyn Error>> {
-            dump_registers(output, &simulator.cpu)?;
+        |output: &mut StandardStream, cpu: &mut Cpu| -> Result<(), Box<dyn Error>> {
+            dump_registers(output, cpu)?;
 
-            let data_bank = simulator
-                .dram
-                .find_bank_mut(config.data_start_address)
-                .unwrap();
             if !executable.data.is_empty() {
                 write_title(output, "RAM")?;
-                dump_memory(
+                dump_ram(
                     output,
-                    &data_bank[..executable.data.len()],
-                    config.data_start_address,
+                    cpu.mmu_mut(),
+                    config.data_start_address
+                        ..config.data_start_address + u64::try_from(executable.data.len())?,
                 )?;
             }
 
-            dump_stack(
-                &simulator.cpu,
-                data_bank,
-                config.data_start_address,
-                ram_size,
-            )?;
+            dump_stack(cpu, config.data_start_address, ram_size)?;
             Ok(())
         };
 
-    let code_end = config.code_start_address + executable.code.len();
+    let code_end = config.code_start_address + u64::try_from(executable.code.len())?;
     loop {
         if let DumpState::Everything(output) = &mut dump_state {
-            dump_simulator_state(output, &mut simulator)?;
+            dump_simulator_state(output, &mut cpu)?;
         }
 
         if let DumpState::Instructions(output) | DumpState::Everything(output) = &mut dump_state {
-            let current_code_offset =
-                usize::try_from(simulator.cpu.pc).unwrap() - config.code_start_address;
-            if let Some(comment) = executable.comment_at(current_code_offset) {
+            let current_code_offset = cpu.read_pc() - config.code_start_address;
+            if let Some(comment) = executable.get_comment_at(current_code_offset) {
                 output.set_color(
                     ColorSpec::new()
                         .set_fg(Some(Color::Black))
@@ -84,64 +71,42 @@ pub(crate) fn run(
             }
         }
 
-        let pc = simulator.cpu.pc;
-        if usize::try_from(pc).unwrap() == code_end {
+        let pc = cpu.read_pc();
+        if pc == code_end {
             break;
         }
 
-        match simulator.step() {
-            Ok(op) => {
-                if let DumpState::Instructions(output) | DumpState::Everything(output) =
-                    &mut dump_state
-                {
-                    output.set_color(ColorSpec::new().set_fg(Some(Color::White)).set_bold(true))?;
-                    write!(output, "[0x{:08x}]", pc)?;
-                    output.reset()?;
-                    writeln!(output, " {:?}", riscv_base::decoder::Op(op))?;
-                    output.flush()?;
-                }
-            }
-
-            Err((error, op)) => match error {
-                CpuError::Ebreak => break,
-                CpuError::Ecall if simulator.cpu.x[registers::A7 as usize] == 93 => break,
-                _ => {
-                    dump_registers(stdout, &simulator.cpu)?;
-                    let data_bank = simulator
-                        .dram
-                        .find_bank_mut(config.data_start_address)
-                        .unwrap();
-                    dump_stack(
-                        &simulator.cpu,
-                        data_bank,
-                        config.data_start_address,
-                        ram_size,
-                    )?;
-                    write_title(stdout, "RAM")?;
-                    dump_memory(stdout, data_bank, config.data_start_address)?;
-                    return Err(format!(
-                        "[0x{:08x}] op: {:?}, error: {:?}",
-                        pc,
-                        op.map(riscv_base::decoder::Op),
-                        error
-                    )
-                    .into());
-                }
-            },
+        let raw_instruction = cpu.mmu_mut().load_word_raw(pc);
+        if raw_instruction == ebreak() {
+            break;
         }
 
-        let stack_pointer = usize::try_from(simulator.cpu.x[registers::SP as usize]).unwrap();
+        if let Some((instruction, raw_instruction)) = cpu.tick() {
+            if let DumpState::Instructions(output) | DumpState::Everything(output) = &mut dump_state
+            {
+                output.set_color(ColorSpec::new().set_fg(Some(Color::White)).set_bold(true))?;
+                write!(output, "[0x{:08x}]", pc)?;
+                output.reset()?;
+                writeln!(
+                    output,
+                    " {} {}",
+                    instruction.name,
+                    (instruction.disassemble)(raw_instruction, pc, None)
+                )?;
+                output.flush()?;
+            }
+        }
+
+        let stack_pointer = u64::try_from(cpu.read_register(registers::SP)).unwrap();
         if stack_pointer < config.data_start_address + ram_size - config.stack_size {
             return Err("stack overflow".into());
         }
-
-        simulator.cpu.x[registers::ZERO as usize] = 0;
     }
 
-    Ok(simulator)
+    Ok(cpu)
 }
 
-fn dump_registers(output: &mut StandardStream, cpu: &CpuState) -> io::Result<()> {
+fn dump_registers(output: &mut StandardStream, cpu: &Cpu) -> io::Result<()> {
     const REGISTERS_PER_ROW: usize = 4;
     const REGISTERS_PER_COLUMN: usize = REGISTER_COUNT / REGISTERS_PER_ROW;
 
@@ -161,26 +126,24 @@ fn dump_registers(output: &mut StandardStream, cpu: &CpuState) -> io::Result<()>
                 .set_fg(Some(Color::Black))
                 .set_intense(true),
         )?;
-        write!(output, "  0x{:08x}", cpu.x[register])?;
+        write!(
+            output,
+            "  0x{:08x}",
+            cpu.read_register(u8::try_from(register).unwrap())
+        )?;
         output.reset()?;
     }
     writeln!(output, "\n")
 }
 
-fn dump_stack(
-    cpu: &CpuState,
-    ram: &DramBank,
-    ram_base_address: usize,
-    ram_size: usize,
-) -> io::Result<()> {
+fn dump_stack(cpu: &mut Cpu, ram_base_address: u64, ram_size: u64) -> GenericResult<()> {
     let stdout = &mut stdout();
     write_title(stdout, "STACK")?;
-    let stack_pointer = usize::try_from(cpu.x[usize::from(registers::SP)]).unwrap();
-    let stack_offset = stack_pointer - ram_base_address;
-    dump_memory(
+    let stack_pointer = u64::try_from(cpu.read_register(registers::SP))?;
+    dump_ram(
         stdout,
-        &ram[stack_offset as usize..ram_size as usize],
-        stack_pointer,
+        cpu.mmu_mut(),
+        stack_pointer..ram_base_address + ram_size,
     )
 }
 
@@ -194,17 +157,17 @@ fn write_title(stderr: &mut StandardStream, title: &str) -> io::Result<()> {
     stderr.reset()
 }
 
-pub(crate) fn dump_memory(
+pub(crate) fn dump_ram(
     output: &mut StandardStream,
-    ram: &[u8],
-    base_address: usize,
-) -> io::Result<()> {
-    for (index, &byte) in ram.iter().enumerate() {
+    mmu: &mut Mmu,
+    range: Range<u64>,
+) -> GenericResult<()> {
+    for (index, address) in range.enumerate() {
         if index % 4 == 0 {
             if index > 0 {
                 writeln!(output)?;
             }
-            write!(output, "[{:08x}] ", base_address + index)?;
+            write!(output, "[{:08x}] ", address)?;
         } else {
             write!(output, " ")?;
         }
@@ -213,8 +176,12 @@ pub(crate) fn dump_memory(
                 .set_fg(Some(Color::Black))
                 .set_intense(true),
         )?;
+        let byte = mmu
+            .load(address)
+            .map_err(|_| format!("Failed to load a byte from address 0x{:08x}", address))?;
         write!(output, "{:02x}", byte)?;
         output.reset()?;
     }
-    writeln!(output, "\n")
+    writeln!(output, "\n")?;
+    Ok(())
 }

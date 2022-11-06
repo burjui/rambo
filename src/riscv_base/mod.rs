@@ -1,5 +1,3 @@
-pub mod decoder;
-
 #[allow(unused)]
 pub mod registers {
     pub const REGISTER_COUNT: usize = 32;
