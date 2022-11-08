@@ -1,3 +1,5 @@
+#![feature(decl_macro)]
+
 use crate::pipeline::EvaluateIR;
 use crate::pipeline::Load;
 use crate::pipeline::Parse;
@@ -21,12 +23,9 @@ use termcolor::Color;
 use termcolor::ColorSpec;
 use termcolor::WriteColor;
 
-#[macro_use]
-mod utils;
-#[macro_use]
 mod ir;
-#[macro_use]
 mod riscv_backend;
+mod utils;
 
 mod env;
 mod frontend;

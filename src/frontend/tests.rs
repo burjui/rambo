@@ -7,7 +7,7 @@ use crate::graphviz::IrGraphvizFile;
 use crate::ir::eval::eval;
 use crate::ir::Value;
 use crate::ir::{FunctionMap, IRModule};
-use crate::utils::typecheck;
+use crate::utils::{function_name, typecheck};
 
 #[test]
 fn generic() {

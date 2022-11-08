@@ -11,6 +11,8 @@ use crate::riscv_exe::Relocation;
 use crate::riscv_exe::RelocationKind;
 use crate::stable_graph::Direction;
 use crate::stable_graph::NodeIndex;
+use crate::utils::function;
+use crate::utils::impl_deref_for_newtype;
 use crate::utils::GenericResult;
 use crate::utils::VecUtils;
 use bimap::BiMap;

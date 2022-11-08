@@ -1,5 +1,6 @@
 use crate::source::Source;
 use crate::source::SourceFileRef;
+use crate::utils::error;
 use itertools::Itertools;
 use std::error::Error;
 use std::fmt::Debug;
@@ -210,7 +211,7 @@ impl Lexer {
     }
 
     fn read_operator(&mut self) -> LexerResult<Option<Lexeme>> {
-        macro_rules! on {
+        macro on {
             ($char: tt, $token: expr, $handler: expr) => {
                 match self.current_character {
                     Some($char) => {
@@ -219,11 +220,11 @@ impl Lexer {
                     }
                     _ => None,
                 }
-            };
+            },
 
             ($char: expr, $token: expr) => {
                 on!($char, $token, None)
-            };
+            }
         }
 
         Ok(None

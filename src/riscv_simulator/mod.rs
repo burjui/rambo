@@ -18,9 +18,6 @@ use termcolor::ColorSpec;
 use termcolor::StandardStream;
 use termcolor::WriteColor;
 
-#[cfg(test)]
-mod tests;
-
 pub(crate) enum DumpState<'a> {
     None,
     Instructions(&'a mut StandardStream),

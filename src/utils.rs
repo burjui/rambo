@@ -4,48 +4,42 @@ use termcolor::StandardStream;
 
 pub(crate) type GenericResult<T> = std::result::Result<T, Box<dyn Error>>;
 
-macro_rules! error {
-    ($format_string: expr $(, $argument: expr)*) => { Err(From::from(format!($format_string $(, $argument)*))) };
+pub(crate) macro error {
+    ($format_string: expr $(, $argument: expr)*) => { Err(From::from(format!($format_string $(, $argument)*))) }
 }
 
-macro_rules! warning {
+pub(crate) macro warning {
     ($format_string: expr $(, $argument: expr)*) => {{
         print!("warning: "); println!($format_string $(, $argument)*)
-    }};
+    }}
 }
 
-macro_rules! warning_at {
+pub(crate) macro warning_at {
     ($source: expr, $format_string: expr $(, $argument: expr)*) => {{
         print!("warning: {}: ", $source);
         println!($format_string $(, $argument)*)
-    }};
+    }}
 }
 
-macro_rules! function {
-    () => {{
-        struct X;
-        let name = core::any::type_name::<X>();
-        &name[..name.len() - 3]
-    }};
-}
+pub(crate) macro function() {{
+    struct X;
+    let name = core::any::type_name::<X>();
+    &name[..name.len() - 3]
+}}
 
 #[cfg(test)]
-macro_rules! function_name {
-    () => {
-        function!().rsplit("::").next().unwrap()
-    };
+pub(crate) macro function_name() {
+    function!().rsplit("::").next().unwrap()
 }
 
-macro_rules! impl_deref_for_newtype {
-    ($name: ty, $target: ty) => {
-        impl std::ops::Deref for $name {
-            type Target = $target;
+pub(crate) macro impl_deref_for_newtype($name: ty, $target: ty) {
+    impl std::ops::Deref for $name {
+        type Target = $target;
 
-            fn deref(&self) -> &Self::Target {
-                &self.0
-            }
+        fn deref(&self) -> &Self::Target {
+            &self.0
         }
-    };
+    }
 }
 
 #[cfg(test)]
@@ -65,7 +59,7 @@ pub(crate) fn typecheck(name: String, text: &str) -> GenericResult<crate::semant
 pub(crate) fn stdout() -> StandardStream {
     #[cfg(not(test))]
     let color_choice = {
-        let is_tty = unsafe { libc::isatty(libc::STDOUT_FILENO as i32) } != 0;
+        let is_tty = unsafe { libc::isatty(libc::STDOUT_FILENO) } != 0;
         if is_tty {
             ColorChoice::Always
         } else {
@@ -78,7 +72,7 @@ pub(crate) fn stdout() -> StandardStream {
 }
 
 pub(crate) fn stderr() -> StandardStream {
-    let is_tty = unsafe { libc::isatty(libc::STDERR_FILENO as i32) } != 0;
+    let is_tty = unsafe { libc::isatty(libc::STDERR_FILENO) } != 0;
     let color_choice = if is_tty {
         ColorChoice::Always
     } else {

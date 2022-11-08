@@ -7,6 +7,7 @@ use crate::riscv_backend::EnableImmediateIntegers;
 use crate::riscv_base::registers::A0;
 use crate::riscv_simulator;
 use crate::riscv_simulator::DumpState;
+use crate::utils::function_name;
 use crate::utils::{stderr, typecheck};
 use riscv_backend::EnableComments;
 use std::io::Write;

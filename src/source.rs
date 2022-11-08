@@ -127,14 +127,14 @@ impl SourceFile {
 
         let offset = match Self::detect_bom(data) {
             Some(bom) => {
-                if let BOM::UTF8 = bom {
+                if let Bom::UTF8 = bom {
                     Ok(bom.bytes().len())
                 } else {
                     Err(format!(
                         "{:?}: encoding {} is not supported, convert the file to {}",
                         path,
                         bom.name(),
-                        BOM::UTF8.name()
+                        Bom::UTF8.name()
                     ))
                 }
             }
@@ -143,13 +143,13 @@ impl SourceFile {
         Ok(from_utf8(&data[offset..]).map(str::to_owned)?)
     }
 
-    fn detect_bom(data: &[u8]) -> Option<&'static BOM> {
-        const BOMS: [BOM; 5] = [
-            BOM::UTF8,
-            BOM::UTF32LE,
-            BOM::UTF32BE,
-            BOM::UTF16LE,
-            BOM::UTF16BE,
+    fn detect_bom(data: &[u8]) -> Option<&'static Bom> {
+        const BOMS: [Bom; 5] = [
+            Bom::UTF8,
+            Bom::UTF32LE,
+            Bom::UTF32BE,
+            Bom::UTF16LE,
+            Bom::UTF16BE,
         ];
         BOMS.iter().find(|bom| data.starts_with(bom.bytes()))
     }
@@ -194,7 +194,7 @@ impl SourceFileRef {
     }
 }
 
-enum BOM {
+enum Bom {
     UTF8,
     UTF16LE,
     UTF16BE,
@@ -202,7 +202,7 @@ enum BOM {
     UTF32BE,
 }
 
-impl BOM {
+impl Bom {
     fn bytes(&self) -> &[u8] {
         match self {
             Self::UTF8 => &[0xEF, 0xBB, 0xBF],
