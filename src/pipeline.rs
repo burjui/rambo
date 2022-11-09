@@ -11,10 +11,9 @@ use crate::parser::Parser;
 use crate::riscv_backend;
 use crate::riscv_backend::DumpCode;
 use crate::riscv_backend::EnableImmediateIntegers;
-use crate::riscv_base::registers;
+use crate::riscv_exe::run;
+use crate::riscv_exe::DumpState;
 use crate::riscv_exe::Executable;
-use crate::riscv_simulator;
-use crate::riscv_simulator::DumpState;
 use crate::semantics::EnableWarnings;
 use crate::semantics::ExprRef;
 use crate::semantics::SemanticsChecker;
@@ -23,6 +22,7 @@ use crate::source::SourceFileRef;
 use crate::utils::stdout;
 use itertools::Itertools;
 use number_prefix::NumberPrefix;
+use riscv::A0;
 use riscv_backend::EnableComments;
 use std::error::Error;
 use std::ffi::OsStr;
@@ -36,7 +36,6 @@ use termcolor::StandardStream;
 use termcolor::WriteColor;
 
 #[derive(Clone)]
-#[allow(clippy::struct_excessive_bools)]
 pub(crate) struct PipelineOptions {
     pub(crate) max_pass_name: String,
     pub(crate) enable_warnings: bool,
@@ -325,16 +324,10 @@ impl CompilerPass<Executable, ()> for RISCVEmulator {
             3 => DumpState::Everything(stdout),
             _ => DumpState::None,
         };
-        let cpu = riscv_simulator::run(&image, dump_state)?;
+        let cpu = run(&image, dump_state)?;
         if options.verbosity >= 1 {
-            let result = cpu.read_register(registers::A0);
-            writeln!(
-                stdout,
-                "result at x{} = 0x{:08x} ({})",
-                registers::A0,
-                result,
-                result,
-            )?;
+            let result = cpu.read_register(A0);
+            writeln!(stdout, "result at x{} = 0x{:08x} ({})", A0, result, result,)?;
         }
         Ok(())
     }

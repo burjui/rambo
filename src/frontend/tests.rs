@@ -183,7 +183,6 @@ struct ForbiddenPermutations {
     enable_dce: Option<bool>,
 }
 
-#[allow(unused)]
 impl ForbiddenPermutations {
     const fn none() -> Self {
         Self {
@@ -193,12 +192,12 @@ impl ForbiddenPermutations {
         }
     }
 
-    fn include_comments(self, include_comments: bool) -> Self {
-        Self {
-            include_comments: Some(include_comments),
-            ..self
-        }
-    }
+    // fn include_comments(self, include_comments: bool) -> Self {
+    //     Self {
+    //         include_comments: Some(include_comments),
+    //         ..self
+    //     }
+    // }
 
     fn enable_cfp(self, enable_cfp: bool) -> Self {
         Self {

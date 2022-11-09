@@ -168,7 +168,6 @@ impl<'a> EvalContext<'a> {
         }
     }
 
-    #[allow(clippy::trivially_copy_pass_by_ref)]
     fn define(&mut self, value_id: ValueId, value: Value) {
         let next_timestamp = self.timestamp + 1;
         self.env[value_id] = RuntimeValue {
@@ -177,12 +176,10 @@ impl<'a> EvalContext<'a> {
         };
     }
 
-    #[allow(clippy::trivially_copy_pass_by_ref)]
     fn int(&self, value_id: &ValueId) -> i32 {
         self.runtime_value(value_id).try_into().unwrap()
     }
 
-    #[allow(clippy::trivially_copy_pass_by_ref)]
     fn string(&self, value_id: &ValueId) -> Rc<String> {
         self.runtime_value(value_id).try_into().unwrap()
     }

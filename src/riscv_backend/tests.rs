@@ -4,11 +4,11 @@ use crate::graphviz::IrGraphvizFile;
 use crate::riscv_backend;
 use crate::riscv_backend::DumpCode;
 use crate::riscv_backend::EnableImmediateIntegers;
-use crate::riscv_base::registers::A0;
-use crate::riscv_simulator;
-use crate::riscv_simulator::DumpState;
+use crate::riscv_exe::run;
+use crate::riscv_exe::DumpState;
 use crate::utils::function_name;
 use crate::utils::{stderr, typecheck};
+use riscv::A0;
 use riscv_backend::EnableComments;
 use std::io::Write;
 
@@ -171,9 +171,7 @@ fn test_backend(source_name: &str, source_code: &str, expected_result: i64) {
         )
         .unwrap();
 
-        let result = riscv_simulator::run(&image, DumpState::None)
-            .unwrap()
-            .read_register(A0);
+        let result = run(&image, DumpState::None).unwrap().read_register(A0);
         assert_eq!(result, expected_result);
 
         backend_permutation.next();

@@ -115,12 +115,17 @@ dependencies = [
  "itertools",
  "libc",
  "number_prefix",
+ "riscv",
  "riscv_emulator",
  "risky",
  "rustc-hash",
  "smallvec",
  "termcolor",
 ]
+
+[[package]]
+name = "riscv"
+version = "0.1.0"
 
 [[package]]
 name = "riscv_emulator"

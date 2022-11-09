@@ -82,7 +82,6 @@ pub enum Xlen {
 }
 
 #[derive(Clone)]
-#[allow(dead_code)]
 pub enum PrivilegeMode {
     User,
     Supervisor,
@@ -97,7 +96,6 @@ pub struct Trap {
 }
 
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub enum TrapType {
     InstructionAddressMisaligned,
     InstructionAccessFault,
