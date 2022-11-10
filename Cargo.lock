@@ -115,17 +115,12 @@ dependencies = [
  "itertools",
  "libc",
  "number_prefix",
- "riscv",
  "riscv_emulator",
  "risky",
  "rustc-hash",
  "smallvec",
  "termcolor",
 ]
-
-[[package]]
-name = "riscv"
-version = "0.1.0"
 
 [[package]]
 name = "riscv_emulator"
@@ -140,9 +135,8 @@ dependencies = [
 
 [[package]]
 name = "risky"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d2fe2025fde5e01a57e63c01d8b6fb28af324e3de6ffc0d54c59940247a6a2c9"
+version = "0.4.0"
+source = "git+https://github.com/burjui/risky?rev=d3da81e8df0cdcfcf18e689e17cff3fa2bc7c445#d3da81e8df0cdcfcf18e689e17cff3fa2bc7c445"
 
 [[package]]
 name = "rustc-hash"

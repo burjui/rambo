@@ -321,8 +321,13 @@ impl Cpu {
             }
             Err(()) => {
                 panic!(
-                    "Unknown instruction PC:{:x} WORD:{:x}",
-                    instruction_address, original_word
+                    "Unknown instruction: PC = {:x}, WORD = {:08x} = {:08b} {:08b} {:08b} {:08b}",
+                    self.pc,
+                    original_word,
+                    original_word >> 24 & 0xFF,
+                    original_word >> 16 & 0xFF,
+                    original_word >> 8 & 0xFF,
+                    original_word & 0xFF,
                 );
             }
         }
@@ -1398,8 +1403,13 @@ impl Cpu {
                 Some(inst) => inst,
                 None => {
                     return format!(
-                        "Unknown instruction PC:{:x} WORD:{:x}",
-                        self.pc, original_word
+                        "Unknown instruction: PC = {:x}, WORD = {:08x} = {:08b} {:08b} {:08b} {:08b}",
+                        self.pc,
+                        original_word,
+                        original_word >> 24 & 0xFF,
+                        original_word >> 16 & 0xFF,
+                        original_word >> 8 & 0xFF,
+                        original_word & 0xFF,
                     );
                 }
             }

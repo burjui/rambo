@@ -8,8 +8,8 @@ use crate::riscv_exe::run;
 use crate::riscv_exe::DumpState;
 use crate::utils::function_name;
 use crate::utils::{stderr, typecheck};
-use riscv::A0;
 use riscv_backend::EnableComments;
+use risky::A0;
 use std::io::Write;
 
 struct BackEndPermutation(usize);
@@ -170,7 +170,9 @@ fn test_backend(source_name: &str, source_code: &str, expected_result: i64) {
         )
         .unwrap();
 
-        let result = run(&image, DumpState::None).unwrap().read_register(A0);
+        let result = run(&image, DumpState::None)
+            .unwrap()
+            .read_register(A0.into());
         assert_eq!(result, expected_result);
 
         backend_permutation.next();
