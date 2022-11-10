@@ -44,7 +44,12 @@ fn generic() {
         result
         ",
         ForbiddenPermutations::none(),
-        |module| assert_eq!(eval(&module), Value::String(Rc::new("(hello; world)<bye, world; seeya>".to_owned())))
+        |module| {
+            assert_eq!(
+                eval(&module),
+                Value::String(Rc::new("(hello; world)<bye, world; seeya>".to_owned()))
+            )
+        },
     );
 }
 

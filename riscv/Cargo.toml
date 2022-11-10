@@ -1,6 +1,0 @@
-[package]
-name = "riscv"
-version = "0.1.0"
-description = "RISC-V instruction encoding library"
-edition = "2021"
-authors = ["Artem Borisovsky <bytefu@gmail.com>"]

@@ -22,8 +22,8 @@ use crate::source::SourceFileRef;
 use crate::utils::stdout;
 use itertools::Itertools;
 use number_prefix::NumberPrefix;
-use riscv::A0;
 use riscv_backend::EnableComments;
+use risky::A0;
 use std::error::Error;
 use std::ffi::OsStr;
 use std::fs::File;
@@ -326,7 +326,7 @@ impl CompilerPass<Executable, ()> for RISCVEmulator {
         };
         let cpu = run(&image, dump_state)?;
         if options.verbosity >= 1 {
-            let result = cpu.read_register(A0);
+            let result = cpu.read_register(A0.into());
             writeln!(stdout, "result at x{} = 0x{:08x} ({})", A0, result, result,)?;
         }
         Ok(())

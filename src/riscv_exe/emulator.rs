@@ -6,15 +6,15 @@ use byteorder::LittleEndian;
 use byteorder::ReadBytesExt;
 use byteorder::WriteBytesExt;
 use core::num::TryFromIntError;
-use riscv::ebreak;
-use riscv::FP;
-use riscv::RA;
-use riscv::REGISTER_COUNT;
-use riscv::SP;
-use riscv::ZERO;
 use riscv_emulator::cpu::Cpu;
 use riscv_emulator::mmu::MemoryAccessFlags;
 use riscv_emulator::mmu::Mmu;
+use risky::ebreak;
+use risky::FP;
+use risky::RA;
+use risky::REGISTER_COUNT;
+use risky::SP;
+use risky::ZERO;
 use std::convert::TryFrom;
 use std::io;
 use std::io::Write;
@@ -26,7 +26,6 @@ use termcolor::WriteColor;
 
 pub fn load(executable: &Executable, config: &SimulatorConfig) -> GenericResult<Cpu> {
     let mut cpu = Cpu::new();
-
     let mut code = executable.code.clone();
 
     for relocation in &executable.relocations {
@@ -89,16 +88,16 @@ pub fn load(executable: &Executable, config: &SimulatorConfig) -> GenericResult<
     for register in 0..u8::try_from(REGISTER_COUNT)? {
         cpu.write_register(register, 0xAAAA_AAAA);
     }
-    cpu.write_register(ZERO, 0);
+    cpu.write_register(ZERO.into(), 0);
     cpu.write_register(
-        SP,
+        SP.into(),
         i64::try_from(config.data_start_address)? + i64::try_from(ram_size)? - 4,
     );
-    cpu.write_register(FP, cpu.read_register(SP));
+    cpu.write_register(FP.into(), cpu.read_register(SP.into()));
 
     let code_end =
         i64::try_from(config.code_start_address)? + i64::try_from(executable.code.len())?;
-    cpu.write_register(RA, code_end);
+    cpu.write_register(RA.into(), code_end);
     cpu.update_pc(config.code_start_address + executable.entry);
 
     Ok(cpu)
@@ -163,6 +162,8 @@ pub(crate) fn run(executable: &Executable, mut dump_state: DumpState<'_>) -> Gen
             break;
         }
 
+        // Note: there's no point in printing raw_instruction before cpu.tick(),
+        // since the latter will panic and print it anyway
         if let Some((instruction, raw_instruction)) = cpu.tick() {
             if let DumpState::Instructions(output) | DumpState::Everything(output) = &mut dump_state
             {
@@ -179,7 +180,7 @@ pub(crate) fn run(executable: &Executable, mut dump_state: DumpState<'_>) -> Gen
             }
         }
 
-        let stack_pointer = u64::try_from(cpu.read_register(SP)).unwrap();
+        let stack_pointer = u64::try_from(cpu.read_register(SP.into())).unwrap();
         if stack_pointer < config.data_start_address + ram_size - config.stack_size {
             return Err("stack overflow".into());
         }
@@ -281,7 +282,7 @@ fn dump_registers(output: &mut StandardStream, cpu: &Cpu) -> io::Result<()> {
 fn dump_stack(cpu: &mut Cpu, ram_base_address: u64, ram_size: u64) -> GenericResult<()> {
     let stdout = &mut stdout();
     write_title(stdout, "STACK")?;
-    let stack_pointer = u64::try_from(cpu.read_register(SP))?;
+    let stack_pointer = u64::try_from(cpu.read_register(SP.into()))?;
     dump_ram(
         stdout,
         cpu.mmu_mut(),

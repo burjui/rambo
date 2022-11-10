@@ -261,11 +261,13 @@ impl fmt::Debug for Statement {
                 writeln!(f, "// {}", comment.split(|c| c == '\n').format("\n// "))
             }
             Self::Definition(value_id) => write!(f, "define {}", value_id),
-            Self::CondJump(condition, then_branch, else_branch) => write!(
-                f,
-                "condjump {}, {}, {}",
-                condition, then_branch, else_branch
-            ),
+            Self::CondJump(condition, then_branch, else_branch) => {
+                write!(
+                    f,
+                    "condjump {}, {}, {}",
+                    condition, then_branch, else_branch
+                )
+            }
             Self::Return(value_id) => write!(f, "return {}", value_id),
         }
     }
@@ -281,11 +283,13 @@ pub(crate) fn fmt_statement(
             writeln!(sink, "// {}", comment.split(|c| c == '\n').format("\n// "))
         }
         Statement::Definition(value_id) => write!(sink, "{} ← {:?}", value_id, &values[*value_id]),
-        Statement::CondJump(value_id, then_branch, else_branch) => write!(
-            sink,
-            "condjump {}, {}, {}",
-            value_id, then_branch, else_branch
-        ),
+        Statement::CondJump(value_id, then_branch, else_branch) => {
+            write!(
+                sink,
+                "condjump {}, {}, {}",
+                value_id, then_branch, else_branch
+            )
+        }
         Statement::Return(value_id) => write!(sink, "return {}", value_id),
     }
 }

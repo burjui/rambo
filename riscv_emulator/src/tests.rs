@@ -1,6 +1,8 @@
 use byteorder::LittleEndian;
 use byteorder::WriteBytesExt;
 use risky::instructions::*;
+use risky::X1;
+use risky::X2;
 use std::io::Cursor;
 
 use crate::cpu::Cpu;
@@ -19,12 +21,12 @@ fn riscv_sim() {
     let mut code = Vec::new();
     let mut code_cursor = Cursor::new(&mut code);
     let instructions = [
-        lb(1, 1, 0),
-        lb(2, 2, 0),
-        add(1, 1, 2),
-        lui(2, DATA_BASE as i32),
-        lh(2, 2, 0),
-        add(1, 1, 2),
+        lb(X1, X1, 0),
+        lb(X2, X2, 0),
+        add(X1, X1, X2),
+        lui(X2, DATA_BASE as i32),
+        lh(X2, X2, 0),
+        add(X1, X1, X2),
         ebreak(),
     ];
     instructions
