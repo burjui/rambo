@@ -101,7 +101,7 @@ struct Backend<'a, 'output> {
     enable_comments: bool,
     registers: RegisterAllocator,
     data_offsets: FxHashMap<ValueId, u64>,
-    no_spill: SmallVec<[Register; REGISTER_COUNT]>,
+    no_spill: SmallVec<[Register; NUMBER_OF_REGISTERS]>,
     function_id: Option<FnId>,
     phis: FxHashMap<ValueId, BTreeSet<(NodeIndex, ValueId)>>,
 }
@@ -762,9 +762,9 @@ enum Allocation {
 struct IsTarget(bool);
 
 struct RegisterAllocator {
-    states: [Allocation; REGISTER_COUNT],
+    states: [Allocation; NUMBER_OF_REGISTERS],
     values: BiMap<ValueId, Register>,
-    used: [bool; REGISTER_COUNT],
+    used: [bool; NUMBER_OF_REGISTERS],
 }
 
 impl RegisterAllocator {
@@ -778,7 +778,7 @@ impl RegisterAllocator {
         Self {
             states,
             values: BiMap::new(),
-            used: [false; REGISTER_COUNT],
+            used: [false; NUMBER_OF_REGISTERS],
         }
     }
 
@@ -797,7 +797,7 @@ impl RegisterAllocator {
             if let Some(register) = self.values.get_by_left(&value_id) {
                 return Ok((*register, Some(*register), None));
             }
-            for register_index in 0..REGISTER_COUNT {
+            for register_index in 0..NUMBER_OF_REGISTERS {
                 let register = Register::new(register_index)?;
                 if let Allocation::None = self.states[register_index] {
                     if let Ok((source, previous_user)) =
@@ -807,7 +807,7 @@ impl RegisterAllocator {
                     }
                 }
             }
-            for register_index in 0..REGISTER_COUNT {
+            for register_index in 0..NUMBER_OF_REGISTERS {
                 let register = Register::new(register_index)?;
                 if let Allocation::Temporary = self.states[register_index] {
                     if let Ok((source, previous_user)) =
