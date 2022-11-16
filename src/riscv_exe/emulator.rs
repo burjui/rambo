@@ -11,8 +11,8 @@ use riscv_emulator::mmu::MemoryAccessFlags;
 use riscv_emulator::mmu::Mmu;
 use risky::ebreak;
 use risky::FP;
+use risky::NUMBER_OF_REGISTERS;
 use risky::RA;
-use risky::REGISTER_COUNT;
 use risky::SP;
 use risky::ZERO;
 use std::convert::TryFrom;
@@ -86,7 +86,7 @@ pub fn load(executable: &Executable, config: &SimulatorConfig) -> GenericResult<
         Some(&[(0u64, executable.data.as_slice())]),
     );
 
-    for register in 0..u8::try_from(REGISTER_COUNT)? {
+    for register in 0..u8::try_from(NUMBER_OF_REGISTERS)? {
         cpu.write_register(register, 0xAAAA_AAAA);
     }
     cpu.write_register(ZERO.into(), 0);
@@ -253,9 +253,9 @@ fn ui_immediate(value: i32) -> Result<ImmediateI, TryFromIntError> {
 
 fn dump_registers(output: &mut StandardStream, cpu: &Cpu) -> io::Result<()> {
     const REGISTERS_PER_ROW: usize = 4;
-    const REGISTERS_PER_COLUMN: usize = REGISTER_COUNT / REGISTERS_PER_ROW;
+    const REGISTERS_PER_COLUMN: usize = NUMBER_OF_REGISTERS / REGISTERS_PER_ROW;
 
-    for i in 0..REGISTER_COUNT {
+    for i in 0..NUMBER_OF_REGISTERS {
         if i % REGISTERS_PER_ROW == 0 {
             if i > 0 {
                 writeln!(output)?;
