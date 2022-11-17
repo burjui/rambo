@@ -9,7 +9,7 @@ use crate::riscv_exe::DumpState;
 use crate::utils::function_name;
 use crate::utils::{stderr, typecheck};
 use riscv_backend::EnableComments;
-use risky::A0;
+use risky::abi::A0;
 use std::io::Write;
 
 struct BackEndPermutation(usize);

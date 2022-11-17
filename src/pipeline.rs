@@ -23,7 +23,7 @@ use crate::utils::stdout;
 use itertools::Itertools;
 use number_prefix::NumberPrefix;
 use riscv_backend::EnableComments;
-use risky::A0;
+use risky::abi::A0;
 use std::error::Error;
 use std::ffi::OsStr;
 use std::fs::File;
