@@ -390,7 +390,7 @@ impl<'a: 'output, 'output> Backend<'a, 'output> {
                     .checked_sub(i32::try_from(after_jump_to_end)?)
                     .and_then(|difference| difference.checked_add(4)) // j 4(pc)
                     .unwrap();
-                self.patch_jump(jump_to_end, ZERO, end_offset);
+                self.patch_jump(jump_to_end, ZERO, end_offset)?;
                 if after_jump_to_end == self.current_code_offset() {
                     for _ in 0..4 {
                         self.state
@@ -728,14 +728,20 @@ impl<'a: 'output, 'output> Backend<'a, 'output> {
         }
     }
 
-    fn patch_jump(&mut self, patch_offset: u64, rd: Register, offset: i32) {
+    fn patch_jump(
+        &mut self,
+        patch_offset: u64,
+        rd: Register,
+        offset: i32,
+    ) -> Result<(), JImmParseError> {
         self.patch_at(
             patch_offset,
             &match Self::jump_offset(offset) {
-                JumpOffset::Short => [nop(), jal(rd, offset)],
+                JumpOffset::Short => [nop(), jal(rd, offset.try_into()?)],
                 JumpOffset::Long(offset) => [auipc(T0, offset.upper), jalr(rd, T0, offset.lower)],
             },
         );
+        Ok(())
     }
 
     fn current_code_offset(&self) -> u64 {
