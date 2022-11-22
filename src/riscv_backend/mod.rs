@@ -166,7 +166,7 @@ impl<'a: 'output, 'output> Backend<'a, 'output> {
             for (i, &register) in saved_registers.iter().enumerate() {
                 write_code(
                     &mut register_saving_code,
-                    &[sw(SP, -i16::try_from(i * 4)?, register)],
+                    &[sw(SP, (-i16::try_from(i * 4)?).try_into()?, register)],
                 );
             }
             let saved_registers_size = i16::try_from(saved_registers.len() * 4)?;
@@ -375,7 +375,7 @@ impl<'a: 'output, 'output> Backend<'a, 'output> {
                     jump_to_else_branch,
                     &[
                         // FIXME branches have limited range (+-4KiB), consider jump tables
-                        beq(else_branch_offset, ZERO, condition),
+                        beq(else_branch_offset.try_into()?, ZERO, condition),
                     ],
                 );
 
@@ -400,7 +400,7 @@ impl<'a: 'output, 'output> Backend<'a, 'output> {
                     let else_branch_offset = else_branch_offset - 4;
                     self.patch_at(
                         jump_to_else_branch,
-                        &[beq(else_branch_offset, ZERO, condition)],
+                        &[beq(else_branch_offset.try_into()?, ZERO, condition)],
                     );
                 }
 
@@ -446,7 +446,7 @@ impl<'a: 'output, 'output> Backend<'a, 'output> {
                         }
                     }
 
-                    self.push_code(&[jalr(ZERO, RA, IImm::ZERO)]);
+                    self.push_code(&[jalr(ZERO, RA, Imm12::ZERO)]);
                 }
                 Ok(None)
             }
@@ -489,7 +489,7 @@ impl<'a: 'output, 'output> Backend<'a, 'output> {
                 let mut saved_bytes_total = 0;
                 if self.function_id.is_some() {
                     self.tc_comment("Save link and frame");
-                    self.push_code(&[sw(SP, 0, RA), sw(SP, -4, FP)]);
+                    self.push_code(&[sw(SP, Imm12::ZERO, RA), sw(SP, (-4).try_into()?, FP)]);
                     saved_bytes_total += 8;
                 }
 
@@ -505,7 +505,7 @@ impl<'a: 'output, 'output> Backend<'a, 'output> {
                 self.tc_comment("Generate arguments");
                 for (index, argument) in arguments.iter().enumerate() {
                     let register = self.allocate_register(*argument, None)?;
-                    self.push_code(&[sw(FP, -i16::try_from(index * 4)?, register)]);
+                    self.push_code(&[sw(FP, (-i16::try_from(index * 4)?).try_into()?, register)]);
                     self.no_spill.push(register);
                 }
 
@@ -513,14 +513,14 @@ impl<'a: 'output, 'output> Backend<'a, 'output> {
                 self.no_spill.truncate(no_spill_length);
                 let fn_address = self.allocate_register(*function, None).unwrap();
                 // TODO if function is Value::Function then generate a relocation and auipc + jalr instead
-                self.push_code(&[jalr(RA, fn_address, IImm::ZERO)]);
+                self.push_code(&[jalr(RA, fn_address, Imm12::ZERO)]);
 
                 self.tc_comment("Restore stack pointer");
                 self.push_code(&[addi(SP, SP, i16::try_from(saved_bytes_total)?.try_into()?)]);
 
                 if self.function_id.is_some() {
                     self.tc_comment("Restore link and frame");
-                    self.push_code(&[lw(RA, SP, IImm::ZERO), lw(FP, SP, (-4).try_into()?)]);
+                    self.push_code(&[lw(RA, SP, Imm12::ZERO), lw(FP, SP, (-4).try_into()?)]);
                 }
 
                 let register = self.allocate_register(value_id, None)?;
@@ -545,7 +545,7 @@ impl<'a: 'output, 'output> Backend<'a, 'output> {
         let value = ui_immediate(value)?;
         if value.upper == 0 {
             self.push_code(&[addi(register, ZERO, value.lower)]);
-        } else if value.lower == IImm::ZERO {
+        } else if value.lower == Imm12::ZERO {
             self.push_code(&[lui(register, value.upper)]);
         } else {
             self.push_code(&[
@@ -628,7 +628,7 @@ impl<'a: 'output, 'output> Backend<'a, 'output> {
             offset,
             RelocationKind::DataLoad,
         ));
-        self.push_code(&[lui(register, 0), lw(register, register, IImm::ZERO)]);
+        self.push_code(&[lui(register, 0), lw(register, register, Imm12::ZERO)]);
     }
 
     fn store_u32(&mut self, register: Register, offset: u64) {
@@ -638,7 +638,7 @@ impl<'a: 'output, 'output> Backend<'a, 'output> {
             offset,
             RelocationKind::DataStore,
         ));
-        self.push_code(&[lui(T0, 0), sw(T0, 0, register)]);
+        self.push_code(&[lui(T0, 0), sw(T0, Imm12::ZERO, register)]);
     }
 
     fn push_code(&mut self, instructions: &[u32]) -> u64 {
@@ -707,7 +707,7 @@ impl<'a: 'output, 'output> Backend<'a, 'output> {
                     self.state
                         .function_relocations
                         .push((relocation_offset, fn_id.clone()));
-                    self.push_code(&[lui(register, 0), addi(register, register, IImm::ZERO)]);
+                    self.push_code(&[lui(register, 0), addi(register, register, Imm12::ZERO)]);
                 }
 
                 _ => (),
@@ -937,7 +937,7 @@ pub(crate) enum JumpOffset {
 
 pub(crate) struct UIImmediate {
     pub(crate) upper: i32,
-    pub(crate) lower: IImm,
+    pub(crate) lower: Imm12,
 }
 
 pub(crate) fn ui_immediate(value: i32) -> GenericResult<UIImmediate> {
