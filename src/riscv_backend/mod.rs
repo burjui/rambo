@@ -32,7 +32,6 @@ use std::fmt;
 use std::io::Cursor;
 use std::io::Write;
 use std::mem::replace;
-use std::num::TryFromIntError;
 use termcolor::Color;
 use termcolor::ColorSpec;
 use termcolor::StandardStream;
@@ -173,7 +172,7 @@ impl<'a: 'output, 'output> Backend<'a, 'output> {
             let saved_registers_size = i16::try_from(saved_registers.len() * 4)?;
             write_code(
                 &mut register_saving_code,
-                &[addi(SP, SP, -saved_registers_size)],
+                &[addi(SP, SP, (-saved_registers_size).try_into()?)],
             );
 
             let fixup = u64::try_from(register_saving_code.len())?;
@@ -437,13 +436,17 @@ impl<'a: 'output, 'output> Backend<'a, 'output> {
                             .to_string();
                         self.tc_comment(&format!("Restore registers {}", &saved_register_list));
                         let saved_registers_size = i16::try_from(saved_registers.len() * 4)?;
-                        self.push_code(&[addi(SP, SP, saved_registers_size)]);
+                        self.push_code(&[addi(SP, SP, saved_registers_size.try_into()?)]);
                         for (i, &register) in saved_registers.iter().enumerate() {
-                            self.push_code(&[lw(register, SP, -i16::try_from(i * 4).unwrap())]);
+                            self.push_code(&[lw(
+                                register,
+                                SP,
+                                (-i16::try_from(i * 4)?).try_into()?,
+                            )]);
                         }
                     }
 
-                    self.push_code(&[jalr(ZERO, RA, 0)]);
+                    self.push_code(&[jalr(ZERO, RA, IImm::ZERO)]);
                 }
                 Ok(None)
             }
@@ -478,7 +481,7 @@ impl<'a: 'output, 'output> Backend<'a, 'output> {
             Value::Arg(index) => {
                 // FIXME this does not conform to the standard ABI.
                 let register = self.allocate_register(value_id, target)?;
-                self.push_code(&[lw(register, FP, -i16::try_from(*index * 4).unwrap())]);
+                self.push_code(&[lw(register, FP, (-i16::try_from(*index * 4)?).try_into()?)]);
                 Ok(register)
             }
 
@@ -494,8 +497,8 @@ impl<'a: 'output, 'output> Backend<'a, 'output> {
                 saved_bytes_total += arguments.len() * 4;
                 self.tc_comment("Set up frame and stack");
                 self.push_code(&[
-                    addi(FP, SP, -i16::try_from(saved_bytes_env)?),
-                    addi(SP, SP, -i16::try_from(saved_bytes_total)?),
+                    addi(FP, SP, (-i16::try_from(saved_bytes_env)?).try_into()?),
+                    addi(SP, SP, (-i16::try_from(saved_bytes_total)?).try_into()?),
                 ]);
 
                 let no_spill_length = self.no_spill.len();
@@ -510,14 +513,14 @@ impl<'a: 'output, 'output> Backend<'a, 'output> {
                 self.no_spill.truncate(no_spill_length);
                 let fn_address = self.allocate_register(*function, None).unwrap();
                 // TODO if function is Value::Function then generate a relocation and auipc + jalr instead
-                self.push_code(&[jalr(RA, fn_address, 0)]);
+                self.push_code(&[jalr(RA, fn_address, IImm::ZERO)]);
 
                 self.tc_comment("Restore stack pointer");
-                self.push_code(&[addi(SP, SP, i16::try_from(saved_bytes_total).unwrap())]);
+                self.push_code(&[addi(SP, SP, i16::try_from(saved_bytes_total)?.try_into()?)]);
 
                 if self.function_id.is_some() {
                     self.tc_comment("Restore link and frame");
-                    self.push_code(&[lw(RA, SP, 0), lw(FP, SP, -4)]);
+                    self.push_code(&[lw(RA, SP, IImm::ZERO), lw(FP, SP, (-4).try_into()?)]);
                 }
 
                 let register = self.allocate_register(value_id, None)?;
@@ -542,7 +545,7 @@ impl<'a: 'output, 'output> Backend<'a, 'output> {
         let value = ui_immediate(value)?;
         if value.upper == 0 {
             self.push_code(&[addi(register, ZERO, value.lower)]);
-        } else if value.lower == 0 {
+        } else if value.lower == IImm::ZERO {
             self.push_code(&[lui(register, value.upper)]);
         } else {
             self.push_code(&[
@@ -625,7 +628,7 @@ impl<'a: 'output, 'output> Backend<'a, 'output> {
             offset,
             RelocationKind::DataLoad,
         ));
-        self.push_code(&[lui(register, 0), lw(register, register, 0)]);
+        self.push_code(&[lui(register, 0), lw(register, register, IImm::ZERO)]);
     }
 
     fn store_u32(&mut self, register: Register, offset: u64) {
@@ -704,7 +707,7 @@ impl<'a: 'output, 'output> Backend<'a, 'output> {
                     self.state
                         .function_relocations
                         .push((relocation_offset, fn_id.clone()));
-                    self.push_code(&[lui(register, 0), addi(register, register, 0)]);
+                    self.push_code(&[lui(register, 0), addi(register, register, IImm::ZERO)]);
                 }
 
                 _ => (),
@@ -733,7 +736,7 @@ impl<'a: 'output, 'output> Backend<'a, 'output> {
         patch_offset: u64,
         rd: Register,
         offset: i32,
-    ) -> Result<(), JImmParseError> {
+    ) -> Result<(), JImmConvError> {
         self.patch_at(
             patch_offset,
             &match Self::jump_offset(offset) {
@@ -929,20 +932,19 @@ pub(crate) fn write_code(writer: &mut impl Write, code: &[u32]) {
 
 pub(crate) enum JumpOffset {
     Short,
-    Long(ImmediateI),
+    Long(UIImmediate),
 }
 
-pub(crate) struct ImmediateI {
+pub(crate) struct UIImmediate {
     pub(crate) upper: i32,
-    pub(crate) lower: i16,
+    pub(crate) lower: IImm,
 }
 
-#[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)]
-pub(crate) fn ui_immediate(value: i32) -> Result<ImmediateI, TryFromIntError> {
-    if (-(1 << 11)..1 << 11).contains(&value) {
-        Ok(ImmediateI {
+pub(crate) fn ui_immediate(value: i32) -> GenericResult<UIImmediate> {
+    if (-(1 << 11) - 1..1 << 11).contains(&value) {
+        Ok(UIImmediate {
             upper: 0,
-            lower: i16::try_from(value)?,
+            lower: i16::try_from(value)?.try_into()?,
         })
     } else {
         let value = value as u32;
@@ -954,7 +956,10 @@ pub(crate) fn ui_immediate(value: i32) -> Result<ImmediateI, TryFromIntError> {
             let value_rounded = value_rounded + (1 << 12);
             (value_rounded as i32, -i16::try_from(value_rounded - value)?)
         };
-        Ok(ImmediateI { upper, lower })
+        Ok(UIImmediate {
+            upper,
+            lower: lower.try_into()?,
+        })
     }
 }
 
