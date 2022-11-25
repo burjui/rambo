@@ -22,7 +22,6 @@ use riscv_emulator::cpu::Cpu;
 use risky::abi::*;
 use risky::instructions::m_ext::*;
 use risky::instructions::rv32i::*;
-use risky::registers::*;
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
 use std::collections::btree_set::BTreeSet;
@@ -808,7 +807,7 @@ impl RegisterAllocator {
                 return Ok((*register, Some(*register), None));
             }
             for register_index in 0..NUMBER_OF_REGISTERS {
-                let register = Register::new(register_index)?;
+                let register = Register::try_from(register_index)?;
                 if let Allocation::None = self.states[register_index] {
                     if let Ok((source, previous_user)) =
                         self.try_allocate(value_id, register, IsTarget(false), no_spill)
@@ -818,7 +817,7 @@ impl RegisterAllocator {
                 }
             }
             for register_index in 0..NUMBER_OF_REGISTERS {
-                let register = Register::new(register_index)?;
+                let register = Register::try_from(register_index)?;
                 if let Allocation::Temporary = self.states[register_index] {
                     if let Ok((source, previous_user)) =
                         self.try_allocate(value_id, register, IsTarget(false), no_spill)
