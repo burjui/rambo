@@ -1,5 +1,10 @@
-use std::fmt::Debug;
-use std::ops::{Index, IndexMut};
+use std::{
+    fmt::Debug,
+    ops::{
+        Index,
+        IndexMut,
+    },
+};
 
 #[derive(Clone)]
 pub(crate) struct StableVec<T> {

@@ -1,9 +1,18 @@
 use std::{
-    fmt::{Debug, Display},
-    ops::{Index, IndexMut},
+    fmt::{
+        Debug,
+        Display,
+    },
+    ops::{
+        Index,
+        IndexMut,
+    },
 };
 
-use crate::slab::{Slab, SlabIndex};
+use crate::slab::{
+    Slab,
+    SlabIndex,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Hash, PartialOrd, Ord)]
 pub(crate) struct NodeIndex(SlabIndex);

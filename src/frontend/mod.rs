@@ -7,32 +7,46 @@ In: Jhala R., De Bosschere K. (eds) Compiler Construction. CC 2013.
 Lecture Notes in Computer Science, vol 7791. Springer, Berlin, Heidelberg
 */
 
-use crate::frontend::dead_code::remove_dead_code;
-use crate::ir::get_value_operands;
-use crate::ir::replace_value_id;
-use crate::ir::value_storage::ValueId;
-use crate::ir::value_storage::ValueStorage;
-use crate::ir::value_storage::UNDEFINED_VALUE;
-use crate::ir::ControlFlowGraph;
-use crate::ir::FnId;
-use crate::ir::FnIdGenerator;
-use crate::ir::FunctionMap;
-use crate::ir::IRModule;
-use crate::ir::Phi;
-use crate::ir::Statement;
-use crate::ir::StatementLocation;
-use crate::ir::Value;
-use crate::semantics::BindingRef;
-use crate::semantics::ExprRef;
-use crate::semantics::TypedExpr;
-use crate::semantics::TypedStatement;
-use crate::source::Source;
-use crate::stable_graph::Direction;
-use crate::stable_graph::NodeIndex;
-use itertools::Itertools;
-use rustc_hash::FxHashMap;
-use rustc_hash::FxHashSet;
 use std::rc::Rc;
+
+use itertools::Itertools;
+use rustc_hash::{
+    FxHashMap,
+    FxHashSet,
+};
+
+use crate::{
+    frontend::dead_code::remove_dead_code,
+    ir::{
+        get_value_operands,
+        replace_value_id,
+        value_storage::{
+            ValueId,
+            ValueStorage,
+            UNDEFINED_VALUE,
+        },
+        ControlFlowGraph,
+        FnId,
+        FnIdGenerator,
+        FunctionMap,
+        IRModule,
+        Phi,
+        Statement,
+        StatementLocation,
+        Value,
+    },
+    semantics::{
+        BindingRef,
+        ExprRef,
+        TypedExpr,
+        TypedStatement,
+    },
+    source::Source,
+    stable_graph::{
+        Direction,
+        NodeIndex,
+    },
+};
 
 mod dead_code;
 #[cfg(test)]

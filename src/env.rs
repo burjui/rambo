@@ -1,7 +1,9 @@
-use std::cmp::Eq;
-use std::collections::HashMap;
-use std::fmt::Debug;
-use std::hash::Hash;
+use std::{
+    cmp::Eq,
+    collections::HashMap,
+    fmt::Debug,
+    hash::Hash,
+};
 
 pub(crate) struct Environment<Key, Value> {
     scopes: Vec<HashMap<Key, Value>>,

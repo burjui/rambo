@@ -1,25 +1,45 @@
-use crate::riscv_exe::executable::Executable;
-use crate::riscv_exe::RelocationKind;
-use crate::utils::stdout;
-use crate::utils::GenericResult;
-use byteorder::LittleEndian;
-use byteorder::ReadBytesExt;
-use byteorder::WriteBytesExt;
 use core::num::TryFromIntError;
-use riscv_emulator::cpu::Cpu;
-use riscv_emulator::mmu::MemoryAccessFlags;
-use riscv_emulator::mmu::Mmu;
-use risky::abi::*;
-use risky::instructions::rv32i::ebreak;
-use risky::registers::NUMBER_OF_REGISTERS;
-use std::convert::TryFrom;
-use std::io;
-use std::io::Write;
-use std::ops::Range;
-use termcolor::Color;
-use termcolor::ColorSpec;
-use termcolor::StandardStream;
-use termcolor::WriteColor;
+use std::{
+    convert::TryFrom,
+    io,
+    io::Write,
+    ops::Range,
+};
+
+use byteorder::{
+    LittleEndian,
+    ReadBytesExt,
+    WriteBytesExt,
+};
+use riscv_emulator::{
+    cpu::Cpu,
+    mmu::{
+        MemoryAccessFlags,
+        Mmu,
+    },
+};
+use risky::{
+    abi::*,
+    instructions::rv32i::ebreak,
+    registers::NUMBER_OF_REGISTERS,
+};
+use termcolor::{
+    Color,
+    ColorSpec,
+    StandardStream,
+    WriteColor,
+};
+
+use crate::{
+    riscv_exe::{
+        executable::Executable,
+        RelocationKind,
+    },
+    utils::{
+        stdout,
+        GenericResult,
+    },
+};
 
 pub fn load(executable: &Executable, config: &SimulatorConfig) -> GenericResult<Cpu> {
     let mut cpu = Cpu::new();

@@ -1,26 +1,42 @@
-use crate::ir::value_storage::ValueId;
-use crate::ir::value_storage::ValueStorage;
-use crate::source::Source;
-use crate::stable_graph::Direction;
-use crate::stable_graph::Edge;
-use crate::stable_graph::EdgeIndex;
-use crate::stable_graph::NodeIndex;
-use crate::stable_graph::StableGraph;
-use crate::stable_vec::StableVec;
 use core::cmp;
+use std::{
+    fmt,
+    hash::{
+        Hash,
+        Hasher,
+    },
+    io::Write,
+    iter::{
+        empty,
+        once,
+    },
+    ops::{
+        Deref,
+        DerefMut,
+        Index,
+        IndexMut,
+    },
+    rc::Rc,
+};
+
 use itertools::Itertools;
 use rustc_hash::FxHashMap;
-use std::fmt;
-use std::hash::Hash;
-use std::hash::Hasher;
-use std::io::Write;
-use std::iter::empty;
-use std::iter::once;
-use std::ops::Deref;
-use std::ops::DerefMut;
-use std::ops::Index;
-use std::ops::IndexMut;
-use std::rc::Rc;
+
+use crate::{
+    ir::value_storage::{
+        ValueId,
+        ValueStorage,
+    },
+    source::Source,
+    stable_graph::{
+        Direction,
+        Edge,
+        EdgeIndex,
+        NodeIndex,
+        StableGraph,
+    },
+    stable_vec::StableVec,
+};
 
 pub(crate) mod eval;
 pub(crate) mod value_storage;

@@ -1,40 +1,64 @@
-use crate::ir::value_storage::ValueId;
-use crate::ir::FnId;
-use crate::ir::IRModule;
-use crate::ir::Phi;
-use crate::ir::Statement;
-use crate::ir::Value;
-use crate::riscv_exe::Executable;
-use crate::riscv_exe::Relocation;
-use crate::riscv_exe::RelocationKind;
-use crate::stable_graph::Direction;
-use crate::stable_graph::NodeIndex;
-use crate::utils::function;
-use crate::utils::impl_deref_for_newtype;
-use crate::utils::GenericResult;
-use crate::utils::VecUtils;
+use std::{
+    collections::btree_set::BTreeSet,
+    convert::TryFrom,
+    error::Error,
+    fmt,
+    io::{
+        Cursor,
+        Write,
+    },
+    mem::replace,
+};
+
 use bimap::BiMap;
-use byteorder::LittleEndian;
-use byteorder::ReadBytesExt;
-use byteorder::WriteBytesExt;
+use byteorder::{
+    LittleEndian,
+    ReadBytesExt,
+    WriteBytesExt,
+};
 use itertools::Itertools;
 use riscv_emulator::cpu::Cpu;
-use risky::abi::*;
-use risky::instructions::m_ext::*;
-use risky::instructions::rv32i::*;
+use risky::{
+    abi::*,
+    instructions::{
+        m_ext::*,
+        rv32i::*,
+    },
+};
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
-use std::collections::btree_set::BTreeSet;
-use std::convert::TryFrom;
-use std::error::Error;
-use std::fmt;
-use std::io::Cursor;
-use std::io::Write;
-use std::mem::replace;
-use termcolor::Color;
-use termcolor::ColorSpec;
-use termcolor::StandardStream;
-use termcolor::WriteColor;
+use termcolor::{
+    Color,
+    ColorSpec,
+    StandardStream,
+    WriteColor,
+};
+
+use crate::{
+    ir::{
+        value_storage::ValueId,
+        FnId,
+        IRModule,
+        Phi,
+        Statement,
+        Value,
+    },
+    riscv_exe::{
+        Executable,
+        Relocation,
+        RelocationKind,
+    },
+    stable_graph::{
+        Direction,
+        NodeIndex,
+    },
+    utils::{
+        function,
+        impl_deref_for_newtype,
+        GenericResult,
+        VecUtils,
+    },
+};
 
 #[cfg(test)]
 mod tests;

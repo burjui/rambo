@@ -1,7 +1,13 @@
-use std::alloc::GlobalAlloc;
-use std::alloc::Layout;
-use std::sync::atomic::AtomicUsize;
-use std::sync::atomic::Ordering;
+use std::{
+    alloc::{
+        GlobalAlloc,
+        Layout,
+    },
+    sync::atomic::{
+        AtomicUsize,
+        Ordering,
+    },
+};
 
 pub struct TrackingAllocator<Allocator> {
     allocator: Allocator,

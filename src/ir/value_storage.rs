@@ -1,8 +1,15 @@
-use crate::ir::Value;
-use crate::utils::RetainIndices;
-use std::fmt;
-use std::ops::Index;
-use std::ops::IndexMut;
+use std::{
+    fmt,
+    ops::{
+        Index,
+        IndexMut,
+    },
+};
+
+use crate::{
+    ir::Value,
+    utils::RetainIndices,
+};
 
 #[derive(Clone)]
 pub(crate) struct ValueStorage {

@@ -1,24 +1,38 @@
-use crate::ir::value_storage::ValueId;
-use crate::ir::value_storage::ValueStorage;
-use crate::ir::ControlFlowGraph;
-use crate::ir::IRModule;
-use crate::ir::Phi;
-use crate::ir::Statement;
-use crate::ir::Value;
-use crate::stable_graph::NodeIndex;
 use core::fmt::Write;
+use std::{
+    fmt,
+    fs::File,
+    io,
+    io::{
+        BufWriter,
+        Write as _,
+    },
+    iter::{
+        once,
+        FlatMap,
+        Once,
+    },
+    mem::replace,
+    path::Path,
+    str::Chars,
+};
+
 use itertools::Itertools;
-use std::fmt;
-use std::fs::File;
-use std::io;
-use std::io::BufWriter;
-use std::io::Write as _;
-use std::iter::once;
-use std::iter::FlatMap;
-use std::iter::Once;
-use std::mem::replace;
-use std::path::Path;
-use std::str::Chars;
+
+use crate::{
+    ir::{
+        value_storage::{
+            ValueId,
+            ValueStorage,
+        },
+        ControlFlowGraph,
+        IRModule,
+        Phi,
+        Statement,
+        Value,
+    },
+    stable_graph::NodeIndex,
+};
 
 pub(crate) struct IrGraphvizFile {
     output: BufWriter<File>,
