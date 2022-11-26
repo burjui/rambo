@@ -1,6 +1,9 @@
 use std::{
     fmt::Display,
-    ops::{Index, IndexMut},
+    ops::{
+        Index,
+        IndexMut,
+    },
 };
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Debug)]

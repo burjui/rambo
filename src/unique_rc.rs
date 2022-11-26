@@ -1,8 +1,12 @@
-use std::fmt;
-use std::hash::Hash;
-use std::hash::Hasher;
-use std::ops::Deref;
-use std::ptr;
+use std::{
+    fmt,
+    hash::{
+        Hash,
+        Hasher,
+    },
+    ops::Deref,
+    ptr,
+};
 
 pub(crate) struct StaticRef<T: ?Sized + 'static>(&'static T);
 

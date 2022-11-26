@@ -1,9 +1,14 @@
+use std::{
+    error::Error,
+    fmt::{
+        Debug,
+        Display,
+        Formatter,
+    },
+    ops::Range,
+};
+
 use crate::unique_rc::StaticRef;
-use std::error::Error;
-use std::fmt::Debug;
-use std::fmt::Display;
-use std::fmt::Formatter;
-use std::ops::Range;
 
 #[derive(Copy, Clone)]
 pub(crate) struct Position {
@@ -77,9 +82,13 @@ pub(crate) struct SourceFile {
 
 impl SourceFile {
     pub(crate) fn load(path: &str) -> Result<SourceFileRef, Box<dyn Error>> {
-        use std::fs::File;
-        use std::io::BufReader;
-        use std::io::Read;
+        use std::{
+            fs::File,
+            io::{
+                BufReader,
+                Read,
+            },
+        };
 
         let file = File::open(path)?;
         let mut buf_reader = BufReader::new(file);

@@ -1,7 +1,10 @@
+use std::{
+    cmp::Eq,
+    fmt::Debug,
+    hash::Hash,
+};
+
 use rustc_hash::FxHashMap;
-use std::cmp::Eq;
-use std::fmt::Debug;
-use std::hash::Hash;
 
 pub(crate) struct Environment<Key, Value> {
     scopes: Vec<FxHashMap<Key, Value>>,

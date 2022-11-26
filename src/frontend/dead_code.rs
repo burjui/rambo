@@ -1,21 +1,35 @@
-use crate::ir::get_statement_operands_mut;
-use crate::ir::get_statement_value_operands;
-use crate::ir::get_value_operands_mut;
-use crate::ir::value_storage::ValueId;
-use crate::ir::value_storage::ValueStorage;
-use crate::ir::BasicBlock;
-use crate::ir::ControlFlowGraph;
-use crate::ir::FunctionMap;
-use crate::ir::Statement;
-use crate::ir::StatementLocation;
-use crate::ir::Value;
-use crate::stable_graph::Direction;
-use crate::stable_graph::NodeIndex;
+use std::{
+    iter::{
+        once,
+        repeat,
+    },
+    mem::replace,
+};
+
 use itertools::Itertools;
 use rustc_hash::FxHashMap;
-use std::iter::once;
-use std::iter::repeat;
-use std::mem::replace;
+
+use crate::{
+    ir::{
+        get_statement_operands_mut,
+        get_statement_value_operands,
+        get_value_operands_mut,
+        value_storage::{
+            ValueId,
+            ValueStorage,
+        },
+        BasicBlock,
+        ControlFlowGraph,
+        FunctionMap,
+        Statement,
+        StatementLocation,
+        Value,
+    },
+    stable_graph::{
+        Direction,
+        NodeIndex,
+    },
+};
 
 pub(crate) fn remove_dead_code(
     entry_block: NodeIndex,

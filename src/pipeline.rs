@@ -1,39 +1,63 @@
-use crate::frontend::FrontEnd;
-use crate::frontend::FrontEndState;
-use crate::graphviz::IrGraphvizFile;
-use crate::ir::eval::eval;
-use crate::ir::fmt_statement;
-use crate::ir::IRModule;
-use crate::ir::Value;
-use crate::lexer::Lexer;
-use crate::parser::Block;
-use crate::parser::Parser;
-use crate::riscv_backend;
-use crate::riscv_backend::DumpCode;
-use crate::riscv_backend::EnableImmediateIntegers;
-use crate::riscv_exe::run;
-use crate::riscv_exe::DumpState;
-use crate::riscv_exe::Executable;
-use crate::semantics::EnableWarnings;
-use crate::semantics::ExprRef;
-use crate::semantics::SemanticsChecker;
-use crate::source::SourceFile;
-use crate::source::SourceFileRef;
-use crate::utils::stdout;
+use std::{
+    error::Error,
+    ffi::OsStr,
+    fs::File,
+    io::{
+        BufWriter,
+        Write,
+    },
+    path::Path,
+};
+
 use itertools::Itertools;
 use number_prefix::NumberPrefix;
 use riscv_backend::EnableComments;
 use risky::abi::A0;
-use std::error::Error;
-use std::ffi::OsStr;
-use std::fs::File;
-use std::io::BufWriter;
-use std::io::Write;
-use std::path::Path;
-use termcolor::Color;
-use termcolor::ColorSpec;
-use termcolor::StandardStream;
-use termcolor::WriteColor;
+use termcolor::{
+    Color,
+    ColorSpec,
+    StandardStream,
+    WriteColor,
+};
+
+use crate::{
+    frontend::{
+        FrontEnd,
+        FrontEndState,
+    },
+    graphviz::IrGraphvizFile,
+    ir::{
+        eval::eval,
+        fmt_statement,
+        IRModule,
+        Value,
+    },
+    lexer::Lexer,
+    parser::{
+        Block,
+        Parser,
+    },
+    riscv_backend,
+    riscv_backend::{
+        DumpCode,
+        EnableImmediateIntegers,
+    },
+    riscv_exe::{
+        run,
+        DumpState,
+        Executable,
+    },
+    semantics::{
+        EnableWarnings,
+        ExprRef,
+        SemanticsChecker,
+    },
+    source::{
+        SourceFile,
+        SourceFileRef,
+    },
+    utils::stdout,
+};
 
 #[derive(Clone)]
 #[allow(clippy::struct_excessive_bools)]

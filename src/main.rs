@@ -1,27 +1,40 @@
 #![feature(decl_macro)]
 
-use crate::pipeline::EvaluateIR;
-use crate::pipeline::Load;
-use crate::pipeline::Parse;
-use crate::pipeline::Pipeline;
-use crate::pipeline::PipelineOptions;
-use crate::pipeline::RISCVBackend;
-use crate::pipeline::RISCVEmulator;
-use crate::pipeline::StandardStreamUtils;
-use crate::pipeline::VerifySemantics;
-use crate::pipeline::COMPILER_PASS_NAMES;
-use crate::pipeline::IR;
-use crate::utils::{stderr, stdout};
+use std::{
+    alloc::System,
+    env::args as program_args,
+    error::Error,
+    io::Write,
+};
+
 use elapsed::measure_time;
 use getopts::Options;
 use number_prefix::NumberPrefix;
-use std::alloc::System;
-use std::env::args as program_args;
-use std::error::Error;
-use std::io::Write;
-use termcolor::Color;
-use termcolor::ColorSpec;
-use termcolor::WriteColor;
+use termcolor::{
+    Color,
+    ColorSpec,
+    WriteColor,
+};
+
+use crate::{
+    pipeline::{
+        EvaluateIR,
+        Load,
+        Parse,
+        Pipeline,
+        PipelineOptions,
+        RISCVBackend,
+        RISCVEmulator,
+        StandardStreamUtils,
+        VerifySemantics,
+        COMPILER_PASS_NAMES,
+        IR,
+    },
+    utils::{
+        stderr,
+        stdout,
+    },
+};
 
 mod ir;
 mod riscv_backend;

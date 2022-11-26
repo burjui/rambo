@@ -1,16 +1,29 @@
-use crate::frontend::FrontEnd;
-use crate::frontend::FrontEndState;
-use crate::graphviz::IrGraphvizFile;
-use crate::riscv_backend;
-use crate::riscv_backend::DumpCode;
-use crate::riscv_backend::EnableImmediateIntegers;
-use crate::riscv_exe::run;
-use crate::riscv_exe::DumpState;
-use crate::utils::function_name;
-use crate::utils::{stderr, typecheck};
+use std::io::Write;
+
 use riscv_backend::EnableComments;
 use risky::abi::A0;
-use std::io::Write;
+
+use crate::{
+    frontend::{
+        FrontEnd,
+        FrontEndState,
+    },
+    graphviz::IrGraphvizFile,
+    riscv_backend,
+    riscv_backend::{
+        DumpCode,
+        EnableImmediateIntegers,
+    },
+    riscv_exe::{
+        run,
+        DumpState,
+    },
+    utils::{
+        function_name,
+        stderr,
+        typecheck,
+    },
+};
 
 struct BackEndPermutation(usize);
 

@@ -1,23 +1,35 @@
-use crate::env::Environment;
-use crate::parser::BinaryOperation;
-use crate::parser::Block as ASTBlock;
-use crate::parser::Expr;
-use crate::parser::Parameter;
-use crate::parser::Statement;
-use crate::source::Source;
-use crate::unique_rc::StaticRef;
-use crate::utils::error;
-use crate::utils::warning;
-use crate::utils::warning_at;
 use core::ops::RangeFrom;
+use std::{
+    error::Error,
+    fmt::{
+        Debug,
+        Formatter,
+    },
+    mem::replace,
+    ops::Deref,
+    rc::Rc,
+};
+
 use itertools::Itertools;
 use rustc_hash::FxHashMap;
-use std::error::Error;
-use std::fmt::Debug;
-use std::fmt::Formatter;
-use std::mem::replace;
-use std::ops::Deref;
-use std::rc::Rc;
+
+use crate::{
+    env::Environment,
+    parser::{
+        BinaryOperation,
+        Block as ASTBlock,
+        Expr,
+        Parameter,
+        Statement,
+    },
+    source::Source,
+    unique_rc::StaticRef,
+    utils::{
+        error,
+        warning,
+        warning_at,
+    },
+};
 
 pub(crate) struct EnableWarnings(pub(crate) bool);
 

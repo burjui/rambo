@@ -1,17 +1,28 @@
+use std::{
+    error::Error,
+    fmt::{
+        Debug,
+        Formatter,
+        Write,
+    },
+};
+
 use rustc_hash::FxHashMap;
 
-use crate::lexer::Lexeme;
-use crate::lexer::Lexer;
-use crate::lexer::LexerStats;
-use crate::lexer::Token;
-use crate::semantics::FunctionType;
-use crate::semantics::FunctionTypeRef;
-use crate::semantics::Type;
-use crate::source::Source;
-use std::error::Error;
-use std::fmt::Debug;
-use std::fmt::Formatter;
-use std::fmt::Write;
+use crate::{
+    lexer::{
+        Lexeme,
+        Lexer,
+        LexerStats,
+        Token,
+    },
+    semantics::{
+        FunctionType,
+        FunctionTypeRef,
+        Type,
+    },
+    source::Source,
+};
 
 #[derive(Clone)]
 pub(crate) struct Parameter {

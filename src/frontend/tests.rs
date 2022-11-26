@@ -1,13 +1,29 @@
-use std::iter::{once, Chain, Once};
-use std::rc::Rc;
+use std::{
+    iter::{
+        once,
+        Chain,
+        Once,
+    },
+    rc::Rc,
+};
 
-use crate::frontend::FrontEnd;
-use crate::frontend::FrontEndState;
-use crate::graphviz::IrGraphvizFile;
-use crate::ir::eval::eval;
-use crate::ir::Value;
-use crate::ir::{FunctionMap, IRModule};
-use crate::utils::{function_name, typecheck};
+use crate::{
+    frontend::{
+        FrontEnd,
+        FrontEndState,
+    },
+    graphviz::IrGraphvizFile,
+    ir::{
+        eval::eval,
+        FunctionMap,
+        IRModule,
+        Value,
+    },
+    utils::{
+        function_name,
+        typecheck,
+    },
+};
 
 #[test]
 fn generic() {

@@ -1,20 +1,34 @@
-use crate::ir::value_storage::ValueId;
-use crate::ir::FunctionMap;
-use crate::ir::IRModule;
-use crate::ir::Statement;
-use crate::ir::Value;
-use crate::stable_graph::Direction;
-use crate::stable_graph::NodeIndex;
-use core::convert::TryFrom;
-use core::convert::TryInto;
+use core::convert::{
+    TryFrom,
+    TryInto,
+};
+use std::{
+    mem::replace,
+    ops::{
+        Deref,
+        DerefMut,
+        Index,
+        IndexMut,
+    },
+    rc::Rc,
+};
+
 use itertools::Itertools;
 use rustc_hash::FxHashMap;
-use std::mem::replace;
-use std::ops::Deref;
-use std::ops::DerefMut;
-use std::ops::Index;
-use std::ops::IndexMut;
-use std::rc::Rc;
+
+use crate::{
+    ir::{
+        value_storage::ValueId,
+        FunctionMap,
+        IRModule,
+        Statement,
+        Value,
+    },
+    stable_graph::{
+        Direction,
+        NodeIndex,
+    },
+};
 
 pub(crate) fn eval(module: &IRModule) -> Value {
     EvalContext::new(module, &module.functions).eval()
