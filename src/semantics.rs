@@ -1,10 +1,7 @@
 use core::ops::RangeFrom;
 use std::{
     error::Error,
-    fmt::{
-        Debug,
-        Formatter,
-    },
+    fmt::{Debug, Formatter},
     mem::replace,
     ops::Deref,
     rc::Rc,
@@ -15,20 +12,10 @@ use rustc_hash::FxHashMap;
 
 use crate::{
     env::Environment,
-    parser::{
-        BinaryOperation,
-        Block as ASTBlock,
-        Expr,
-        Parameter,
-        Statement,
-    },
+    parser::{BinaryOperation, Block as ASTBlock, Expr, Parameter, Statement},
     source::Source,
     unique_rc::UniqueRc,
-    utils::{
-        error,
-        warning,
-        warning_at,
-    },
+    utils::{error, warning, warning_at},
 };
 
 pub(crate) struct EnableWarnings(pub(crate) bool);

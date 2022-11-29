@@ -1,26 +1,13 @@
 use std::{
     error::Error,
-    fmt::{
-        Debug,
-        Formatter,
-        Write,
-    },
+    fmt::{Debug, Formatter, Write},
 };
 
 use rustc_hash::FxHashMap;
 
 use crate::{
-    lexer::{
-        Lexeme,
-        Lexer,
-        LexerStats,
-        Token,
-    },
-    semantics::{
-        FunctionType,
-        FunctionTypeRef,
-        Type,
-    },
+    lexer::{Lexeme, Lexer, LexerStats, Token},
+    semantics::{FunctionType, FunctionTypeRef, Type},
     source::Source,
 };
 

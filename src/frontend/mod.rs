@@ -10,21 +10,14 @@ Lecture Notes in Computer Science, vol 7791. Springer, Berlin, Heidelberg
 use std::rc::Rc;
 
 use itertools::Itertools;
-use rustc_hash::{
-    FxHashMap,
-    FxHashSet,
-};
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::{
     frontend::dead_code::remove_dead_code,
     ir::{
         get_value_operands,
         replace_value_id,
-        value_storage::{
-            ValueId,
-            ValueStorage,
-            UNDEFINED_VALUE,
-        },
+        value_storage::{ValueId, ValueStorage, UNDEFINED_VALUE},
         ControlFlowGraph,
         FnId,
         FnIdGenerator,
@@ -35,17 +28,9 @@ use crate::{
         StatementLocation,
         Value,
     },
-    semantics::{
-        BindingRef,
-        ExprRef,
-        TypedExpr,
-        TypedStatement,
-    },
+    semantics::{BindingRef, ExprRef, TypedExpr, TypedStatement},
     source::Source,
-    stable_graph::{
-        Direction,
-        NodeIndex,
-    },
+    stable_graph::{Direction, NodeIndex},
 };
 
 mod dead_code;

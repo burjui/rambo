@@ -1,9 +1,5 @@
 use std::{
-    iter::{
-        once,
-        repeat,
-        FromIterator,
-    },
+    iter::{once, repeat, FromIterator},
     mem::replace,
 };
 
@@ -15,10 +11,7 @@ use crate::{
         get_statement_operands_mut,
         get_statement_value_operands,
         get_value_operands_mut,
-        value_storage::{
-            ValueId,
-            ValueStorage,
-        },
+        value_storage::{ValueId, ValueStorage},
         BasicBlock,
         ControlFlowGraph,
         FunctionMap,
@@ -26,10 +19,7 @@ use crate::{
         StatementLocation,
         Value,
     },
-    stable_graph::{
-        Direction,
-        NodeIndex,
-    },
+    stable_graph::{Direction, NodeIndex},
 };
 
 pub(crate) fn remove_dead_code(

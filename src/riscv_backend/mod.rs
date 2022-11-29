@@ -3,61 +3,27 @@ use std::{
     convert::TryFrom,
     error::Error,
     fmt,
-    io::{
-        Cursor,
-        Write,
-    },
+    io::{Cursor, Write},
     mem::replace,
 };
 
 use bimap::BiMap;
-use byteorder::{
-    LittleEndian,
-    ReadBytesExt,
-    WriteBytesExt,
-};
+use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use itertools::Itertools;
 use riscv_emulator::cpu::Cpu;
 use risky::{
     abi::*,
-    instructions::{
-        m_ext::*,
-        rv32i::*,
-    },
+    instructions::{m_ext::*, rv32i::*},
 };
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
-use termcolor::{
-    Color,
-    ColorSpec,
-    StandardStream,
-    WriteColor,
-};
+use termcolor::{Color, ColorSpec, StandardStream, WriteColor};
 
 use crate::{
-    ir::{
-        value_storage::ValueId,
-        FnId,
-        IRModule,
-        Phi,
-        Statement,
-        Value,
-    },
-    riscv_exe::{
-        Executable,
-        Relocation,
-        RelocationKind,
-    },
-    stable_graph::{
-        Direction,
-        NodeIndex,
-    },
-    utils::{
-        function,
-        impl_deref_for_newtype,
-        GenericResult,
-        VecUtils,
-    },
+    ir::{value_storage::ValueId, FnId, IRModule, Phi, Statement, Value},
+    riscv_exe::{Executable, Relocation, RelocationKind},
+    stable_graph::{Direction, NodeIndex},
+    utils::{function, impl_deref_for_newtype, GenericResult, VecUtils},
 };
 
 #[cfg(test)]

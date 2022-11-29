@@ -1,28 +1,13 @@
 use std::{
-    iter::{
-        once,
-        Chain,
-        Once,
-    },
+    iter::{once, Chain, Once},
     rc::Rc,
 };
 
 use crate::{
-    frontend::{
-        FrontEnd,
-        FrontEndState,
-    },
+    frontend::{FrontEnd, FrontEndState},
     graphviz::IrGraphvizFile,
-    ir::{
-        eval::eval,
-        FunctionMap,
-        IRModule,
-        Value,
-    },
-    utils::{
-        function_name,
-        typecheck,
-    },
+    ir::{eval::eval, FunctionMap, IRModule, Value},
+    utils::{function_name, typecheck},
 };
 
 #[test]

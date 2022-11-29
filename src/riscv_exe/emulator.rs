@@ -1,44 +1,17 @@
 use core::num::TryFromIntError;
-use std::{
-    convert::TryFrom,
-    io,
-    io::Write,
-    ops::Range,
-};
+use std::{convert::TryFrom, io, io::Write, ops::Range};
 
-use byteorder::{
-    LittleEndian,
-    ReadBytesExt,
-    WriteBytesExt,
-};
+use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use riscv_emulator::{
     cpu::Cpu,
-    mmu::{
-        MemoryAccessFlags,
-        Mmu,
-    },
+    mmu::{MemoryAccessFlags, Mmu},
 };
-use risky::{
-    abi::*,
-    instructions::rv32i::ebreak,
-    registers::NUMBER_OF_REGISTERS,
-};
-use termcolor::{
-    Color,
-    ColorSpec,
-    StandardStream,
-    WriteColor,
-};
+use risky::{abi::*, instructions::rv32i::ebreak, registers::NUMBER_OF_REGISTERS};
+use termcolor::{Color, ColorSpec, StandardStream, WriteColor};
 
 use crate::{
-    riscv_exe::{
-        executable::Executable,
-        RelocationKind,
-    },
-    utils::{
-        stdout,
-        GenericResult,
-    },
+    riscv_exe::{executable::Executable, RelocationKind},
+    utils::{stdout, GenericResult},
 };
 
 pub fn load(executable: &Executable, config: &SimulatorConfig) -> GenericResult<Cpu> {

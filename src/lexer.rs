@@ -1,10 +1,6 @@
 use std::{
     error::Error,
-    fmt::{
-        Debug,
-        Display,
-        Formatter,
-    },
+    fmt::{Debug, Display, Formatter},
     iter::once,
     ops::Range,
 };
@@ -12,10 +8,7 @@ use std::{
 use itertools::Itertools;
 
 use crate::{
-    source::{
-        Source,
-        SourceFileRef,
-    },
+    source::{Source, SourceFileRef},
     utils::error,
 };
 

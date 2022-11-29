@@ -1,15 +1,7 @@
-use core::convert::{
-    TryFrom,
-    TryInto,
-};
+use core::convert::{TryFrom, TryInto};
 use std::{
     mem::replace,
-    ops::{
-        Deref,
-        DerefMut,
-        Index,
-        IndexMut,
-    },
+    ops::{Deref, DerefMut, Index, IndexMut},
     rc::Rc,
 };
 
@@ -17,17 +9,8 @@ use itertools::Itertools;
 use rustc_hash::FxHashMap;
 
 use crate::{
-    ir::{
-        value_storage::ValueId,
-        FunctionMap,
-        IRModule,
-        Statement,
-        Value,
-    },
-    stable_graph::{
-        Direction,
-        NodeIndex,
-    },
+    ir::{value_storage::ValueId, FunctionMap, IRModule, Statement, Value},
+    stable_graph::{Direction, NodeIndex},
 };
 
 pub(crate) fn eval(module: &IRModule) -> Value {

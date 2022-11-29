@@ -1,9 +1,6 @@
 use std::{
     fmt::Debug,
-    ops::{
-        Index,
-        IndexMut,
-    },
+    ops::{Index, IndexMut},
 };
 
 #[derive(Clone)]

@@ -3,15 +3,8 @@ use std::{
     fmt,
     fs::File,
     io,
-    io::{
-        BufWriter,
-        Write as _,
-    },
-    iter::{
-        once,
-        FlatMap,
-        Once,
-    },
+    io::{BufWriter, Write as _},
+    iter::{once, FlatMap, Once},
     mem::replace,
     path::Path,
     str::Chars,
@@ -21,10 +14,7 @@ use itertools::Itertools;
 
 use crate::{
     ir::{
-        value_storage::{
-            ValueId,
-            ValueStorage,
-        },
+        value_storage::{ValueId, ValueStorage},
         ControlFlowGraph,
         IRModule,
         Phi,

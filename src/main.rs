@@ -1,20 +1,11 @@
 #![feature(decl_macro)]
 
-use std::{
-    alloc::System,
-    env::args as program_args,
-    error::Error,
-    io::Write,
-};
+use std::{alloc::System, env::args as program_args, error::Error, io::Write};
 
 use elapsed::measure_time;
 use getopts::Options;
 use number_prefix::NumberPrefix;
-use termcolor::{
-    Color,
-    ColorSpec,
-    WriteColor,
-};
+use termcolor::{Color, ColorSpec, WriteColor};
 
 use crate::{
     pipeline::{
@@ -30,10 +21,7 @@ use crate::{
         COMPILER_PASS_NAMES,
         IR,
     },
-    utils::{
-        stderr,
-        stdout,
-    },
+    utils::{stderr, stdout},
 };
 
 mod ir;
