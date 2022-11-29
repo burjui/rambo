@@ -351,7 +351,7 @@ impl CompilerPass<Executable, ()> for RISCVEmulator {
         let cpu = run(&image, dump_state)?;
         if options.verbosity >= 1 {
             let result = cpu.read_register(A0.into());
-            writeln!(stdout, "result at x{} = 0x{:08x} ({})", A0, result, result,)?;
+            writeln!(stdout, "result at {} = 0x{:08x} ({})", A0, result, result,)?;
         }
         Ok(())
     }
