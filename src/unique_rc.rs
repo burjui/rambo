@@ -1,9 +1,6 @@
 use std::{
     fmt,
-    hash::{
-        Hash,
-        Hasher,
-    },
+    hash::{Hash, Hasher},
     ops::Deref,
     ptr,
 };

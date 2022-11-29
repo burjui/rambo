@@ -1,7 +1,4 @@
-use bincode::{
-    Decode,
-    Encode,
-};
+use bincode::{Decode, Encode};
 
 #[derive(Encode, Decode)]
 pub struct Executable {

@@ -1,10 +1,6 @@
 use std::{
     error::Error,
-    fmt::{
-        Debug,
-        Display,
-        Formatter,
-    },
+    fmt::{Debug, Display, Formatter},
     ops::Range,
 };
 
@@ -84,10 +80,7 @@ impl SourceFile {
     pub(crate) fn load(path: &str) -> Result<SourceFileRef, Box<dyn Error>> {
         use std::{
             fs::File,
-            io::{
-                BufReader,
-                Read,
-            },
+            io::{BufReader, Read},
         };
 
         let file = File::open(path)?;

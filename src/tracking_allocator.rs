@@ -1,12 +1,6 @@
 use std::{
-    alloc::{
-        GlobalAlloc,
-        Layout,
-    },
-    sync::atomic::{
-        AtomicUsize,
-        Ordering,
-    },
+    alloc::{GlobalAlloc, Layout},
+    sync::atomic::{AtomicUsize, Ordering},
 };
 
 pub struct TrackingAllocator<Allocator> {

@@ -2,10 +2,7 @@ use std::{
     error::Error,
     ffi::OsStr,
     fs::File,
-    io::{
-        BufWriter,
-        Write,
-    },
+    io::{BufWriter, Write},
     path::Path,
 };
 
@@ -13,49 +10,19 @@ use itertools::Itertools;
 use number_prefix::NumberPrefix;
 use riscv_backend::EnableComments;
 use risky::abi::A0;
-use termcolor::{
-    Color,
-    ColorSpec,
-    StandardStream,
-    WriteColor,
-};
+use termcolor::{Color, ColorSpec, StandardStream, WriteColor};
 
 use crate::{
-    frontend::{
-        FrontEnd,
-        FrontEndState,
-    },
+    frontend::{FrontEnd, FrontEndState},
     graphviz::IrGraphvizFile,
-    ir::{
-        eval::eval,
-        fmt_statement,
-        IRModule,
-        Value,
-    },
+    ir::{eval::eval, fmt_statement, IRModule, Value},
     lexer::Lexer,
-    parser::{
-        Block,
-        Parser,
-    },
+    parser::{Block, Parser},
     riscv_backend,
-    riscv_backend::{
-        DumpCode,
-        EnableImmediateIntegers,
-    },
-    riscv_exe::{
-        run,
-        DumpState,
-        Executable,
-    },
-    semantics::{
-        EnableWarnings,
-        ExprRef,
-        SemanticsChecker,
-    },
-    source::{
-        SourceFile,
-        SourceFileRef,
-    },
+    riscv_backend::{DumpCode, EnableImmediateIntegers},
+    riscv_exe::{run, DumpState, Executable},
+    semantics::{EnableWarnings, ExprRef, SemanticsChecker},
+    source::{SourceFile, SourceFileRef},
     utils::stdout,
 };
 

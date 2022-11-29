@@ -1,8 +1,4 @@
-use std::{
-    cmp::Eq,
-    fmt::Debug,
-    hash::Hash,
-};
+use std::{cmp::Eq, fmt::Debug, hash::Hash};
 
 use rustc_hash::FxHashMap;
 

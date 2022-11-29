@@ -4,25 +4,12 @@ use riscv_backend::EnableComments;
 use risky::abi::A0;
 
 use crate::{
-    frontend::{
-        FrontEnd,
-        FrontEndState,
-    },
+    frontend::{FrontEnd, FrontEndState},
     graphviz::IrGraphvizFile,
     riscv_backend,
-    riscv_backend::{
-        DumpCode,
-        EnableImmediateIntegers,
-    },
-    riscv_exe::{
-        run,
-        DumpState,
-    },
-    utils::{
-        function_name,
-        stderr,
-        typecheck,
-    },
+    riscv_backend::{DumpCode, EnableImmediateIntegers},
+    riscv_exe::{run, DumpState},
+    utils::{function_name, stderr, typecheck},
 };
 
 struct BackEndPermutation(usize);

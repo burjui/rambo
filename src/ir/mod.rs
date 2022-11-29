@@ -1,21 +1,10 @@
 use core::cmp;
 use std::{
     fmt,
-    hash::{
-        Hash,
-        Hasher,
-    },
+    hash::{Hash, Hasher},
     io::Write,
-    iter::{
-        empty,
-        once,
-    },
-    ops::{
-        Deref,
-        DerefMut,
-        Index,
-        IndexMut,
-    },
+    iter::{empty, once},
+    ops::{Deref, DerefMut, Index, IndexMut},
     rc::Rc,
 };
 
@@ -23,18 +12,9 @@ use itertools::Itertools;
 use rustc_hash::FxHashMap;
 
 use crate::{
-    ir::value_storage::{
-        ValueId,
-        ValueStorage,
-    },
+    ir::value_storage::{ValueId, ValueStorage},
     source::Source,
-    stable_graph::{
-        Direction,
-        Edge,
-        EdgeIndex,
-        NodeIndex,
-        StableGraph,
-    },
+    stable_graph::{Direction, Edge, EdgeIndex, NodeIndex, StableGraph},
     stable_vec::StableVec,
 };
 

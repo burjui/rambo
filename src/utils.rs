@@ -1,9 +1,6 @@
 use std::error::Error;
 
-use termcolor::{
-    ColorChoice,
-    StandardStream,
-};
+use termcolor::{ColorChoice, StandardStream};
 
 pub(crate) type GenericResult<T> = std::result::Result<T, Box<dyn Error>>;
 
@@ -47,10 +44,7 @@ pub(crate) macro impl_deref_for_newtype($name: ty, $target: ty) {
 
 #[cfg(test)]
 pub(crate) fn typecheck(name: String, text: &str) -> GenericResult<crate::semantics::ExprRef> {
-    use crate::semantics::{
-        EnableWarnings,
-        SemanticsChecker,
-    };
+    use crate::semantics::{EnableWarnings, SemanticsChecker};
 
     let file = crate::source::SourceFile::create(name, text);
     let lexer = crate::lexer::Lexer::new(file);

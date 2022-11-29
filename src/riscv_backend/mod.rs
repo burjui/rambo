@@ -3,67 +3,30 @@ use std::{
     convert::TryFrom,
     error::Error,
     fmt,
-    io::{
-        Cursor,
-        Write,
-    },
+    io::{Cursor, Write},
     mem::replace,
 };
 
 use bimap::BiMap;
-use byteorder::{
-    LittleEndian,
-    ReadBytesExt,
-    WriteBytesExt,
-};
+use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use itertools::Itertools;
 use riscv_emulator::cpu::Cpu;
 use risky::{
     abi::*,
-    common::{
-        imm12::Imm12,
-        jimm::JImmConvError,
-    },
+    common::{imm12::Imm12, jimm::JImmConvError},
     m_ext::*,
-    registers::{
-        Register,
-        NUMBER_OF_REGISTERS,
-    },
+    registers::{Register, NUMBER_OF_REGISTERS},
     rv32i::*,
 };
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
-use termcolor::{
-    Color,
-    ColorSpec,
-    StandardStream,
-    WriteColor,
-};
+use termcolor::{Color, ColorSpec, StandardStream, WriteColor};
 
 use crate::{
-    ir::{
-        value_storage::ValueId,
-        FnId,
-        IRModule,
-        Phi,
-        Statement,
-        Value,
-    },
-    riscv_exe::{
-        Executable,
-        Relocation,
-        RelocationKind,
-    },
-    stable_graph::{
-        Direction,
-        NodeIndex,
-    },
-    utils::{
-        function,
-        impl_deref_for_newtype,
-        GenericResult,
-        VecUtils,
-    },
+    ir::{value_storage::ValueId, FnId, IRModule, Phi, Statement, Value},
+    riscv_exe::{Executable, Relocation, RelocationKind},
+    stable_graph::{Direction, NodeIndex},
+    utils::{function, impl_deref_for_newtype, GenericResult, VecUtils},
 };
 
 #[cfg(test)]
