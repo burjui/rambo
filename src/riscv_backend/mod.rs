@@ -361,8 +361,7 @@ impl<'a: 'output, 'output> Backend<'a, 'output> {
                 }
                 let jump_to_end = self.push_code(&jump_placeholder());
                 let after_jump_to_end = self.current_code_offset();
-                let else_branch_offset =
-                    i16::try_from(self.current_code_offset() - jump_to_else_branch)?;
+                let else_branch_offset = self.current_code_offset() - jump_to_else_branch;
                 self.patch_at(
                     jump_to_else_branch,
                     &[
@@ -955,6 +954,6 @@ pub(crate) fn ui_immediate(value: i32) -> GenericResult<UIImmediate> {
     }
 }
 
-fn jump_placeholder() -> [u32; 2] {
+const fn jump_placeholder() -> [u32; 2] {
     [nop(), nop()]
 }
