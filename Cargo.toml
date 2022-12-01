@@ -13,17 +13,17 @@ authors = ["Artem Borisovsky <bytefu@gmail.com>"]
 risky = { path = "/home/burjui/Devel/risky", features = ["nightly"] }
 riscv_emulator = { path = "riscv_emulator" }
 getopts = "0.2.21"
-itertools = "0.10.1"
-termcolor = "1.1.2"
-libc = "0.2.107"
+itertools = "0.10.5"
+termcolor = "1.1.3"
+libc = "0.2.137"
 elapsed = "0.1.2"
 number_prefix = "0.4.0"
 bitflags = "1.3.2"
-smallvec = "1.7.0"
-bimap = "0.6.1"
+smallvec = "1.10.0"
+bimap = "0.6.2"
 byteorder = "1.4.3"
-bytes = "1.1.0"
-bincode = { version = "2.0.0-alpha.1", features = ["std", "derive"] }
+bytes = "1.3.0"
+bincode = { version = "2.0.0-rc.2", features = ["std", "derive"] }
 rustc-hash = "1.1.0"
 fnv = "1.0.7"
 iset = "0.1.1"
