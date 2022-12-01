@@ -472,7 +472,7 @@ impl<'a: 'output, 'output> Backend<'a, 'output> {
                 let mut saved_bytes_total = 0;
                 if self.function_id.is_some() {
                     self.tc_comment("Save link and frame");
-                    self.push_code(&[sw(SP, Imm12::ZERO, RA), sw(SP, (-4).try_into()?, FP)]);
+                    self.push_code(&[sw(SP, Imm12::ZERO, RA), sw(SP, Imm12::from_i8::<-4>(), FP)]);
                     saved_bytes_total += 8;
                 }
 
@@ -503,7 +503,7 @@ impl<'a: 'output, 'output> Backend<'a, 'output> {
 
                 if self.function_id.is_some() {
                     self.tc_comment("Restore link and frame");
-                    self.push_code(&[lw(RA, SP, Imm12::ZERO), lw(FP, SP, (-4).try_into()?)]);
+                    self.push_code(&[lw(RA, SP, Imm12::ZERO), lw(FP, SP, Imm12::from_i8::<-4>())]);
                 }
 
                 let register = self.allocate_register(value_id, None)?;
@@ -930,7 +930,7 @@ pub(crate) fn ui_immediate(value: i32) -> GenericResult<UIImmediate> {
     if (-(1 << 11) - 1..1 << 11).contains(&value) {
         Ok(UIImmediate {
             upper: 0,
-            lower: i16::try_from(value)?.try_into()?,
+            lower: value.try_into()?,
         })
     } else {
         let value = value as u32;
