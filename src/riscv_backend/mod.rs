@@ -154,13 +154,13 @@ impl<'a: 'output, 'output> Backend<'a, 'output> {
             for (i, &register) in saved_registers.iter().enumerate() {
                 write_code(
                     &mut register_saving_code,
-                    &[sw(SP, (-i16::try_from(i * 4)?).try_into()?, register)],
+                    &[sw(SP, -(i * 4).try_into()?, register)],
                 );
             }
-            let saved_registers_size = i16::try_from(saved_registers.len() * 4)?;
+            let saved_registers_size = saved_registers.len() * 4;
             write_code(
                 &mut register_saving_code,
-                &[addi(SP, SP, (-saved_registers_size).try_into()?)],
+                &[addi(SP, SP, -saved_registers_size.try_into()?)],
             );
 
             let fixup = u64::try_from(register_saving_code.len())?;
@@ -417,14 +417,10 @@ impl<'a: 'output, 'output> Backend<'a, 'output> {
                             .format(", ")
                             .to_string();
                         self.tc_comment(&format!("Restore registers {}", &saved_register_list));
-                        let saved_registers_size = i16::try_from(saved_registers.len() * 4)?;
+                        let saved_registers_size = saved_registers.len() * 4;
                         self.push_code(&[addi(SP, SP, saved_registers_size.try_into()?)]);
                         for (i, &register) in saved_registers.iter().enumerate() {
-                            self.push_code(&[lw(
-                                register,
-                                SP,
-                                (-i16::try_from(i * 4)?).try_into()?,
-                            )]);
+                            self.push_code(&[lw(register, SP, -(i * 4).try_into()?)]);
                         }
                     }
 
@@ -463,7 +459,7 @@ impl<'a: 'output, 'output> Backend<'a, 'output> {
             Value::Arg(index) => {
                 // FIXME this does not conform to the standard ABI.
                 let register = self.allocate_register(value_id, target)?;
-                self.push_code(&[lw(register, FP, (-i16::try_from(*index * 4)?).try_into()?)]);
+                self.push_code(&[lw(register, FP, -(*index * 4).try_into()?)]);
                 Ok(register)
             }
 
@@ -479,15 +475,15 @@ impl<'a: 'output, 'output> Backend<'a, 'output> {
                 saved_bytes_total += arguments.len() * 4;
                 self.tc_comment("Set up frame and stack");
                 self.push_code(&[
-                    addi(FP, SP, (-i16::try_from(saved_bytes_env)?).try_into()?),
-                    addi(SP, SP, (-i16::try_from(saved_bytes_total)?).try_into()?),
+                    addi(FP, SP, -saved_bytes_env.try_into()?),
+                    addi(SP, SP, -saved_bytes_total.try_into()?),
                 ]);
 
                 let no_spill_length = self.no_spill.len();
                 self.tc_comment("Generate arguments");
                 for (index, argument) in arguments.iter().enumerate() {
                     let register = self.allocate_register(*argument, None)?;
-                    self.push_code(&[sw(FP, (-i16::try_from(index * 4)?).try_into()?, register)]);
+                    self.push_code(&[sw(FP, -(index * 4).try_into()?, register)]);
                     self.no_spill.push(register);
                 }
 
@@ -498,7 +494,7 @@ impl<'a: 'output, 'output> Backend<'a, 'output> {
                 self.push_code(&[jalr(RA, fn_address, Imm12::ZERO)]);
 
                 self.tc_comment("Restore stack pointer");
-                self.push_code(&[addi(SP, SP, i16::try_from(saved_bytes_total)?.try_into()?)]);
+                self.push_code(&[addi(SP, SP, saved_bytes_total.try_into()?)]);
 
                 if self.function_id.is_some() {
                     self.tc_comment("Restore link and frame");
