@@ -15,11 +15,7 @@ use itertools::Itertools;
 use crate::{
     ir::{
         value_storage::{ValueId, ValueStorage},
-        ControlFlowGraph,
-        IRModule,
-        Phi,
-        Statement,
-        Value,
+        ControlFlowGraph, IRModule, Phi, Statement, Value,
     },
     stable_graph::NodeIndex,
 };
