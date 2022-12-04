@@ -8,16 +8,9 @@ use rustc_hash::FxHashMap;
 
 use crate::{
     ir::{
-        get_statement_operands_mut,
-        get_statement_value_operands,
-        get_value_operands_mut,
+        get_statement_operands_mut, get_statement_value_operands, get_value_operands_mut,
         value_storage::{ValueId, ValueStorage},
-        BasicBlock,
-        ControlFlowGraph,
-        FunctionMap,
-        Statement,
-        StatementLocation,
-        Value,
+        BasicBlock, ControlFlowGraph, FunctionMap, Statement, StatementLocation, Value,
     },
     stable_graph::{Direction, NodeIndex},
 };

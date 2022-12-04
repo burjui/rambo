@@ -9,17 +9,8 @@ use termcolor::{Color, ColorSpec, WriteColor};
 
 use crate::{
     pipeline::{
-        EvaluateIR,
-        Load,
-        Parse,
-        Pipeline,
-        PipelineOptions,
-        RISCVBackend,
-        RISCVEmulator,
-        StandardStreamUtils,
-        VerifySemantics,
-        COMPILER_PASS_NAMES,
-        IR,
+        EvaluateIR, Load, Parse, Pipeline, PipelineOptions, RISCVBackend, RISCVEmulator,
+        StandardStreamUtils, VerifySemantics, COMPILER_PASS_NAMES, IR,
     },
     utils::{stderr, stdout},
 };
