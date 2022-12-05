@@ -6,7 +6,7 @@ use riscv_emulator::{
     cpu::Cpu,
     mmu::{MemoryAccessFlags, Mmu},
 };
-use risky::{abi::*, instructions::rv32i::ebreak, registers::NUMBER_OF_REGISTERS};
+use risky::raw::{abi::*, registers::NUMBER_OF_REGISTERS, rv32i::ebreak};
 use termcolor::{Color, ColorSpec, StandardStream, WriteColor};
 
 use crate::{
@@ -78,16 +78,16 @@ pub fn load(executable: &Executable, config: &SimulatorConfig) -> GenericResult<
     for register in 0..u8::try_from(NUMBER_OF_REGISTERS)? {
         cpu.write_register(register, 0xAAAA_AAAA);
     }
-    cpu.write_register(ZERO.into(), 0);
+    cpu.write_register(ZERO, 0);
     cpu.write_register(
-        SP.into(),
+        SP,
         i64::try_from(config.data_start_address)? + i64::try_from(ram_size)? - 4,
     );
-    cpu.write_register(FP.into(), cpu.read_register(SP.into()));
+    cpu.write_register(FP, cpu.read_register(SP));
 
     let code_end =
         i64::try_from(config.code_start_address)? + i64::try_from(executable.code.len())?;
-    cpu.write_register(RA.into(), code_end);
+    cpu.write_register(RA, code_end);
     cpu.update_pc(config.code_start_address + executable.entry);
 
     Ok(cpu)
@@ -170,7 +170,7 @@ pub(crate) fn run(executable: &Executable, mut dump_state: DumpState<'_>) -> Gen
             }
         }
 
-        let stack_pointer = u64::try_from(cpu.read_register(SP.into())).unwrap();
+        let stack_pointer = u64::try_from(cpu.read_register(SP)).unwrap();
         if stack_pointer < config.data_start_address + ram_size - config.stack_size {
             return Err("stack overflow".into());
         }
@@ -272,7 +272,7 @@ fn dump_registers(output: &mut StandardStream, cpu: &Cpu) -> io::Result<()> {
 fn dump_stack(cpu: &mut Cpu, ram_base_address: u64, ram_size: u64) -> GenericResult<()> {
     let stdout = &mut stdout();
     write_title(stdout, "STACK")?;
-    let stack_pointer = u64::try_from(cpu.read_register(SP.into()))?;
+    let stack_pointer = u64::try_from(cpu.read_register(SP))?;
     dump_ram(
         stdout,
         cpu.mmu_mut(),

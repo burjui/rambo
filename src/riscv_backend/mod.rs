@@ -11,10 +11,7 @@ use bimap::BiMap;
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use itertools::Itertools;
 use riscv_emulator::cpu::Cpu;
-use risky::{
-    abi::*,
-    instructions::{m_ext::*, rv32i::*},
-};
+use risky::raw::{abi::*, m_ext::*, registers::NUMBER_OF_REGISTERS, rv32i::*};
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
 use termcolor::{Color, ColorSpec, StandardStream, WriteColor};
@@ -90,7 +87,7 @@ struct Backend<'a, 'output> {
     enable_comments: bool,
     registers: RegisterAllocator,
     data_offsets: FxHashMap<ValueId, u64>,
-    no_spill: SmallVec<[Register; NUMBER_OF_REGISTERS]>,
+    no_spill: SmallVec<[u8; NUMBER_OF_REGISTERS]>,
     function_id: Option<FnId>,
     phis: FxHashMap<ValueId, BTreeSet<(NodeIndex, ValueId)>>,
 }
@@ -374,7 +371,7 @@ impl<'a: 'output, 'output> Backend<'a, 'output> {
                     .checked_sub(i32::try_from(after_jump_to_end)?)
                     .and_then(|difference| difference.checked_add(4)) // j 4(pc)
                     .unwrap();
-                self.patch_jump(jump_to_end, ZERO, end_offset)?;
+                self.patch_jump(jump_to_end, ZERO, end_offset);
                 if after_jump_to_end == self.current_code_offset() {
                     for _ in 0..4 {
                         self.state.image.code.remove(jump_to_end as usize);
@@ -424,18 +421,14 @@ impl<'a: 'output, 'output> Backend<'a, 'output> {
                         }
                     }
 
-                    self.push_code(&[jalr(ZERO, RA, Imm12::ZERO)]);
+                    self.push_code(&[jalr(ZERO, RA, 0)]);
                 }
                 Ok(None)
             }
         }
     }
 
-    fn generate_value(
-        &mut self,
-        value_id: ValueId,
-        target: Option<Register>,
-    ) -> GenericResult<Register> {
+    fn generate_value(&mut self, value_id: ValueId, target: Option<u8>) -> GenericResult<u8> {
         match &self.module.values[value_id] {
             Value::Unit => Ok(ZERO),
 
@@ -467,7 +460,7 @@ impl<'a: 'output, 'output> Backend<'a, 'output> {
                 let mut saved_bytes_total = 0;
                 if self.function_id.is_some() {
                     self.tc_comment("Save link and frame");
-                    self.push_code(&[sw(SP, Imm12::ZERO, RA), sw(SP, Imm12::from_i8::<-4>(), FP)]);
+                    self.push_code(&[sw(SP, 0, RA), sw(SP, -4, FP)]);
                     saved_bytes_total += 8;
                 }
 
@@ -491,14 +484,14 @@ impl<'a: 'output, 'output> Backend<'a, 'output> {
                 self.no_spill.truncate(no_spill_length);
                 let fn_address = self.allocate_register(*function, None).unwrap();
                 // TODO if function is Value::Function then generate a relocation and auipc + jalr instead
-                self.push_code(&[jalr(RA, fn_address, Imm12::ZERO)]);
+                self.push_code(&[jalr(RA, fn_address, 0)]);
 
                 self.tc_comment("Restore stack pointer");
                 self.push_code(&[addi(SP, SP, saved_bytes_total.try_into()?)]);
 
                 if self.function_id.is_some() {
                     self.tc_comment("Restore link and frame");
-                    self.push_code(&[lw(RA, SP, Imm12::ZERO), lw(FP, SP, Imm12::from_i8::<-4>())]);
+                    self.push_code(&[lw(RA, SP, 0), lw(FP, SP, -4)]);
                 }
 
                 let register = self.allocate_register(value_id, None)?;
@@ -510,7 +503,7 @@ impl<'a: 'output, 'output> Backend<'a, 'output> {
         }
     }
 
-    fn generate_immediate(&mut self, register: Register, value_id: ValueId) -> GenericResult<()> {
+    fn generate_immediate(&mut self, register: u8, value_id: ValueId) -> GenericResult<()> {
         let value = &self.module.values[value_id];
         let value_i32 = match value {
             Value::Int(value) => *value,
@@ -522,11 +515,11 @@ impl<'a: 'output, 'output> Backend<'a, 'output> {
         self.generate_immediate_i32(register, value_i32)
     }
 
-    fn generate_immediate_i32(&mut self, register: Register, value: i32) -> GenericResult<()> {
+    fn generate_immediate_i32(&mut self, register: u8, value: i32) -> GenericResult<()> {
         let value = ui_immediate(value)?;
         if value.upper == 0 {
             self.push_code(&[addi(register, ZERO, value.lower)]);
-        } else if value.lower == Imm12::ZERO {
+        } else if value.lower == 0 {
             self.push_code(&[lui(register, value.upper)]);
         } else {
             self.push_code(&[
@@ -542,9 +535,9 @@ impl<'a: 'output, 'output> Backend<'a, 'output> {
         value_id: ValueId,
         left: ValueId,
         right: ValueId,
-        op: impl FnOnce(Register, Register, Register) -> u32,
-        target: Option<Register>,
-    ) -> GenericResult<Register> {
+        op: impl FnOnce(u8, u8, u8) -> u32,
+        target: Option<u8>,
+    ) -> GenericResult<u8> {
         let no_spill_length = self.no_spill.len();
         let left = self.allocate_register(left, None)?;
         self.no_spill.push(left);
@@ -601,24 +594,24 @@ impl<'a: 'output, 'output> Backend<'a, 'output> {
         Ok(offset)
     }
 
-    fn load_u32(&mut self, register: Register, offset: u64) {
+    fn load_u32(&mut self, register: u8, offset: u64) {
         let relocation_offset = self.current_code_offset();
         self.state.image.relocations.push(Relocation::new(
             relocation_offset,
             offset,
             RelocationKind::DataLoad,
         ));
-        self.push_code(&[lui(register, 0), lw(register, register, Imm12::ZERO)]);
+        self.push_code(&[lui(register, 0), lw(register, register, 0)]);
     }
 
-    fn store_u32(&mut self, register: Register, offset: u64) {
+    fn store_u32(&mut self, register: u8, offset: u64) {
         let relocation_offset = self.current_code_offset();
         self.state.image.relocations.push(Relocation::new(
             relocation_offset,
             offset,
             RelocationKind::DataStore,
         ));
-        self.push_code(&[lui(T0, 0), sw(T0, Imm12::ZERO, register)]);
+        self.push_code(&[lui(T0, 0), sw(T0, 0, register)]);
     }
 
     fn push_code(&mut self, instructions: &[u32]) -> u64 {
@@ -635,11 +628,7 @@ impl<'a: 'output, 'output> Backend<'a, 'output> {
         write_code(&mut cursor, instructions);
     }
 
-    fn allocate_register(
-        &mut self,
-        value_id: ValueId,
-        target: Option<Register>,
-    ) -> GenericResult<Register> {
+    fn allocate_register(&mut self, value_id: ValueId, target: Option<u8>) -> GenericResult<u8> {
         if self.enable_immediate_integers {
             if let Value::Int(value) = &self.module.values[value_id] {
                 if *value == 0 {
@@ -688,7 +677,7 @@ impl<'a: 'output, 'output> Backend<'a, 'output> {
                     self.state
                         .function_relocations
                         .push((relocation_offset, fn_id.clone()));
-                    self.push_code(&[lui(register, 0), addi(register, register, Imm12::ZERO)]);
+                    self.push_code(&[lui(register, 0), addi(register, register, 0)]);
                 }
 
                 _ => (),
@@ -712,20 +701,14 @@ impl<'a: 'output, 'output> Backend<'a, 'output> {
         }
     }
 
-    fn patch_jump(
-        &mut self,
-        patch_offset: u64,
-        rd: Register,
-        offset: i32,
-    ) -> Result<(), JImmConvError> {
+    fn patch_jump(&mut self, patch_offset: u64, rd: u8, offset: i32) {
         self.patch_at(
             patch_offset,
             &match Self::jump_offset(offset) {
-                JumpOffset::Short => [nop(), jal(rd, offset.try_into()?)],
+                JumpOffset::Short => [nop(), jal(rd, offset)],
                 JumpOffset::Long(offset) => [auipc(T0, offset.upper), jalr(rd, T0, offset.lower)],
             },
         );
-        Ok(())
     }
 
     fn current_code_offset(&self) -> u64 {
@@ -757,12 +740,12 @@ struct IsTarget(bool);
 
 struct RegisterAllocator {
     states: [Allocation; NUMBER_OF_REGISTERS],
-    values: BiMap<ValueId, Register>,
+    values: BiMap<ValueId, u8>,
     used: [bool; NUMBER_OF_REGISTERS],
 }
 
 impl RegisterAllocator {
-    const RESERVED: &'static [Register] = &[ZERO, RA, SP, GP, FP, A0, A1, T0];
+    const RESERVED: &'static [u8] = &[ZERO, RA, SP, GP, FP, A0, A1, T0];
 
     fn new() -> Self {
         let mut states = [Allocation::None; 32];
@@ -780,9 +763,9 @@ impl RegisterAllocator {
     fn allocate(
         &mut self,
         value_id: ValueId,
-        target: Option<Register>,
-        no_spill: &[Register],
-    ) -> GenericResult<(Register, Option<Register>, Option<ValueId>)> {
+        target: Option<u8>,
+        no_spill: &[u8],
+    ) -> GenericResult<(u8, Option<u8>, Option<ValueId>)> {
         if let Some(target) = target {
             self.try_allocate(value_id, target, IsTarget(true), no_spill)
                 .map(|(source, previous_user)| (target, source, previous_user))
@@ -792,7 +775,7 @@ impl RegisterAllocator {
                 return Ok((*register, Some(*register), None));
             }
             for register_index in 0..NUMBER_OF_REGISTERS {
-                let register = Register::try_from(register_index)?;
+                let register = u8::try_from(register_index)?;
                 if let Allocation::None = self.states[register_index] {
                     if let Ok((source, previous_user)) =
                         self.try_allocate(value_id, register, IsTarget(false), no_spill)
@@ -802,7 +785,7 @@ impl RegisterAllocator {
                 }
             }
             for register_index in 0..NUMBER_OF_REGISTERS {
-                let register = Register::try_from(register_index)?;
+                let register = u8::try_from(register_index)?;
                 if let Allocation::Temporary = self.states[register_index] {
                     if let Ok((source, previous_user)) =
                         self.try_allocate(value_id, register, IsTarget(false), no_spill)
@@ -818,10 +801,10 @@ impl RegisterAllocator {
     fn try_allocate(
         &mut self,
         value_id: ValueId,
-        register: Register,
+        register: u8,
         IsTarget(is_target): IsTarget,
-        no_spill: &[Register],
-    ) -> Result<(Option<Register>, Option<ValueId>), RegisterAllocationError> {
+        no_spill: &[u8],
+    ) -> Result<(Option<u8>, Option<ValueId>), RegisterAllocationError> {
         if self.values.get_by_left(&value_id) == Some(&register) {
             return Ok((Some(register), None));
         }
@@ -866,9 +849,9 @@ impl RegisterAllocator {
     fn associate(
         &mut self,
         value_id: ValueId,
-        register: Register,
+        register: u8,
         previous_user: Option<ValueId>,
-    ) -> Option<Register> {
+    ) -> Option<u8> {
         if let Some(previous_user) = &previous_user {
             self.values.remove_by_left(previous_user);
         }
@@ -883,7 +866,7 @@ impl RegisterAllocator {
         source
     }
 
-    fn used(&self) -> impl Iterator<Item = Register> + '_ {
+    fn used(&self) -> impl Iterator<Item = u8> + '_ {
         self.used
             .iter()
             .enumerate()
@@ -918,7 +901,7 @@ pub(crate) enum JumpOffset {
 
 pub(crate) struct UIImmediate {
     pub(crate) upper: i32,
-    pub(crate) lower: Imm12,
+    pub(crate) lower: i16,
 }
 
 pub(crate) fn ui_immediate(value: i32) -> GenericResult<UIImmediate> {
@@ -937,10 +920,7 @@ pub(crate) fn ui_immediate(value: i32) -> GenericResult<UIImmediate> {
             let value_rounded = value_rounded + (1 << 12);
             (value_rounded as i32, -i16::try_from(value_rounded - value)?)
         };
-        Ok(UIImmediate {
-            upper,
-            lower: lower.try_into()?,
-        })
+        Ok(UIImmediate { upper, lower })
     }
 }
 

@@ -1,7 +1,7 @@
 use std::io::Write;
 
 use riscv_backend::EnableComments;
-use risky::abi::A0;
+use risky::raw::abi::A0;
 
 use crate::{
     frontend::{FrontEnd, FrontEndState},
@@ -171,9 +171,7 @@ fn test_backend(source_name: &str, source_code: &str, expected_result: i64) {
         )
         .unwrap();
 
-        let result = run(&image, DumpState::None)
-            .unwrap()
-            .read_register(A0.into());
+        let result = run(&image, DumpState::None).unwrap().read_register(A0);
         assert_eq!(result, expected_result);
 
         backend_permutation.next();

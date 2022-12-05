@@ -9,7 +9,7 @@ use std::{
 use itertools::Itertools;
 use number_prefix::NumberPrefix;
 use riscv_backend::EnableComments;
-use risky::abi::A0;
+use risky::raw::abi::A0;
 use termcolor::{Color, ColorSpec, StandardStream, WriteColor};
 
 use crate::{
@@ -317,7 +317,7 @@ impl CompilerPass<Executable, ()> for RISCVEmulator {
         };
         let cpu = run(&image, dump_state)?;
         if options.verbosity >= 1 {
-            let result = cpu.read_register(A0.into());
+            let result = cpu.read_register(A0);
             writeln!(stdout, "result at {} = 0x{:08x} ({})", A0, result, result,)?;
         }
         Ok(())
