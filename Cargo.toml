@@ -10,7 +10,9 @@ authors = ["Artem Borisovsky <bytefu@gmail.com>"]
 
 [dependencies]
 # risky = { git = "https://github.com/burjui/risky", rev = "d3da81e8df0cdcfcf18e689e17cff3fa2bc7c445" }
-risky = { path = "/home/burjui/Devel/risky", features = ["nightly"] }
+risky = { git = "file:///home/burjui/Devel/risky", branch = "v0.4.0", features = [
+    "nightly",
+] }
 riscv_emulator = { path = "riscv_emulator" }
 getopts = "0.2.21"
 itertools = "0.10.5"
