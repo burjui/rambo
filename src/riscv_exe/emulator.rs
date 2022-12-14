@@ -201,7 +201,7 @@ pub(crate) fn dump_ram(
         )?;
         let byte = mmu
             .load(address)
-            .map_err(|_| format!("Failed to load a byte from address 0x{:08x}", address))?;
+            .map_err(|_| format!("Failed to load a byte from address 0x{address:08x}"))?;
         write!(output, "{byte:02x}")?;
         output.reset()?;
     }

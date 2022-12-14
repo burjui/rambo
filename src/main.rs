@@ -157,8 +157,7 @@ fn parse_command_line() -> Result<CommandLine, Box<dyn Error>> {
                         Ok(max_pass_name)
                     } else {
                         Err(From::from(format!(
-                            "invalid compiler pass name: {}",
-                            max_pass_name
+                            "invalid compiler pass name: {max_pass_name}"
                         )))
                     }
                 },

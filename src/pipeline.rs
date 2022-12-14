@@ -85,7 +85,7 @@ impl<'a, T> Pipeline<'a, T> {
                             .set_fg(Some(Color::Black))
                             .set_intense(true),
                     )?;
-                    write!(stdout, "{}", elapsed)?;
+                    write!(stdout, "{elapsed}")?;
                     stdout.set_color(ColorSpec::new().set_fg(Some(Color::White)))?;
                     writeln!(stdout, ")")?;
                 }
@@ -140,7 +140,7 @@ impl Load {
                 None
             }
         })
-        .unwrap_or_else(|| format!("{} bytes", size))
+        .unwrap_or_else(|| format!("{size} bytes"))
     }
 }
 
@@ -321,7 +321,7 @@ impl CompilerPass<Executable, ()> for RISCVEmulator {
         let cpu = run(&image, dump_state)?;
         if options.verbosity >= 1 {
             let result = cpu.read_register(A0.into());
-            writeln!(stdout, "result at x{A0} = 0x{result:08x} ({result})",)?;
+            writeln!(stdout, "result at x{A0} = 0x{result:08x} ({result})")?;
         }
         Ok(())
     }

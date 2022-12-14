@@ -151,7 +151,7 @@ impl<'a: 'output, 'output> Backend<'a, 'output> {
             let saved_registers = self.registers.used().collect_vec();
             let saved_register_list = saved_registers
                 .iter()
-                .map(|register| format!("x{}", register))
+                .map(|register| format!("x{register}"))
                 .format(", ")
                 .to_string();
             for (i, &register) in saved_registers.iter().enumerate() {
@@ -421,7 +421,7 @@ impl<'a: 'output, 'output> Backend<'a, 'output> {
                         let saved_registers = self.registers.used().collect_vec();
                         let saved_register_list = saved_registers
                             .iter()
-                            .map(|register| format!("x{}", register))
+                            .map(|register| format!("x{register}"))
                             .format(", ")
                             .to_string();
                         self.tc_comment(&format!("Restore registers {}", &saved_register_list));
