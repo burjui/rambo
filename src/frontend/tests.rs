@@ -232,6 +232,7 @@ fn test_frontend(
         let module = FrontEnd::new(&source_name, &mut state)
             .include_comments(config.include_comments)
             .enable_cfp(config.enable_cfp)
+            .enable_inlining(config.enable_inlining)
             .enable_dce(config.enable_dce)
             .build(&code);
 
@@ -247,6 +248,7 @@ fn test_frontend(
 struct FrontendConfig {
     include_comments: bool,
     enable_cfp: bool,
+    enable_inlining: bool,
     enable_dce: bool,
 }
 
@@ -256,10 +258,13 @@ fn frontend_config_permutations(
     bool_variants()
         .flat_map(move |include_comments| {
             bool_variants().flat_map(move |enable_cfp| {
-                bool_variants().map(move |enable_dce| FrontendConfig {
-                    include_comments,
-                    enable_cfp,
-                    enable_dce,
+                bool_variants().flat_map(move |enable_inlining| {
+                    bool_variants().map(move |enable_dce| FrontendConfig {
+                        include_comments,
+                        enable_cfp,
+                        enable_inlining,
+                        enable_dce,
+                    })
                 })
             })
         })
@@ -277,5 +282,5 @@ fn frontend_config_permutations(
 }
 
 fn bool_variants() -> Chain<Once<bool>, Once<bool>> {
-    once(false).chain(once(true))
+    once(false).chain(once(false))
 }

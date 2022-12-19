@@ -35,6 +35,7 @@ pub(crate) struct PipelineOptions {
     pub(crate) enable_ir_comments: bool,
     pub(crate) enable_tc_comments: bool,
     pub(crate) enable_cfp: bool,
+    pub(crate) enable_inlining: bool,
     pub(crate) enable_dce: bool,
     pub(crate) enable_immediate_integers: bool,
     pub(crate) eval_ir: bool,
@@ -216,6 +217,7 @@ impl CompilerPass<(ExprRef, SourceFileRef), IRModule> for IR {
         let frontend = FrontEnd::new(source_file.name(), &mut state)
             .include_comments(options.enable_ir_comments)
             .enable_cfp(options.enable_cfp)
+            .enable_inlining(options.enable_inlining)
             .enable_dce(options.enable_dce);
         let module = frontend.build(&hir);
         let mut stdout = stdout();

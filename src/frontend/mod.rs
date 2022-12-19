@@ -47,6 +47,7 @@ pub(crate) struct FrontEnd<'a> {
     name: String,
     include_comments: bool,
     enable_cfp: bool,
+    enable_inlining: bool,
     enable_dce: bool,
     cfg: ControlFlowGraph,
     state: &'a mut FrontEndState,
@@ -69,6 +70,7 @@ impl<'a> FrontEnd<'a> {
             name: name.to_owned(),
             include_comments: false,
             enable_cfp: false,
+            enable_inlining: false,
             enable_dce: false,
             cfg: ControlFlowGraph::new(),
             state,
@@ -96,6 +98,11 @@ impl<'a> FrontEnd<'a> {
 
     pub(crate) const fn enable_cfp(mut self, value: bool) -> Self {
         self.enable_cfp = value;
+        self
+    }
+
+    pub(crate) const fn enable_inlining(mut self, value: bool) -> Self {
+        self.enable_inlining = value;
         self
     }
 
@@ -259,6 +266,7 @@ impl<'a> FrontEnd<'a> {
                 let mut function_frontend = FrontEnd::new(function.name.as_str(), self.state)
                     .include_comments(self.include_comments)
                     .enable_cfp(self.enable_cfp)
+                    .enable_inlining(self.enable_inlining)
                     .enable_dce(self.enable_dce);
                 for (index, parameter) in function.parameters.iter().enumerate() {
                     function_frontend.comment(function_frontend.entry_block, &parameter.name);
@@ -490,7 +498,12 @@ impl<'a> FrontEnd<'a> {
     fn define(&mut self, block: NodeIndex, value: Value) -> ValueId {
         let value_id = self.values.insert(value);
         if self.enable_cfp {
-            fold_constants(&mut self.values, &self.functions, value_id);
+            let inlining = if self.enable_inlining {
+                Inlining::Yes
+            } else {
+                Inlining::No
+            };
+            fold_constants(&mut self.values, &self.functions, value_id, inlining);
         }
         let basic_block = &mut self.cfg[block];
         let statement_index = basic_block.push(Statement::Definition(value_id));
@@ -580,7 +593,18 @@ enum Marker {
     Phi(ValueId),
 }
 
-fn fold_constants(values: &mut ValueStorage, functions: &FunctionMap, value_id: ValueId) {
+#[derive(Clone, Copy)]
+enum Inlining {
+    Yes,
+    No,
+}
+
+fn fold_constants(
+    values: &mut ValueStorage,
+    functions: &FunctionMap,
+    value_id: ValueId,
+    inlining: Inlining,
+) {
     let folded = match &values[value_id] {
         &Value::AddInt(left, right) => fold_binary(
             values,
@@ -593,6 +617,7 @@ fn fold_constants(values: &mut ValueStorage, functions: &FunctionMap, value_id: 
                 (_, &Value::Int(0)) => Some(left_value.clone()),
                 _ => None,
             },
+            inlining,
         ),
 
         &Value::SubInt(left, right) => fold_binary(
@@ -611,6 +636,7 @@ fn fold_constants(values: &mut ValueStorage, functions: &FunctionMap, value_id: 
                     }
                 }
             },
+            inlining,
         ),
 
         &Value::MulInt(left, right) => fold_binary(
@@ -625,6 +651,7 @@ fn fold_constants(values: &mut ValueStorage, functions: &FunctionMap, value_id: 
                 (_, &Value::Int(1)) => Some(left_value.clone()),
                 _ => None,
             },
+            inlining,
         ),
 
         &Value::DivInt(left, right) => fold_binary(
@@ -638,6 +665,7 @@ fn fold_constants(values: &mut ValueStorage, functions: &FunctionMap, value_id: 
                 (_, &Value::Int(1)) => Some(left_value.clone()),
                 _ => None,
             },
+            inlining,
         ),
 
         &Value::AddString(left, right) => fold_binary(
@@ -654,9 +682,13 @@ fn fold_constants(values: &mut ValueStorage, functions: &FunctionMap, value_id: 
                 }
                 _ => None,
             },
+            inlining,
         ),
 
-        Value::Call(function, arguments) => fold_call(*function, arguments, values, functions),
+        Value::Call(function, arguments) => match inlining {
+            Inlining::Yes => fold_call(*function, arguments, values, functions, inlining),
+            Inlining::No => None,
+        },
 
         Value::Unit
         | Value::Int(_)
@@ -676,9 +708,10 @@ fn fold_binary(
     left: ValueId,
     right: ValueId,
     fold: impl FnOnce((ValueId, &Value), (ValueId, &Value)) -> Option<Value>,
+    inlining: Inlining,
 ) -> Option<Value> {
-    fold_constants(values, functions, left);
-    fold_constants(values, functions, right);
+    fold_constants(values, functions, left, inlining);
+    fold_constants(values, functions, right, inlining);
     fold((left, &values[left]), (right, &values[right]))
 }
 
@@ -687,6 +720,7 @@ fn fold_call(
     arguments: &[ValueId],
     values: &ValueStorage,
     functions: &FunctionMap,
+    inlining: Inlining,
 ) -> Option<Value> {
     let arguments_are_constant = arguments
         .iter()
@@ -700,7 +734,12 @@ fn fold_call(
             function_cfg.values[*argument_value_id] = values[arguments[parameter_value_id]].clone();
         }
 
-        fold_constants(&mut function_cfg.values, functions, function_cfg.result);
+        fold_constants(
+            &mut function_cfg.values,
+            functions,
+            function_cfg.result,
+            inlining,
+        );
         let result_value = &function_cfg.values[function_cfg.result];
         if result_value.is_constant() {
             return Some(result_value.clone());

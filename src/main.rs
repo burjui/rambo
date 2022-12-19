@@ -85,6 +85,7 @@ fn parse_command_line() -> Result<CommandLine, Box<dyn Error>> {
     static TC_COMMENTS_OPTION: &str = "tc-comments";
     static PASS_OPTION: &str = "p";
     static NO_CFP_OPTION: &str = "no-cfp";
+    static NO_INLINE_OPTION: &str = "no-inline";
     static NO_DCE_OPTION: &str = "no-dce";
     static NO_IMMINT_OPTION: &str = "no-immint";
     static EVAL_IR: &str = "e";
@@ -108,6 +109,7 @@ fn parse_command_line() -> Result<CommandLine, Box<dyn Error>> {
         NO_CFP_OPTION,
         "disable constant folding and propagation",
     );
+    spec.optflag("", NO_INLINE_OPTION, "disable function inlining");
     spec.optflag("", NO_DCE_OPTION, "disable dead code elimination");
     spec.optflag(
         "",
@@ -169,6 +171,7 @@ fn parse_command_line() -> Result<CommandLine, Box<dyn Error>> {
         enable_ir_comments: matches.opt_present(IR_COMMENTS_OPTION),
         enable_tc_comments: matches.opt_present(TC_COMMENTS_OPTION),
         enable_cfp: !matches.opt_present(NO_CFP_OPTION),
+        enable_inlining: !matches.opt_present(NO_INLINE_OPTION),
         enable_dce: !matches.opt_present(NO_DCE_OPTION),
         enable_immediate_integers: !matches.opt_present(NO_IMMINT_OPTION),
         eval_ir: matches.opt_present(EVAL_IR),
