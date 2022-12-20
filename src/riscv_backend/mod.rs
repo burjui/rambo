@@ -13,7 +13,7 @@ use itertools::Itertools;
 use riscv_emulator::cpu::Cpu;
 use risky::{
     abi::*,
-    immediates::{imm12::Imm12, jimm::JImmConvError},
+    common::{imm12::Imm12, jimm::JImmConvError},
     instructions::{m_ext::*, rv32i::*},
     registers::{Register, NUMBER_OF_REGISTERS},
 };
