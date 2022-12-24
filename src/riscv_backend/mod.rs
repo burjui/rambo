@@ -14,8 +14,9 @@ use riscv_emulator::cpu::Cpu;
 use risky::{
     abi::*,
     common::{imm12::Imm12, jimm::JImmConvError},
-    instructions::{m_ext::*, rv32i::*},
+    m_ext::*,
     registers::{Register, NUMBER_OF_REGISTERS},
+    rv32i::*,
 };
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
