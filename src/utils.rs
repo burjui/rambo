@@ -59,8 +59,9 @@ pub(crate) fn typecheck(name: String, text: &str) -> GenericResult<crate::semant
 pub(crate) fn stdout() -> StandardStream {
     #[cfg(not(test))]
     let color_choice = {
-        let is_tty = unsafe { libc::isatty(libc::STDOUT_FILENO) } != 0;
-        if is_tty {
+        use std::io::IsTerminal;
+
+        if std::io::stdout().is_terminal() {
             ColorChoice::Always
         } else {
             ColorChoice::Never
