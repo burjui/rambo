@@ -1,4 +1,4 @@
-use crate::unique_rc::UniqueRc;
+use crate::unique_rc::StaticRef;
 use std::error::Error;
 use std::fmt::Debug;
 use std::fmt::Display;
@@ -176,7 +176,7 @@ impl Debug for SourceFile {
     }
 }
 
-pub(crate) type SourceFileRef = UniqueRc<SourceFile>;
+pub(crate) type SourceFileRef = StaticRef<SourceFile>;
 
 impl SourceFileRef {
     pub(crate) fn position(&self, source: &Source) -> Position {

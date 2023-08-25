@@ -5,7 +5,7 @@ use crate::parser::Expr;
 use crate::parser::Parameter;
 use crate::parser::Statement;
 use crate::source::Source;
-use crate::unique_rc::UniqueRc;
+use crate::unique_rc::StaticRef;
 use crate::utils::error;
 use crate::utils::warning;
 use crate::utils::warning_at;
@@ -605,8 +605,8 @@ impl TypedExpr {
     }
 }
 
-pub(crate) type FunctionRef = UniqueRc<Function>;
-pub(crate) type BindingRef = UniqueRc<Binding>;
+pub(crate) type FunctionRef = StaticRef<Function>;
+pub(crate) type BindingRef = StaticRef<Binding>;
 
 pub(crate) struct Binding {
     pub(crate) name: Rc<String>,
