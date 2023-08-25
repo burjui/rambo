@@ -1,10 +1,10 @@
+use rustc_hash::FxHashMap;
 use std::cmp::Eq;
-use std::collections::HashMap;
 use std::fmt::Debug;
 use std::hash::Hash;
 
 pub(crate) struct Environment<Key, Value> {
-    scopes: Vec<HashMap<Key, Value>>,
+    scopes: Vec<FxHashMap<Key, Value>>,
     current_scope_count: usize,
 }
 
@@ -35,7 +35,7 @@ where
 
     pub(crate) fn push(&mut self) {
         if self.current_scope_count == self.scopes.len() {
-            self.scopes.push(HashMap::new());
+            self.scopes.push(FxHashMap::default());
         }
         self.current_scope_count += 1;
     }

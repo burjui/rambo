@@ -2,7 +2,7 @@
 
 const DTB_SIZE: usize = 0xfe0;
 
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 
 use bitflags::bitflags;
 use iset::IntervalMap;
@@ -43,9 +43,9 @@ pub struct Mmu {
     /// page table entry update. So this is experimental feature and
     /// disabled by default. If you want to enable, use `enable_page_cache()`.
     page_cache_enabled: bool,
-    fetch_page_cache: HashMap<u64, u64>,
-    load_page_cache: HashMap<u64, u64>,
-    store_page_cache: HashMap<u64, u64>,
+    fetch_page_cache: FxHashMap<u64, u64>,
+    load_page_cache: FxHashMap<u64, u64>,
+    store_page_cache: FxHashMap<u64, u64>,
 }
 
 pub enum AddressingMode {
@@ -89,9 +89,9 @@ impl Mmu {
             memory: MemoryWrapper::new(),
             dtb,
             page_cache_enabled: false,
-            fetch_page_cache: HashMap::default(),
-            load_page_cache: HashMap::default(),
-            store_page_cache: HashMap::default(),
+            fetch_page_cache: FxHashMap::default(),
+            load_page_cache: FxHashMap::default(),
+            store_page_cache: FxHashMap::default(),
         }
     }
 

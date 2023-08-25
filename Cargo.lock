@@ -135,6 +135,7 @@ dependencies = [
  "byteorder",
  "iset",
  "risky",
+ "rustc-hash",
 ]
 
 [[package]]
