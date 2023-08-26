@@ -12,11 +12,11 @@ use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use itertools::Itertools;
 use riscv_emulator::cpu::Cpu;
 use risky::{
-    abi::*,
+    abi::{A0, A1, FP, GP, RA, SP, T0, ZERO},
     common::{imm12::Imm12, jimm::JImmConvError},
-    m_ext::*,
+    m_ext::{div, mul},
     registers::{Register, NUMBER_OF_REGISTERS},
-    rv32i::*,
+    rv32i::{add, addi, auipc, beq, ebreak, jal, jalr, lui, lw, mv, nop, sub, sw},
 };
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
@@ -772,7 +772,7 @@ impl RegisterAllocator {
 
     fn new() -> Self {
         let mut states = [Allocation::None; 32];
-        for register in Self::RESERVED.iter() {
+        for register in Self::RESERVED {
             states[usize::from(*register)] = Allocation::Permanent;
         }
         Self {
@@ -927,6 +927,7 @@ pub(crate) struct UIImmediate {
     pub(crate) lower: Imm12,
 }
 
+#[allow(clippy::cast_sign_loss, clippy::cast_possible_wrap)]
 pub(crate) fn ui_immediate(value: i32) -> GenericResult<UIImmediate> {
     if (-(1 << 11) - 1..1 << 11).contains(&value) {
         Ok(UIImmediate {

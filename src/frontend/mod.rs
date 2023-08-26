@@ -43,6 +43,7 @@ impl FrontEndState {
     }
 }
 
+#[allow(clippy::struct_excessive_bools)]
 pub(crate) struct FrontEnd<'a> {
     name: String,
     include_comments: bool,

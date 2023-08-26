@@ -6,7 +6,7 @@ use riscv_emulator::{
     cpu::Cpu,
     mmu::{MemoryAccessFlags, Mmu},
 };
-use risky::{abi::*, registers::NUMBER_OF_REGISTERS, rv32i::ebreak};
+use risky::{abi::{FP, RA, SP, ZERO}, registers::NUMBER_OF_REGISTERS, rv32i::ebreak};
 use termcolor::{Color, ColorSpec, StandardStream, WriteColor};
 
 use crate::{
