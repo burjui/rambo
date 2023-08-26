@@ -198,7 +198,7 @@ impl Hash for FnId {
 
 impl PartialOrd for FnId {
     fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
-        self.id.partial_cmp(&other.id)
+        Some(self.cmp(other))
     }
 }
 

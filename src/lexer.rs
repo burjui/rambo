@@ -322,7 +322,7 @@ impl Lexer {
     fn current_chars(&self) -> Option<(char, char)> {
         self.current_character
             .into_iter()
-            .zip(self.next_character.into_iter())
+            .zip(self.next_character)
             .next()
     }
 

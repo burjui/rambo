@@ -143,7 +143,7 @@ impl<'a: 'output, 'output> Backend<'a, 'output> {
                         for operand in operands {
                             self.phis
                                 .entry(*operand)
-                                .or_insert_with(BTreeSet::new)
+                                .or_default()
                                 .insert((block, *value_id));
                         }
                     }

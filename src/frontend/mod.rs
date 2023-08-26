@@ -597,8 +597,8 @@ fn fold_constants(values: &mut ValueStorage, functions: &FunctionMap, value_id: 
             right,
             |(_, left_value), (_, right_value)| match (left_value, right_value) {
                 (Value::Int(left), Value::Int(right)) => Some(Value::Int(left + right)),
-                (&Value::Int(left), _) if left == 0 => Some(right_value.clone()),
-                (_, &Value::Int(right)) if right == 0 => Some(left_value.clone()),
+                (&Value::Int(0), _) => Some(right_value.clone()),
+                (_, &Value::Int(0)) => Some(left_value.clone()),
                 _ => None,
             },
         ),
@@ -614,7 +614,7 @@ fn fold_constants(values: &mut ValueStorage, functions: &FunctionMap, value_id: 
                 } else {
                     match (left_value, right_value) {
                         (Value::Int(left), Value::Int(right)) => Some(Value::Int(left - right)),
-                        (_, &Value::Int(right)) if right == 0 => Some(left_value.clone()),
+                        (_, &Value::Int(0)) => Some(left_value.clone()),
                         _ => None,
                     }
                 }
@@ -628,10 +628,10 @@ fn fold_constants(values: &mut ValueStorage, functions: &FunctionMap, value_id: 
             right,
             |(_, left_value), (_, right_value)| match (left_value, right_value) {
                 (Value::Int(left), Value::Int(right)) => Some(Value::Int(left * right)),
-                (&Value::Int(left), _) if left == 0 => Some(Value::Int(0)),
-                (_, &Value::Int(right)) if right == 0 => Some(Value::Int(0)),
-                (&Value::Int(left), _) if left == 1 => Some(right_value.clone()),
-                (_, &Value::Int(right)) if right == 1 => Some(left_value.clone()),
+                (&Value::Int(0), _) => Some(Value::Int(0)),
+                (_, &Value::Int(0)) => Some(Value::Int(0)),
+                (&Value::Int(1), _) => Some(right_value.clone()),
+                (_, &Value::Int(1)) => Some(left_value.clone()),
                 _ => None,
             },
         ),
@@ -643,8 +643,8 @@ fn fold_constants(values: &mut ValueStorage, functions: &FunctionMap, value_id: 
             right,
             |(_, left_value), (_, right_value)| match (left_value, right_value) {
                 (Value::Int(left), Value::Int(right)) => Some(Value::Int(left / right)),
-                (&Value::Int(left), _) if left == 0 => Some(Value::Int(0)),
-                (_, &Value::Int(right)) if right == 1 => Some(left_value.clone()),
+                (&Value::Int(0), _) => Some(Value::Int(0)),
+                (_, &Value::Int(1)) => Some(left_value.clone()),
                 _ => None,
             },
         ),

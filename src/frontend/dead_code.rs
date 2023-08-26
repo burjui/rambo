@@ -36,9 +36,9 @@ pub(crate) fn remove_dead_code(
 
 fn compute_value_usage(
     program_result: ValueId,
-    values: &mut ValueStorage,
-    cfg: &mut ControlFlowGraph,
-    definitions: &mut FxHashMap<ValueId, StatementLocation>,
+    values: &ValueStorage,
+    cfg: &ControlFlowGraph,
+    definitions: &FxHashMap<ValueId, StatementLocation>,
 ) -> FxHashMap<ValueId, usize> {
     let mut value_usage = FxHashMap::from_iter(definitions.keys().cloned().zip(repeat(0)));
     let used_values = cfg
@@ -54,7 +54,7 @@ fn compute_value_usage(
 
 fn remove_unused_definitions(
     value_usage: &mut FxHashMap<ValueId, usize>,
-    values: &mut ValueStorage,
+    values: &ValueStorage,
     cfg: &mut ControlFlowGraph,
     definitions: &mut FxHashMap<ValueId, StatementLocation>,
 ) {
