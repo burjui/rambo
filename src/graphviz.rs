@@ -45,7 +45,7 @@ impl IrGraphvizFile {
 
     fn write_module(&mut self, module: &IRModule, label: &str) -> io::Result<()> {
         let cluster_id = self.cluster_idgen.next();
-        writeln!(self.output, "subgraph {} {{", cluster_id)?;
+        writeln!(self.output, "subgraph {cluster_id} {{")?;
         self.writeln_cluster_label(label)?;
         for block in module.cfg.node_indices() {
             let block_id = BlockId::new(cluster_id, block);
@@ -98,7 +98,7 @@ impl IrGraphvizFile {
         cfg: &ControlFlowGraph,
         values: &ValueStorage,
     ) -> io::Result<()> {
-        writeln!(self.output, "{} [", block_id)?;
+        writeln!(self.output, "{block_id} [")?;
         self.writeln_html_attribute("shape", "box")?;
         self.writeln_node_xlabel_attribute(&block.to_string())?;
         self.write_start_html_attribute("label")?;
@@ -167,7 +167,7 @@ impl IrGraphvizFile {
                 self.write_with_font_color(KEYWORD_COLOR, "condjump")?;
                 write!(self.output, " ")?;
                 self.write_value_id(*condition)?;
-                write!(self.output, ", {}, {}", then_block, else_block)
+                write!(self.output, ", {then_block}, {else_block}")
             }
 
             Statement::Return(value_id) => {
@@ -182,7 +182,7 @@ impl IrGraphvizFile {
         match value {
             Value::Unit => self.write_with_font_color(CONSTANT_COLOR, "()"),
             Value::Int(value) => self.write_with_font_color(CONSTANT_COLOR, &value.to_string()),
-            Value::String(s) => self.write_with_font_color(CONSTANT_COLOR, &format!("\"{}\"", s)),
+            Value::String(s) => self.write_with_font_color(CONSTANT_COLOR, &format!("\"{s}\"")),
             Value::Function(_, name) => {
                 let font_color_end = self.write_font_color_start(LAMBDA_COLOR)?;
                 write!(self.output, "{}", escape_html_text(name))?;
@@ -205,7 +205,7 @@ impl IrGraphvizFile {
             }
             Value::Arg(index) => {
                 self.write_with_font_color(KEYWORD_COLOR, "arg")?;
-                write!(self.output, "[{}]", index)
+                write!(self.output, "[{index}]")
             }
         }
     }
@@ -243,11 +243,11 @@ impl IrGraphvizFile {
     }
 
     fn write_edge(&mut self, source_id: BlockId, target_id: BlockId) -> io::Result<()> {
-        writeln!(self.output, "{} -> {}", source_id, target_id)
+        writeln!(self.output, "{source_id} -> {target_id}")
     }
 
     fn write_start_html_attribute(&mut self, name: &'static str) -> io::Result<()> {
-        write!(self.output, "{}=", name)?;
+        write!(self.output, "{name}=")?;
         write!(self.output, "<")
     }
 
@@ -259,15 +259,15 @@ impl IrGraphvizFile {
         &mut self,
         name: &'static str,
         attributes: &[(&'static str, &str)],
-    ) -> io::Result<EndTag> {
-        write!(self.output, "<{}", name)?;
+    ) -> io::Result<&'static str> {
+        write!(self.output, "<{name}")?;
         self.write_html_attributes(attributes)?;
         write!(self.output, ">")?;
-        Ok(EndTag { name })
+        Ok(name)
     }
 
-    fn write_end_html_tag(&mut self, tag: EndTag) -> io::Result<()> {
-        write!(self.output, "</{}>", tag.name)
+    fn write_end_html_tag(&mut self, tag: &'static str) -> io::Result<()> {
+        write!(self.output, "</{tag}>")
     }
 
     fn write_standalone_html_tag(
@@ -275,7 +275,7 @@ impl IrGraphvizFile {
         name: &'static str,
         attributes: &[(&'static str, &str)],
     ) -> io::Result<()> {
-        write!(self.output, "<{}", name)?;
+        write!(self.output, "<{name}")?;
         self.write_html_attributes(attributes)?;
         write!(self.output, "/>")?;
         Ok(())
@@ -290,7 +290,7 @@ impl IrGraphvizFile {
     }
 
     fn write_html_attribute(&mut self, name: &'static str, value: &str) -> io::Result<()> {
-        write!(self.output, "{}=", name)?;
+        write!(self.output, "{name}=")?;
         self.write_html_attribute_value(value)
     }
 
@@ -309,7 +309,7 @@ impl IrGraphvizFile {
         self.write_end_html_tag(font_color_end)
     }
 
-    fn write_font_color_start(&mut self, color: &'static str) -> io::Result<EndTag> {
+    fn write_font_color_start(&mut self, color: &'static str) -> io::Result<&'static str> {
         self.write_start_html_tag("font", &[("color", color)])
     }
 
@@ -391,11 +391,6 @@ impl fmt::Display for BlockId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}_{}", self.cluster_id, self.block)
     }
-}
-
-#[must_use]
-struct EndTag {
-    name: &'static str,
 }
 
 #[derive(Clone)]

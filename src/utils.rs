@@ -123,6 +123,6 @@ impl<T: Default + Copy> VecUtils<T> for Vec<T> {
         let slice_end = index + slice_len;
         let range = index..new_len - slice_len;
         self.copy_within(range.clone(), new_len - range.end + range.start);
-        self[index..slice_end].copy_from_slice(src)
+        self[index..slice_end].copy_from_slice(src);
     }
 }

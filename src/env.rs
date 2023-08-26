@@ -30,7 +30,7 @@ where
                 return Ok(value);
             }
         }
-        Err(format!("`{:?}' is undefined", key))
+        Err(format!("`{key:?}' is undefined"))
     }
 
     pub(crate) fn push(&mut self) {

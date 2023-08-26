@@ -46,7 +46,7 @@ impl BasicBlock {
     }
 
     pub(crate) fn pop(&mut self) {
-        self.0.pop()
+        self.0.pop();
     }
 
     pub(crate) fn push(&mut self, statement: Statement) -> usize {
@@ -62,7 +62,7 @@ impl BasicBlock {
     }
 
     pub(crate) fn remove(&mut self, location: StatementLocation) {
-        self.0.remove(location.index)
+        self.0.remove(location.index);
     }
 
     pub(crate) fn get(&self, index: usize) -> Option<&Statement> {
@@ -192,7 +192,7 @@ impl PartialEq for FnId {
 
 impl Hash for FnId {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        self.id.hash(state)
+        self.id.hash(state);
     }
 }
 
@@ -260,13 +260,11 @@ impl fmt::Debug for Statement {
             Self::Comment(comment) => {
                 writeln!(f, "// {}", comment.split(|c| c == '\n').format("\n// "))
             }
-            Self::Definition(value_id) => write!(f, "define {}", value_id),
-            Self::CondJump(condition, then_branch, else_branch) => write!(
-                f,
-                "condjump {}, {}, {}",
-                condition, then_branch, else_branch
-            ),
-            Self::Return(value_id) => write!(f, "return {}", value_id),
+            Self::Definition(value_id) => write!(f, "define {value_id}"),
+            Self::CondJump(condition, then_branch, else_branch) => {
+                write!(f, "condjump {condition}, {then_branch}, {else_branch}")
+            }
+            Self::Return(value_id) => write!(f, "return {value_id}"),
         }
     }
 }
@@ -281,12 +279,10 @@ pub(crate) fn fmt_statement(
             writeln!(sink, "// {}", comment.split(|c| c == '\n').format("\n// "))
         }
         Statement::Definition(value_id) => write!(sink, "{} ← {:?}", value_id, &values[*value_id]),
-        Statement::CondJump(value_id, then_branch, else_branch) => write!(
-            sink,
-            "condjump {}, {}, {}",
-            value_id, then_branch, else_branch
-        ),
-        Statement::Return(value_id) => write!(sink, "return {}", value_id),
+        Statement::CondJump(value_id, then_branch, else_branch) => {
+            write!(sink, "condjump {value_id}, {then_branch}, {else_branch}")
+        }
+        Statement::Return(value_id) => write!(sink, "return {value_id}"),
     }
 }
 
@@ -348,20 +344,20 @@ impl fmt::Debug for Value {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Unit => f.write_str("()"),
-            Self::Int(value) => write!(f, "{}", value),
-            Self::String(s) => write!(f, "\"{}\"", s),
-            Self::Function(_, name) => write!(f, "{}", name),
+            Self::Int(value) => write!(f, "{value}"),
+            Self::String(s) => write!(f, "\"{s}\""),
+            Self::Function(_, name) => write!(f, "{name}"),
             Self::AddInt(left, right) | Self::AddString(left, right) => {
-                write!(f, "{} + {}", left, right)
+                write!(f, "{left} + {right}")
             }
-            Self::SubInt(left, right) => write!(f, "{} - {}", left, right),
-            Self::MulInt(left, right) => write!(f, "{} * {}", left, right),
-            Self::DivInt(left, right) => write!(f, "{} / {}", left, right),
+            Self::SubInt(left, right) => write!(f, "{left} - {right}"),
+            Self::MulInt(left, right) => write!(f, "{left} * {right}"),
+            Self::DivInt(left, right) => write!(f, "{left} / {right}"),
             Self::Phi(Phi(operands)) => write!(f, "ϕ({})", operands.iter().format(", ")),
             Self::Call(function, arguments) => {
                 write!(f, "call {}({})", function, arguments.iter().format(", "))
             }
-            Self::Arg(index) => write!(f, "arg[{}]", index),
+            Self::Arg(index) => write!(f, "arg[{index}]"),
         }
     }
 }
@@ -422,9 +418,9 @@ pub(crate) fn get_value_operands<'a>(value: &'a Value) -> Box<dyn Iterator<Item 
         | Value::DivInt(left, right)
         | Value::AddString(left, right) => Box::new(once(*left).chain(once(*right))),
 
-        Value::Phi(phi) => Box::new(phi.iter().cloned()),
+        Value::Phi(phi) => Box::new(phi.iter().copied()),
         Value::Call(function, arguments) => {
-            Box::new(once(*function).chain(arguments.iter().cloned()))
+            Box::new(once(*function).chain(arguments.iter().copied()))
         }
     }
 }

@@ -109,6 +109,7 @@ impl SemanticsChecker {
         }
     }
 
+    #[allow(clippy::too_many_lines)]
     fn check_expr(&mut self, expr: &Expr) -> CheckResult<ExprRef> {
         match expr {
             Expr::Unit(source) => Ok(new_expr(TypedExpr::Unit(source.clone()))),
@@ -293,9 +294,12 @@ impl SemanticsChecker {
                     );
                 }
 
-                let (then_branch_statements, then_branch_source) = match then_branch.deref() {
-                    Expr::Block(ASTBlock { source, statements }) => (statements, source),
-                    _ => unreachable!(),
+                let Expr::Block(ASTBlock {
+                    source: then_branch_source,
+                    statements: then_branch_statements,
+                }) = &**then_branch
+                else {
+                    unreachable!()
                 };
                 let then_branch = if then_branch_statements.is_empty() {
                     warning!("empty true branch: {:?}", then_branch_source);
@@ -315,10 +319,12 @@ impl SemanticsChecker {
 
                 let else_branch = match else_branch {
                     Some(else_branch) => {
-                        let (else_branch_statements, else_branch_source) = match else_branch.deref()
-                        {
-                            Expr::Block(ASTBlock { source, statements }) => (statements, source),
-                            _ => unreachable!(),
+                        let Expr::Block(ASTBlock {
+                            source: else_branch_source,
+                            statements: else_branch_statements,
+                        }) = &**else_branch
+                        else {
+                            unreachable!()
                         };
                         if else_branch_statements.is_empty() {
                             warning!("empty false branch: {:?}", else_branch_source);
@@ -434,7 +440,7 @@ impl SemanticsChecker {
 
     fn generate_function_name(&mut self) -> String {
         let function_id = self.function_ids.next().unwrap();
-        format!("@lambda{}", function_id)
+        format!("@lambda{function_id}")
     }
 }
 
@@ -540,17 +546,17 @@ pub(crate) enum TypedExpr {
 impl Debug for TypedExpr {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::ArgumentPlaceholder(name, _) => write!(formatter, "<{}>", name),
+            Self::ArgumentPlaceholder(name, _) => write!(formatter, "<{name}>"),
             Self::Unit(_) => write!(formatter, "()"),
-            Self::Int(value, _) => write!(formatter, "{}", value),
-            Self::String(value, _) => write!(formatter, "\"{}\"", value),
+            Self::Int(value, _) => write!(formatter, "{value}"),
+            Self::String(value, _) => write!(formatter, "\"{value}\""),
             Self::Reference(binding, _) => write!(formatter, "&{}", &binding.name),
             Self::AddInt(left, right, _) | Self::AddStr(left, right, _) => {
-                write!(formatter, "({:?} + {:?})", left, right)
+                write!(formatter, "({left:?} + {right:?})")
             }
-            Self::SubInt(left, right, _) => write!(formatter, "({:?} - {:?})", left, right),
-            Self::MulInt(left, right, _) => write!(formatter, "({:?} * {:?})", left, right),
-            Self::DivInt(left, right, _) => write!(formatter, "({:?} / {:?})", left, right),
+            Self::SubInt(left, right, _) => write!(formatter, "({left:?} - {right:?})"),
+            Self::MulInt(left, right, _) => write!(formatter, "({left:?} * {right:?})"),
+            Self::DivInt(left, right, _) => write!(formatter, "({left:?} / {right:?})"),
             Self::Assign(binding, value, _) => {
                 write!(formatter, "({} = {:?})", &binding.name, value)
             }
@@ -559,7 +565,7 @@ impl Debug for TypedExpr {
                 function,
                 arguments,
                 ..
-            } => write!(formatter, "({:?} @ {:?})", function, arguments),
+            } => write!(formatter, "({function:?} @ {arguments:?})"),
             Self::Conditional {
                 condition,
                 then_branch,
@@ -567,8 +573,7 @@ impl Debug for TypedExpr {
                 ..
             } => write!(
                 formatter,
-                "(if ({:?}) {:?} else {:?})",
-                condition, then_branch, else_branch
+                "(if ({condition:?}) {then_branch:?} else {else_branch:?})"
             ),
             Self::Block(statements, _) => {
                 write!(formatter, "{{\n{:?}\n}}", statements.iter().format("\n"))

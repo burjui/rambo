@@ -24,6 +24,7 @@ use termcolor::ColorSpec;
 use termcolor::StandardStream;
 use termcolor::WriteColor;
 
+#[allow(clippy::cast_sign_loss)]
 pub fn load(executable: &Executable, config: &SimulatorConfig) -> GenericResult<Cpu> {
     let mut cpu = Cpu::new();
 
@@ -34,10 +35,10 @@ pub fn load(executable: &Executable, config: &SimulatorConfig) -> GenericResult<
             RelocationKind::Function => config.code_start_address,
             RelocationKind::DataLoad | RelocationKind::DataStore => config.data_start_address,
         };
-        let target = (relocation.target + target_offset) as i32;
+        let target = i32::try_from(relocation.target + target_offset)?;
         let immediate = ui_immediate(target).unwrap();
 
-        let offset = relocation.offset as usize;
+        let offset = usize::try_from(relocation.offset)?;
         let u_instruction_range = offset..offset + 4;
         let mut u_instruction = (&code[u_instruction_range.clone()])
             .read_u32::<LittleEndian>()
@@ -149,7 +150,7 @@ pub(crate) fn run(executable: &Executable, mut dump_state: DumpState<'_>) -> Gen
                         .set_fg(Some(Color::Black))
                         .set_intense(true),
                 )?;
-                writeln!(output, "{}", comment)?;
+                writeln!(output, "{comment}")?;
             }
         }
 
@@ -167,7 +168,7 @@ pub(crate) fn run(executable: &Executable, mut dump_state: DumpState<'_>) -> Gen
             if let DumpState::Instructions(output) | DumpState::Everything(output) = &mut dump_state
             {
                 output.set_color(ColorSpec::new().set_fg(Some(Color::White)).set_bold(true))?;
-                write!(output, "[0x{:08x}]", pc)?;
+                write!(output, "[0x{pc:08x}]")?;
                 output.reset()?;
                 writeln!(
                     output,
@@ -198,7 +199,7 @@ pub(crate) fn dump_ram(
             if index > 0 {
                 writeln!(output)?;
             }
-            write!(output, "[{:08x}] ", address)?;
+            write!(output, "[{address:08x}] ")?;
         } else {
             write!(output, " ")?;
         }
@@ -210,7 +211,7 @@ pub(crate) fn dump_ram(
         let byte = mmu
             .load(address)
             .map_err(|_| format!("Failed to load a byte from address 0x{:08x}", address))?;
-        write!(output, "{:02x}", byte)?;
+        write!(output, "{byte:02x}")?;
         output.reset()?;
     }
     writeln!(output, "\n")?;
@@ -228,6 +229,7 @@ struct ImmediateI {
     lower: i16,
 }
 
+#[allow(clippy::cast_sign_loss, clippy::cast_possible_wrap)]
 fn ui_immediate(value: i32) -> Result<ImmediateI, TryFromIntError> {
     if (-(1 << 11)..1 << 11).contains(&value) {
         Ok(ImmediateI {
@@ -262,7 +264,7 @@ fn dump_registers(output: &mut StandardStream, cpu: &Cpu) -> io::Result<()> {
         }
 
         let register = (i % REGISTERS_PER_ROW) * REGISTERS_PER_COLUMN + i / REGISTERS_PER_ROW;
-        write!(output, "x{:<2}", register)?;
+        write!(output, "x{register:<2}")?;
         output.set_color(
             ColorSpec::new()
                 .set_fg(Some(Color::Black))
@@ -295,6 +297,6 @@ fn write_title(stderr: &mut StandardStream, title: &str) -> io::Result<()> {
             .set_fg(Some(Color::Yellow))
             .set_intense(false),
     )?;
-    writeln!(stderr, "{}:", title)?;
+    writeln!(stderr, "{title}:")?;
     stderr.reset()
 }

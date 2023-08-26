@@ -36,6 +36,7 @@ use termcolor::StandardStream;
 use termcolor::WriteColor;
 
 #[derive(Clone)]
+#[allow(clippy::struct_excessive_bools)]
 pub(crate) struct PipelineOptions {
     pub(crate) max_pass_name: String,
     pub(crate) enable_warnings: bool,
@@ -133,6 +134,7 @@ pub(crate) trait CompilerPass<Input, Output> {
 }
 
 impl Load {
+    #[allow(clippy::cast_precision_loss)]
     fn file_size_pretty(size: usize) -> String {
         [
             (usize::pow(2, 30), "G"),
@@ -205,7 +207,7 @@ impl CompilerPass<(Block, SourceFileRef), (ExprRef, SourceFileRef)> for VerifySe
         let checker = SemanticsChecker::new(EnableWarnings(options.enable_warnings));
         let hir = checker.check_module(&ast)?;
         if options.dump_hir {
-            writeln!(&mut stdout(), "{:?}", hir)?;
+            writeln!(&mut stdout(), "{hir:?}")?;
         }
         Ok((hir, source_file))
     }
@@ -245,7 +247,7 @@ impl CompilerPass<(ExprRef, SourceFileRef), IRModule> for IR {
                         src_path.display()
                     )
                 });
-            let file = IrGraphvizFile::create(format!("{}_cfg.dot", src_file_name))?;
+            let file = IrGraphvizFile::create(format!("{src_file_name}_cfg.dot"))?;
             file.write(&module)?;
         }
         Ok(module)
@@ -259,7 +261,7 @@ impl CompilerPass<IRModule, IRModule> for EvaluateIR {
     fn apply(module: IRModule, options: &PipelineOptions) -> Result<IRModule, Box<dyn Error>> {
         let value = eval(&module);
         if options.verbosity >= 1 {
-            writeln!(&mut stdout(), "{:?}", value)?;
+            writeln!(&mut stdout(), "{value:?}")?;
         }
         Ok(module)
     }
@@ -306,10 +308,11 @@ impl CompilerPass<IRModule, Executable> for RISCVBackend {
     }
 }
 
+#[allow(clippy::cast_precision_loss)]
 fn size_string(size: usize) -> String {
     match NumberPrefix::binary(size as f32) {
-        NumberPrefix::Standalone(size) => format!("{} bytes", size),
-        NumberPrefix::Prefixed(prefix, size) => format!("{:.1} {}B", size, prefix),
+        NumberPrefix::Standalone(size) => format!("{size} bytes"),
+        NumberPrefix::Prefixed(prefix, size) => format!("{size:.1} {prefix}B"),
     }
 }
 
@@ -327,7 +330,7 @@ impl CompilerPass<Executable, ()> for RISCVEmulator {
         let cpu = run(&image, dump_state)?;
         if options.verbosity >= 1 {
             let result = cpu.read_register(A0);
-            writeln!(stdout, "result at x{} = 0x{:08x} ({})", A0, result, result,)?;
+            writeln!(stdout, "result at x{A0} = 0x{result:08x} ({result})",)?;
         }
         Ok(())
     }
@@ -347,9 +350,9 @@ fn unit_statements_count(module: &IRModule) -> usize {
 }
 
 fn dump_module(module: &IRModule, name: &str, stdout: &mut StandardStream) -> std::io::Result<()> {
-    writeln!(stdout, "// {}", name)?;
+    writeln!(stdout, "// {name}")?;
     for block in module.cfg.node_indices() {
-        writeln!(stdout, "{}_{}:", name, block)?;
+        writeln!(stdout, "{name}_{block}:")?;
         for statement in module.cfg[block].iter() {
             write!(stdout, "    ")?;
             fmt_statement(stdout, statement, &module.values)?;
@@ -380,8 +383,8 @@ pub(crate) trait StandardStreamUtils {
 impl StandardStreamUtils for StandardStream {
     fn write_title(&mut self, prefix: &str, title: &str, color: Color) -> std::io::Result<()> {
         self.set_color(ColorSpec::new().set_fg(Some(Color::Blue)).set_bold(true))?;
-        write!(self, "{} ", prefix)?;
+        write!(self, "{prefix} ")?;
         self.set_color(ColorSpec::new().set_fg(Some(color)).set_bold(true))?;
-        writeln!(self, "{}", title)
+        writeln!(self, "{title}")
     }
 }

@@ -64,12 +64,12 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
     });
     match result {
-        Ok(_) => {}
+        Ok(()) => {}
         Err(error) => {
             stderr.set_color(ColorSpec::new().set_fg(Some(Color::Red)).set_bold(true))?;
             write!(stderr, "error: ")?;
             stderr.reset()?;
-            writeln!(stderr, "{}", error)?;
+            writeln!(stderr, "{error}")?;
         }
     }
     stderr.reset()?;
@@ -82,6 +82,7 @@ struct CommandLine {
     pipeline_options: PipelineOptions,
 }
 
+#[allow(clippy::too_many_lines)]
 fn parse_command_line() -> Result<CommandLine, Box<dyn Error>> {
     const MAXIMUM_VERBOSITY: usize = 3;
 
@@ -131,8 +132,7 @@ fn parse_command_line() -> Result<CommandLine, Box<dyn Error>> {
         PASS_OPTION,
         "pass",
         &format!(
-            "name of the last compiler pass in the pipeline;\nvalid names are: {}",
-            pass_name_list
+            "name of the last compiler pass in the pipeline;\nvalid names are: {pass_name_list}"
         ),
         "PASS",
     );
@@ -145,15 +145,14 @@ fn parse_command_line() -> Result<CommandLine, Box<dyn Error>> {
     let matches = spec.parse(&args[1..])?;
     let program_name = args[0].clone();
     if matches.opt_present(HELP_OPTION) {
-        let brief = format!("Usage: {} [options] file...", program_name);
+        let brief = format!("Usage: {program_name} [options] file...");
         print!("{}", spec.usage(&brief));
         std::process::exit(0);
     }
     let verbosity = matches.opt_count(VERBOSE_OPTION);
     if matches.opt_count(VERBOSE_OPTION) > MAXIMUM_VERBOSITY {
         return Err(From::from(format!(
-            "maximum verbosity level ({}) exceeded",
-            MAXIMUM_VERBOSITY
+            "maximum verbosity level ({MAXIMUM_VERBOSITY}) exceeded"
         )));
     }
 
@@ -182,7 +181,7 @@ fn parse_command_line() -> Result<CommandLine, Box<dyn Error>> {
         enable_dce: !matches.opt_present(NO_DCE_OPTION),
         enable_immediate_integers: !matches.opt_present(NO_IMMINT_OPTION),
         eval_ir: matches.opt_present(EVAL_IR),
-        verbosity: verbosity as u8,
+        verbosity: u8::try_from(verbosity).expect("way too verbose"),
         dump_ast: matches.opt_present(DUMP_AST_OPTION),
         dump_hir: matches.opt_present(DUMP_HIR_OPTION),
         dump_ir: matches.opt_present(DUMP_IR_OPTION),
@@ -197,6 +196,7 @@ fn parse_command_line() -> Result<CommandLine, Box<dyn Error>> {
     })
 }
 
+#[allow(clippy::cast_precision_loss)]
 fn process(path: String, options: &PipelineOptions) -> Result<(), Box<dyn Error>> {
     let stdout = &mut stdout();
     stdout.write_title("==>", &path, Color::Yellow)?;
@@ -213,12 +213,12 @@ fn process(path: String, options: &PipelineOptions) -> Result<(), Box<dyn Error>
         }
         pipeline.map(RISCVBackend)?.map(RISCVEmulator).map(|_| ())
     });
-    println!("Execution time: {}", elapsed);
+    println!("Execution time: {elapsed}");
     println!(
         "Memory usage: {}",
         match NumberPrefix::binary(ALLOCATOR.max_usage() as f32) {
-            NumberPrefix::Standalone(usage) => format!("{} bytes", usage),
-            NumberPrefix::Prefixed(prefix, usage) => format!("{:.0} {}B", usage, prefix),
+            NumberPrefix::Standalone(usage) => format!("{usage} bytes"),
+            NumberPrefix::Prefixed(prefix, usage) => format!("{usage:.0} {prefix}B"),
         }
     );
     result

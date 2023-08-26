@@ -51,25 +51,22 @@ impl<'a> EvalContext<'a> {
 
         loop {
             let basic_block = &self.module.cfg[state.block];
-            let statement_index = match state.statement_index {
-                Some(index) => index,
-                None => {
-                    let mut outgoing_edges = self
-                        .module
-                        .cfg
-                        .edges_directed(state.block, Direction::Outgoing);
-                    let outgoing_edge = outgoing_edges.next();
+            let Some(statement_index) = state.statement_index else {
+                let mut outgoing_edges = self
+                    .module
+                    .cfg
+                    .edges_directed(state.block, Direction::Outgoing);
+                let outgoing_edge = outgoing_edges.next();
 
-                    match outgoing_edge {
-                        Some(edge) => {
-                            state = self.new_state(edge.target);
-                            state.statement_index = self.module.cfg[state.block].indices().next();
-                            continue;
-                        }
+                match outgoing_edge {
+                    Some(edge) => {
+                        state = self.new_state(edge.target);
+                        state.statement_index = self.module.cfg[state.block].indices().next();
+                        continue;
+                    }
 
-                        None => break,
-                    };
-                }
+                    None => break,
+                };
             };
 
             let statement = match basic_block.get(statement_index) {
@@ -126,14 +123,14 @@ impl<'a> EvalContext<'a> {
                 value.clone()
             }
 
-            Value::AddInt(left, right) => Value::Int(self.int(left) + self.int(right)),
-            Value::SubInt(left, right) => Value::Int(self.int(left) - self.int(right)),
-            Value::MulInt(left, right) => Value::Int(self.int(left) * self.int(right)),
-            Value::DivInt(left, right) => Value::Int(self.int(left) / self.int(right)),
+            Value::AddInt(left, right) => Value::Int(self.int(*left) + self.int(*right)),
+            Value::SubInt(left, right) => Value::Int(self.int(*left) - self.int(*right)),
+            Value::MulInt(left, right) => Value::Int(self.int(*left) * self.int(*right)),
+            Value::DivInt(left, right) => Value::Int(self.int(*left) / self.int(*right)),
 
-            Value::AddString(left, right) => {
-                Value::String(Rc::new((*self.string(left)).clone() + &self.string(right)))
-            }
+            Value::AddString(left, right) => Value::String(Rc::new(
+                (*self.string(*left)).clone() + &self.string(*right),
+            )),
 
             Value::Phi(operands) => operands
                 .iter()
@@ -146,17 +143,16 @@ impl<'a> EvalContext<'a> {
                 .clone(),
 
             Value::Call(function, arguments) => {
-                let value = &self.runtime_value(function).value;
-                let fn_id = match value {
-                    Value::Function(fn_id, _) => fn_id,
-                    _ => unreachable!("`{}' is not a function: {:?}", function, value),
+                let value = &self.runtime_value(*function).value;
+                let Value::Function(fn_id, _) = value else {
+                    unreachable!("`{}' is not a function: {:?}", function, value)
                 };
 
                 let function_cfg = &self.functions[fn_id];
                 let mut functions = self.functions.clone();
                 functions.extend(function_cfg.functions.clone());
                 let mut function_context = EvalContext::new(function_cfg, &functions);
-                for argument in arguments.iter() {
+                for argument in arguments {
                     let runtime_value = self.env[argument].clone();
                     let value = runtime_value.value.clone();
                     function_context.stack.push(value);
@@ -176,15 +172,15 @@ impl<'a> EvalContext<'a> {
         };
     }
 
-    fn int(&self, value_id: &ValueId) -> i32 {
+    fn int(&self, value_id: ValueId) -> i32 {
         self.runtime_value(value_id).try_into().unwrap()
     }
 
-    fn string(&self, value_id: &ValueId) -> Rc<String> {
+    fn string(&self, value_id: ValueId) -> Rc<String> {
         self.runtime_value(value_id).try_into().unwrap()
     }
 
-    fn runtime_value(&self, value_id: &ValueId) -> &RuntimeValue {
+    fn runtime_value(&self, value_id: ValueId) -> &RuntimeValue {
         &self.env[value_id]
     }
 }

@@ -28,7 +28,7 @@ use riscv::SP;
 use riscv::T0;
 use riscv::ZERO;
 use riscv_emulator::cpu::Cpu;
-use risky::instructions::*;
+use risky::instructions::{add, addi, auipc, beq, div, ebreak, jal, jalr, lui, lw, mul, sub, sw};
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
 use std::collections::btree_set::BTreeSet;
@@ -135,6 +135,7 @@ impl<'a: 'output, 'output> Backend<'a, 'output> {
         }
     }
 
+    #[allow(clippy::too_many_lines)]
     fn generate(mut self) -> GenericResult<()> {
         for block in self.module.cfg.node_indices() {
             for statement in self.module.cfg[block].iter() {
@@ -235,10 +236,11 @@ impl<'a: 'output, 'output> Backend<'a, 'output> {
         }
 
         if let DumpCode::Yes(output) = replace(&mut self.dump_code, DumpCode::No) {
+            const INSTRUCTION_SIZE: usize = 4;
+
             output.reset()?;
             writeln!(output, "---- CODE DUMP: {} ----", &self.module.name)?;
 
-            const INSTRUCTION_SIZE: usize = 4;
             for i in 0..self.state.image.code.len() / INSTRUCTION_SIZE {
                 let offset = i * INSTRUCTION_SIZE;
                 let raw_instruction = (&self.state.image.code[offset..offset + INSTRUCTION_SIZE])
@@ -248,7 +250,7 @@ impl<'a: 'output, 'output> Backend<'a, 'output> {
                 // for (op, offset) in Cpu::decode_raw(&self.state.image.code)
                 let offset_u64 = u64::try_from(offset)?;
                 if let Some(comment) = self.state.image.get_comment_at(offset_u64) {
-                    writeln!(output, "{}", comment)?;
+                    writeln!(output, "{comment}")?;
                 }
                 output.set_color(
                     ColorSpec::new()
@@ -286,21 +288,21 @@ impl<'a: 'output, 'output> Backend<'a, 'output> {
                             .set_intense(true),
                     )?;
 
-                    let chunk = chunk.cloned().collect::<Box<[u8]>>();
-                    for byte in chunk.iter() {
-                        write!(output, " {:02x}", byte)?;
+                    let chunk = chunk.copied().collect::<Box<[u8]>>();
+                    for byte in &*chunk {
+                        write!(output, " {byte:02x}")?;
                     }
                     output.reset()?;
 
                     (0..BYTES_PER_LINE - chunk.len()).try_for_each(|_| write!(output, "   "))?;
                     write!(output, "  | ")?;
-                    for byte in chunk.iter() {
+                    for byte in &*chunk {
                         let c = if byte.is_ascii_graphic() {
                             *byte as char
                         } else {
                             '.'
                         };
-                        write!(output, "{}", c)?;
+                        write!(output, "{c}")?;
                     }
                     writeln!(output)?;
                 }
@@ -320,6 +322,7 @@ impl<'a: 'output, 'output> Backend<'a, 'output> {
         Ok(next_block)
     }
 
+    #[allow(clippy::too_many_lines)]
     fn generate_statement(
         &mut self,
         block: NodeIndex,
@@ -388,7 +391,10 @@ impl<'a: 'output, 'output> Backend<'a, 'output> {
                 self.patch_jump(jump_to_end, ZERO, end_offset);
                 if after_jump_to_end == self.current_code_offset() {
                     for _ in 0..4 {
-                        self.state.image.code.remove(jump_to_end as usize);
+                        self.state
+                            .image
+                            .code
+                            .remove(usize::try_from(jump_to_end).expect("jump too far"));
                     }
                     let else_branch_offset = else_branch_offset - 4;
                     self.patch_at(
@@ -513,7 +519,7 @@ impl<'a: 'output, 'output> Backend<'a, 'output> {
                 Ok(register)
             }
 
-            value => unimplemented!("value {}: {:?}", value_id, value),
+            value @ Value::AddString(..) => unimplemented!("value {value_id}: {value:?}"),
         }
     }
 
@@ -521,10 +527,7 @@ impl<'a: 'output, 'output> Backend<'a, 'output> {
         let value = &self.module.values[value_id];
         let value_i32 = match value {
             Value::Int(value) => *value,
-            _ => panic!(
-                "cannot generate an immediate from value {}: {:?}",
-                value_id, value
-            ),
+            _ => panic!("cannot generate an immediate from value {value_id}: {value:?}"),
         };
         self.generate_immediate_i32(register, value_i32)
     }
@@ -563,6 +566,7 @@ impl<'a: 'output, 'output> Backend<'a, 'output> {
         Ok(result)
     }
 
+    #[allow(clippy::cast_sign_loss)]
     fn allocate_value(&mut self, value_id: ValueId) -> GenericResult<Option<u64>> {
         if let Some(offset) = self.data_offsets.get(&value_id) {
             Ok(Some(*offset))
@@ -658,15 +662,14 @@ impl<'a: 'output, 'output> Backend<'a, 'output> {
                 // Spill
                 let data_offset;
                 if let Some(offset) = self.data_offsets.get(&previous_user) {
-                    data_offset = *offset
+                    data_offset = *offset;
                 } else {
                     // FIXME allocate_value(). The following is a hack for function calls, for which memory is not allocated.
                     data_offset = self.allocate_u32(0xBAD_F00D).unwrap();
                     self.data_offsets.insert(previous_user, data_offset);
                 }
                 self.tc_comment(&format!(
-                    "SPILLED [r{}] {} in favor of {}",
-                    register, previous_user, value_id
+                    "SPILLED [r{register}] {previous_user} in favor of {value_id}"
                 ));
                 self.store_u32(register, data_offset);
             }
@@ -704,7 +707,7 @@ impl<'a: 'output, 'output> Backend<'a, 'output> {
     fn ir_comment(&mut self, comment: &str) {
         self.state
             .image
-            .add_comment(self.current_code_offset(), &format!("// {}", comment));
+            .add_comment(self.current_code_offset(), &format!("// {comment}"));
     }
 
     fn tc_comment(&mut self, comment: &str) {
@@ -722,7 +725,7 @@ impl<'a: 'output, 'output> Backend<'a, 'output> {
                 JumpOffset::Short => [nop(), jal(rd, offset)],
                 JumpOffset::Long(offset) => [auipc(T0, offset.upper), jalr(rd, T0, offset.lower)],
             },
-        )
+        );
     }
 
     fn current_code_offset(&self) -> u64 {
@@ -763,7 +766,7 @@ impl RegisterAllocator {
 
     fn new() -> Self {
         let mut states = [Allocation::None; 32];
-        for register in Self::RESERVED.iter() {
+        for register in Self::RESERVED {
             states[*register as usize] = Allocation::Permanent;
         }
         Self {
@@ -830,7 +833,7 @@ impl RegisterAllocator {
             }
 
             Allocation::Temporary => {
-                let previous_user = self.values.get_by_right(&register).cloned();
+                let previous_user = self.values.get_by_right(&register).copied();
                 if previous_user == Some(value_id) {
                     self.states[register as usize] = Allocation::Temporary;
                     self.used[register as usize] = true;
@@ -847,7 +850,7 @@ impl RegisterAllocator {
 
             Allocation::Permanent => {
                 if is_target {
-                    let previous_user = self.values.get_by_right(&register).cloned();
+                    let previous_user = self.values.get_by_right(&register).copied();
                     let source = self.associate(value_id, register, previous_user);
                     Ok((source, previous_user))
                 } else {
@@ -882,7 +885,7 @@ impl RegisterAllocator {
             .iter()
             .enumerate()
             .filter_map(|(i, used)| match used {
-                true => Some(i as u8),
+                true => Some(u8::try_from(i).expect("wtf")),
                 _ => None,
             })
     }
@@ -915,6 +918,7 @@ pub(crate) struct ImmediateI {
     pub(crate) lower: i16,
 }
 
+#[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)]
 pub(crate) fn ui_immediate(value: i32) -> Result<ImmediateI, TryFromIntError> {
     if (-(1 << 11)..1 << 11).contains(&value) {
         Ok(ImmediateI {

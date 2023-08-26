@@ -15,7 +15,6 @@ use itertools::Itertools;
 use rustc_hash::FxHashMap;
 use std::iter::once;
 use std::iter::repeat;
-use std::iter::FromIterator;
 use std::mem::replace;
 
 pub(crate) fn remove_dead_code(
@@ -40,7 +39,11 @@ fn compute_value_usage(
     cfg: &ControlFlowGraph,
     definitions: &FxHashMap<ValueId, StatementLocation>,
 ) -> FxHashMap<ValueId, usize> {
-    let mut value_usage = FxHashMap::from_iter(definitions.keys().cloned().zip(repeat(0)));
+    let mut value_usage = definitions
+        .keys()
+        .copied()
+        .zip(repeat(0))
+        .collect::<FxHashMap<_, _>>();
     let used_values = cfg
         .node_indices()
         .flat_map(|node| cfg[node].iter())

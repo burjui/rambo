@@ -152,6 +152,7 @@ impl<'a> FrontEnd<'a> {
     }
 
     // TODO make block the first argument everywhere
+    #[allow(clippy::too_many_lines)]
     fn process_expr(&mut self, expr: &ExprRef, block: NodeIndex) -> (NodeIndex, ValueId) {
         match &**expr {
             TypedExpr::Block(statements, _) => {
@@ -308,7 +309,7 @@ impl<'a> FrontEnd<'a> {
                 )
             }
 
-            _ => unimplemented!("process_expr: {:?}", expr),
+            TypedExpr::ArgumentPlaceholder(..) => unimplemented!("process_expr: {:?}", expr),
         }
     }
 
@@ -361,7 +362,7 @@ impl<'a> FrontEnd<'a> {
     fn read_variable_core(&mut self, variable: &BindingRef, block: NodeIndex) -> ValueId {
         self.variables
             .get(variable)
-            .and_then(|map| map.get(&block).cloned())
+            .and_then(|map| map.get(&block).copied())
             .unwrap_or_else(|| self.read_variable_recursive(variable, block))
     }
 
@@ -383,8 +384,8 @@ impl<'a> FrontEnd<'a> {
                 .edges_directed(block, Direction::Incoming)
                 .map(|edge| edge.source)
                 .collect_vec();
-            let first_predecessor = predecessors.get(0).cloned();
-            let second_predecessor = predecessors.get(1).cloned();
+            let first_predecessor = predecessors.get(0).copied();
+            let second_predecessor = predecessors.get(1).copied();
             if let (Some(predecessor), None) = (first_predecessor, second_predecessor) {
                 // Optimize the common case of one predecessor: no phi needed
                 self.read_variable_core(variable, predecessor)
@@ -628,8 +629,7 @@ fn fold_constants(values: &mut ValueStorage, functions: &FunctionMap, value_id: 
             right,
             |(_, left_value), (_, right_value)| match (left_value, right_value) {
                 (Value::Int(left), Value::Int(right)) => Some(Value::Int(left * right)),
-                (&Value::Int(0), _) => Some(Value::Int(0)),
-                (_, &Value::Int(0)) => Some(Value::Int(0)),
+                (&Value::Int(0), _) | (_, &Value::Int(0)) => Some(Value::Int(0)),
                 (&Value::Int(1), _) => Some(right_value.clone()),
                 (_, &Value::Int(1)) => Some(left_value.clone()),
                 _ => None,

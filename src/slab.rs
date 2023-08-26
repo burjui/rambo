@@ -39,33 +39,31 @@ impl<T> Slab<T> {
     }
 
     pub(crate) fn insert(&mut self, item: T) -> SlabIndex {
-        match self.vacant_index {
-            Some(index) => {
-                let entry = &mut self.entries[index];
-                match entry {
-                    SlabEntry::Empty(optional_next) => self.vacant_index = *optional_next,
-                    SlabEntry::Occupied(_) => unreachable!(),
-                }
-                *entry = SlabEntry::Occupied(item);
-                SlabIndex(index)
+        if let Some(index) = self.vacant_index {
+            let entry = &mut self.entries[index];
+            match entry {
+                SlabEntry::Empty(optional_next) => self.vacant_index = *optional_next,
+                SlabEntry::Occupied(_) => unreachable!(),
             }
-
-            None => {
-                let index = self.entries.len();
-                self.entries.push(SlabEntry::Occupied(item));
-                SlabIndex(index)
-            }
+            *entry = SlabEntry::Occupied(item);
+            SlabIndex(index)
+        } else {
+            let index = self.entries.len();
+            self.entries.push(SlabEntry::Occupied(item));
+            SlabIndex(index)
         }
     }
 
     pub(crate) fn remove(&mut self, index: SlabIndex) {
-        match self.entries[index.0] {
-            SlabEntry::Occupied(_) => {
+        match self.entries.get(index.0) {
+            Some(SlabEntry::Occupied(_)) => {
                 self.entries[index.0] = SlabEntry::Empty(self.vacant_index);
                 self.vacant_index = Some(index.0);
             }
 
-            SlabEntry::Empty(_) => panic!("entry at index {} is already empty", index.0),
+            Some(SlabEntry::Empty(_)) => panic!("entry at index {} is already empty", index.0),
+
+            None => panic!(),
         }
     }
 

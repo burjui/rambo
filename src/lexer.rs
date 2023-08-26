@@ -147,13 +147,14 @@ impl Lexer {
         &self.stats
     }
 
+    #[allow(clippy::unnecessary_wraps)]
     fn read_id(&mut self) -> LexerResult<Option<Lexeme>> {
         Ok(match self.current_character {
             Some(c) if c.is_alphabetic() => {
                 self.read_char();
                 while let Some(c) = self.current_character {
                     if c.is_alphanumeric() || c == '_' {
-                        self.read_char()
+                        self.read_char();
                     } else {
                         break;
                     }
@@ -164,6 +165,7 @@ impl Lexer {
         })
     }
 
+    #[allow(clippy::unnecessary_wraps)]
     fn read_int(&mut self) -> LexerResult<Option<Lexeme>> {
         Ok(match self.current_character {
             Some(c) if c.is_numeric() => {
@@ -210,6 +212,7 @@ impl Lexer {
         }
     }
 
+    #[allow(clippy::unnecessary_wraps)]
     fn read_operator(&mut self) -> LexerResult<Option<Lexeme>> {
         macro on {
             ($char: tt, $token: expr, $handler: expr) => {
@@ -301,9 +304,8 @@ impl Lexer {
         while let Some(chars) = self.current_chars() {
             if chars == TERMINATOR {
                 break;
-            } else {
-                self.read_char();
             }
+            self.read_char();
         }
         if self.current_chars() == Some(TERMINATOR) {
             self.read_char();

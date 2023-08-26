@@ -69,7 +69,7 @@ where
         self.items
             .iter()
             .enumerate()
-            .flat_map(|(index, item)| item.as_ref().map(|item| (index, item)))
+            .filter_map(|(index, item)| item.as_ref().map(|item| (index, item)))
     }
 
     pub(crate) fn iter_mut(&mut self) -> impl Iterator<Item = &mut T> {

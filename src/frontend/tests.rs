@@ -168,7 +168,7 @@ fn not_stealing_definitions_from_other_branches() {
                     .edge_indices()
                     .count(),
                 4
-            )
+            );
         },
     );
 }
@@ -230,7 +230,7 @@ fn test_frontend(
             .build(&code);
 
         if crate::test_config::EMIT_MODULE_GRAPHVIZ_FILE {
-            let file = IrGraphvizFile::create(format!("frontend_{}_cfg.dot", source_name)).unwrap();
+            let file = IrGraphvizFile::create(format!("frontend_{source_name}_cfg.dot")).unwrap();
             file.write(&module).unwrap();
         }
 

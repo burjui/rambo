@@ -127,7 +127,7 @@ impl Debug for Statement {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Expr(expr) => expr.fmt(formatter),
-            Self::Binding { name, value, .. } => write!(formatter, "let {:?} = {:?}", name, value),
+            Self::Binding { name, value, .. } => write!(formatter, "let {name:?} = {value:?}"),
         }
     }
 }
@@ -164,7 +164,7 @@ impl Parser {
         let start = self.lexeme.source.clone();
         let mut statements = vec![];
         while self.lexeme.token != Token::Eof {
-            statements.push(self.parse_statement()?)
+            statements.push(self.parse_statement()?);
         }
         Ok(Block {
             statements,
@@ -256,18 +256,18 @@ impl Parser {
         let source = expr.source().clone();
 
         let statements = vec![Statement::Expr(expr)];
-        Ok(Expr::Block(Block { source, statements }))
+        Ok(Expr::Block(Block { statements, source }))
     }
 
     fn parse_block(&mut self) -> ParseResult<Expr> {
         let mut statements = vec![];
         let start = self.expect(Token::LBrace, "{")?.source;
         while self.lexeme.token != Token::Eof && self.lexeme.token != Token::RBrace {
-            statements.push(self.parse_statement()?)
+            statements.push(self.parse_statement()?);
         }
         let end = self.expect(Token::RBrace, "}")?.source;
         let source = start.extend(&end);
-        Ok(Expr::Block(Block { source, statements }))
+        Ok(Expr::Block(Block { statements, source }))
     }
 
     fn parse_binary(&mut self, precedence: Precedence) -> ParseResult<Expr> {
@@ -368,7 +368,7 @@ impl Parser {
                 }
             }
             _ => error!(
-                &format!("expected an expression, found: {}", primary),
+                &format!("expected an expression, found: {primary}"),
                 &primary.source
             ),
         }
@@ -420,8 +420,7 @@ impl Parser {
                 let parameter_name_str = parameter.name.text();
                 if let Some(previous_definition) = already_declared.get(parameter_name_str) {
                     let message = format!(
-                        "redefinition of parameter `{}', previous definition is at {}",
-                        parameter_name_str, previous_definition
+                        "redefinition of parameter `{parameter_name_str}', previous definition is at {previous_definition}"
                     );
                     return error!(&message, &parameter.name);
                 }
@@ -429,7 +428,7 @@ impl Parser {
                 parameters.push(parameter);
                 first = false;
             }
-            self.read_lexeme()?
+            self.read_lexeme()?;
         }
 
         if parameters.is_empty() {
@@ -519,7 +518,7 @@ impl Parser {
     }
 
     fn format_error(line: u32, text: &str, source: &Source) -> String {
-        format!("[{}] {}: {}", line, source, text)
+        format!("[{line}] {source}: {text}")
     }
 }
 
@@ -535,10 +534,10 @@ impl Precedence {
         let next_precedence = match self {
             Self::Assignment => Some(Self::Additive),
             Self::Additive => Some(Self::Multiplicative),
-            _ => None,
+            Self::Multiplicative => None,
         };
         if let Some(next_precedence) = next_precedence {
-            assert!(next_precedence > self)
+            assert!(next_precedence > self);
         }
         next_precedence
     }
