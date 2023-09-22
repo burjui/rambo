@@ -15,7 +15,6 @@ use crate::{
     parser::{BinaryOperation, Block as ASTBlock, Expr, Parameter, Statement},
     source::Source,
     unique_rc::StaticRef,
-    utils::{error, warning, warning_at},
 };
 
 pub(crate) struct EnableWarnings(pub(crate) bool);

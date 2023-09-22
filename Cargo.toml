@@ -9,10 +9,8 @@ edition = "2021"
 authors = ["Artem Borisovsky <bytefu@gmail.com>"]
 
 [dependencies]
+risky = { git = "file:///home/burjui/Devel/risky", rev = "01fa1014eb057760e4fd26aaf15f3022281e8a48" }
 # git = "https://github.com/burjui/risky"
-risky = { git = "file:///home/burjui/Devel/risky", rev = "9a0c81f0a562425fe5b80500be474c6ea7346ccb", features = [
-    "nightly",
-] }
 riscv_emulator = { path = "riscv_emulator" }
 getopts = "0.2.21"
 itertools = "0.10.5"

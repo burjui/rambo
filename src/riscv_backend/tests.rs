@@ -9,7 +9,7 @@ use crate::{
     riscv_backend,
     riscv_backend::{DumpCode, EnableImmediateIntegers},
     riscv_exe::{run, DumpState},
-    utils::{function_name, stderr, typecheck},
+    utils::{stderr, typecheck},
 };
 
 struct BackEndPermutation(usize);

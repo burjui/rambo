@@ -140,8 +140,10 @@ pub(crate) struct Parser {
     previous_lexeme_source: Source,
 }
 
-macro error($text: expr, $location: expr) {
-    Self::error(line!(), $text, $location)
+macro_rules! error {
+    ($text: expr, $location: expr) => {
+        Self::error(line!(), $text, $location)
+    };
 }
 
 impl Parser {

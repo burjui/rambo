@@ -116,7 +116,7 @@ dependencies = [
  "libc",
  "number_prefix",
  "riscv_emulator",
- "risky 0.4.0 (git+file:///home/burjui/Devel/risky?rev=9a0c81f0a562425fe5b80500be474c6ea7346ccb)",
+ "risky",
  "rustc-hash",
  "smallvec",
  "termcolor",
@@ -129,18 +129,14 @@ dependencies = [
  "bitflags",
  "byteorder",
  "iset",
- "risky 0.4.0",
+ "risky",
  "rustc-hash",
 ]
 
 [[package]]
 name = "risky"
 version = "0.4.0"
-
-[[package]]
-name = "risky"
-version = "0.4.0"
-source = "git+file:///home/burjui/Devel/risky?rev=9a0c81f0a562425fe5b80500be474c6ea7346ccb#9a0c81f0a562425fe5b80500be474c6ea7346ccb"
+source = "git+file:///home/burjui/Devel/risky?rev=01fa1014eb057760e4fd26aaf15f3022281e8a48#01fa1014eb057760e4fd26aaf15f3022281e8a48"
 
 [[package]]
 name = "rustc-hash"

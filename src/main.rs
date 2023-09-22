@@ -1,5 +1,3 @@
-#![feature(decl_macro)]
-
 use std::{alloc::System, env::args as program_args, error::Error, io::Write};
 
 use elapsed::measure_time;
@@ -15,16 +13,17 @@ use crate::{
     utils::{stderr, stdout},
 };
 
-mod ir;
-mod riscv_backend;
+#[macro_use]
 mod utils;
 
 mod env;
 mod frontend;
 mod graphviz;
+mod ir;
 mod lexer;
 mod parser;
 mod pipeline;
+mod riscv_backend;
 mod riscv_exe;
 mod semantics;
 mod slab;

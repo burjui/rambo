@@ -26,7 +26,7 @@ use crate::{
     ir::{value_storage::ValueId, FnId, IRModule, Phi, Statement, Value},
     riscv_exe::{Executable, Relocation, RelocationKind},
     stable_graph::{Direction, NodeIndex},
-    utils::{function, impl_deref_for_newtype, GenericResult, VecUtils},
+    utils::{GenericResult, VecUtils},
 };
 
 #[cfg(test)]

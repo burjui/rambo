@@ -34,6 +34,7 @@ dependencies = [
 [[package]]
 name = "risky"
 version = "0.4.0"
+source = "git+file:///home/burjui/Devel/risky?rev=9a0c81f0a562425fe5b80500be474c6ea7346ccb#9a0c81f0a562425fe5b80500be474c6ea7346ccb"
 
 [[package]]
 name = "rustc-hash"

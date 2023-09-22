@@ -4,42 +4,48 @@ use termcolor::{ColorChoice, StandardStream};
 
 pub(crate) type GenericResult<T> = std::result::Result<T, Box<dyn Error>>;
 
-pub(crate) macro error {
+macro_rules! error {
     ($format_string: expr $(, $argument: expr)*) => { Err(From::from(format!($format_string $(, $argument)*))) }
 }
 
-pub(crate) macro warning {
+macro_rules! warning {
     ($format_string: expr $(, $argument: expr)*) => {{
         print!("warning: "); println!($format_string $(, $argument)*)
     }}
 }
 
-pub(crate) macro warning_at {
+macro_rules! warning_at {
     ($source: expr, $format_string: expr $(, $argument: expr)*) => {{
         print!("warning: {}: ", $source);
         println!($format_string $(, $argument)*)
     }}
 }
 
-pub(crate) macro function() {{
-    struct X;
-    let name = core::any::type_name::<X>();
-    &name[..name.len() - 3]
-}}
-
-#[cfg(test)]
-pub(crate) macro function_name() {
-    function!().rsplit("::").next().unwrap()
+macro_rules! function {
+    () => {{
+        struct X;
+        let name = core::any::type_name::<X>();
+        &name[..name.len() - 3]
+    }};
 }
 
-pub(crate) macro impl_deref_for_newtype($name: ty, $target: ty) {
-    impl std::ops::Deref for $name {
-        type Target = $target;
+#[cfg(test)]
+macro_rules! function_name {
+    () => {{
+        function!().rsplit("::").next().unwrap()
+    }};
+}
 
-        fn deref(&self) -> &Self::Target {
-            &self.0
+macro_rules! impl_deref_for_newtype {
+    ($name: ty, $target: ty) => {
+        impl std::ops::Deref for $name {
+            type Target = $target;
+
+            fn deref(&self) -> &Self::Target {
+                &self.0
+            }
         }
-    }
+    };
 }
 
 #[cfg(test)]

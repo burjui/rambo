@@ -7,10 +7,7 @@ use std::{
 
 use itertools::Itertools;
 
-use crate::{
-    source::{Source, SourceFileRef},
-    utils::error,
-};
+use crate::source::{Source, SourceFileRef};
 
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub(crate) enum Token {
@@ -217,8 +214,8 @@ impl Lexer {
 
     #[allow(clippy::unnecessary_wraps)]
     fn read_operator(&mut self) -> LexerResult<Option<Lexeme>> {
-        macro on {
-            ($char: tt, $token: expr, $handler: expr) => {
+        macro_rules! on {
+            ($char: tt, $token: expr, $handler: expr) => {{
                 match self.current_character {
                     Some($char) => {
                         self.read_char();
@@ -226,11 +223,11 @@ impl Lexer {
                     }
                     _ => None,
                 }
-            },
+            }};
 
-            ($char: expr, $token: expr) => {
+            ($char: expr, $token: expr) => {{
                 on!($char, $token, None)
-            }
+            }};
         }
 
         Ok(None

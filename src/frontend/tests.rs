@@ -7,7 +7,7 @@ use crate::{
     frontend::{FrontEnd, FrontEndState},
     graphviz::IrGraphvizFile,
     ir::{eval::eval, FunctionMap, IRModule, Value},
-    utils::{function_name, typecheck},
+    utils::typecheck,
 };
 
 #[test]
@@ -17,6 +17,7 @@ fn generic() {
         "
         let x = 47
         let y = 29
+
         let z = y
         1
         let r = if 0 {
