@@ -1,3 +1,5 @@
+#![warn(clippy::pedantic)]
+
 use std::{alloc::System, env::args as program_args, error::Error, io::Write};
 
 use elapsed::measure_time;

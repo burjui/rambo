@@ -13,7 +13,7 @@ use crate::{
 #[test]
 fn generic() {
     test_frontend(
-        function_name!().to_owned(),
+        function_name!(),
         "
         let x = 47
         let y = 29
@@ -50,7 +50,7 @@ fn generic() {
             assert_eq!(
                 eval(&module),
                 Value::String(Rc::new("(hello; world)<bye, world; seeya>".to_owned()))
-            )
+            );
         },
     );
 }
@@ -58,7 +58,7 @@ fn generic() {
 #[test]
 fn block_removal1() {
     test_frontend(
-        function_name!().to_owned(),
+        function_name!(),
         "
         let x = 0
         let y = 999
@@ -82,7 +82,7 @@ fn block_removal1() {
 #[test]
 fn block_removal2() {
     test_frontend(
-        function_name!().to_owned(),
+        function_name!(),
         &"
         let x = \"abc\"
         let y = \"efg\"
@@ -108,7 +108,7 @@ fn block_removal2() {
 #[test]
 fn marker_eval() {
     test_frontend(
-        function_name!().to_owned(),
+        function_name!(),
         "
         let a = 1
         let b = 2
@@ -130,7 +130,7 @@ fn marker_eval() {
 #[test]
 fn conditional_cfp() {
     test_frontend(
-        function_name!().to_owned(),
+        function_name!(),
         "
         let f = λ (a: num, b: num) -> a + b
         let x = 0
@@ -160,7 +160,7 @@ fn conditional_cfp() {
 #[test]
 fn not_stealing_definitions_from_other_branches() {
     test_frontend(
-        function_name!().to_owned(),
+        function_name!(),
         "
         if 1 {
         } else {
@@ -222,15 +222,15 @@ impl ForbiddenPermutations {
 }
 
 fn test_frontend(
-    source_name: String,
+    source_name: &str,
     source_code: &str,
     forbidden_permutations: ForbiddenPermutations,
     check: fn(IRModule),
 ) {
-    let code = typecheck(source_name.clone(), source_code).unwrap();
+    let code = typecheck(source_name.to_string(), source_code).unwrap();
     for config in frontend_config_permutations(forbidden_permutations) {
         let mut state = FrontEndState::new();
-        let module = FrontEnd::new(&source_name, &mut state)
+        let module = FrontEnd::new(source_name, &mut state)
             .include_comments(config.include_comments)
             .enable_cfp(config.enable_cfp)
             .enable_inlining(config.enable_inlining)
@@ -246,6 +246,7 @@ fn test_frontend(
     }
 }
 
+#[allow(clippy::struct_excessive_bools)]
 struct FrontendConfig {
     include_comments: bool,
     enable_cfp: bool,
@@ -253,6 +254,7 @@ struct FrontendConfig {
     enable_dce: bool,
 }
 
+#[allow(clippy::needless_pass_by_value)]
 fn frontend_config_permutations(
     forbidden_permutations: ForbiddenPermutations,
 ) -> impl Iterator<Item = FrontendConfig> {
