@@ -237,7 +237,7 @@ fn test_frontend(
             .enable_dce(config.enable_dce)
             .build(&code);
 
-        if crate::test_config::EMIT_MODULE_GRAPHVIZ_FILE {
+        if crate::test_config::emit_module_graphviz_file() {
             let file = IrGraphvizFile::create(format!("frontend_{source_name}_cfg.dot")).unwrap();
             file.write(&module).unwrap();
         }

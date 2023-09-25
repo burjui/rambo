@@ -141,7 +141,7 @@ fn test_backend(source_name: &str, source_code: &str, expected_result: i64) {
         .enable_cfp(false)
         .enable_dce(false)
         .build(&code);
-    if crate::test_config::EMIT_MODULE_GRAPHVIZ_FILE {
+    if crate::test_config::emit_module_graphviz_file() {
         let file = IrGraphvizFile::create(format!("riscv_backend_{source_name}_cfg.dot")).unwrap();
         file.write(&module).unwrap();
     }
