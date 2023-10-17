@@ -514,7 +514,7 @@ impl Parser {
     }
 
     fn error<T>(line: u32, text: &str, source: &Source) -> ParseResult<T> {
-        Err(Self::format_error(line, text, source)).map_err(From::from)
+        Err(From::from(Self::format_error(line, text, source)))
     }
 
     fn format_error(line: u32, text: &str, source: &Source) -> String {
