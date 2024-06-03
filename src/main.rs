@@ -1,10 +1,9 @@
 #![warn(clippy::pedantic)]
 
-use std::{alloc::System, env::args as program_args, error::Error, io::Write};
+use std::{env::args as program_args, error::Error, io::Write};
 
 use elapsed::measure_time;
 use getopts::Options;
-use number_prefix::NumberPrefix;
 use termcolor::{Color, ColorSpec, WriteColor};
 
 use crate::{
@@ -32,16 +31,10 @@ mod slab;
 mod source;
 mod stable_graph;
 mod stable_vec;
-mod tracking_allocator;
 mod unique_rc;
 
 #[cfg(test)]
 mod test_config;
-
-type TrackingAllocator = tracking_allocator::TrackingAllocator<System>;
-
-#[global_allocator]
-static ALLOCATOR: TrackingAllocator = TrackingAllocator::new(System);
 
 fn main() -> Result<(), Box<dyn Error>> {
     let stderr = &mut stderr();
@@ -209,12 +202,5 @@ fn process(path: String, options: &PipelineOptions) -> Result<(), Box<dyn Error>
         pipeline.map(RISCVBackend)?.map(RISCVEmulator).map(|_| ())
     });
     println!("Execution time: {elapsed}");
-    println!(
-        "Memory usage: {}",
-        match NumberPrefix::binary(ALLOCATOR.max_usage() as f32) {
-            NumberPrefix::Standalone(usage) => format!("{usage} bytes"),
-            NumberPrefix::Prefixed(prefix, usage) => format!("{usage:.0} {prefix}B"),
-        }
-    );
     result
 }
