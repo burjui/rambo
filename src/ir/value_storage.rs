@@ -65,7 +65,7 @@ impl IndexMut<ValueId> for ValueStorage {
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash, Ord, PartialOrd)]
 pub(crate) struct ValueId(pub(crate) usize);
 
-pub(crate) static UNDEFINED_VALUE: ValueId = ValueId(usize::max_value());
+pub(crate) static UNDEFINED_VALUE: ValueId = ValueId(usize::MAX);
 
 impl fmt::Display for ValueId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

@@ -38,7 +38,7 @@ impl<T: ?Sized> Eq for StaticRef<T> {}
 
 impl<T: ?Sized> Hash for StaticRef<T> {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        (self.0 as *const T).hash(state);
+        std::ptr::from_ref::<T>(self.0).hash(state);
     }
 }
 

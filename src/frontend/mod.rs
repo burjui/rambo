@@ -384,6 +384,7 @@ impl<'a> FrontEnd<'a> {
                 .edges_directed(block, Direction::Incoming)
                 .map(|edge| edge.source)
                 .collect_vec();
+            #[allow(clippy::get_first)]
             let first_predecessor = predecessors.get(0).copied();
             let second_predecessor = predecessors.get(1).copied();
             if let (Some(predecessor), None) = (first_predecessor, second_predecessor) {

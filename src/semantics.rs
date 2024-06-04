@@ -433,7 +433,7 @@ impl SemanticsChecker {
         self.env
             .resolve(&Rc::new(name.text().to_owned()))
             .map_err(|message| format!("{name}: {message}"))
-            .map(Clone::clone)
+            .cloned()
     }
 
     fn generate_function_name(&mut self) -> String {
